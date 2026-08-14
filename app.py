@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import streamlit as st
 
-from duration_predictor import DurationPredictor, FEATURE_COLUMNS
+from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
 from scheduler import DailyTransitScheduler, postcode_district
 
@@ -17,6 +17,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
+st.caption("Version 5 — Building Height routing build")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
