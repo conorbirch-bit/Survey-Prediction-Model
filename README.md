@@ -1,48 +1,49 @@
-# Site Survey Duration Agent
+# Site Survey Scheduling Agent
 
-This project predicts the duration of a site survey using:
+This app combines the survey-duration model with Google Maps Platform public-
+transport routing.
 
-- Building Height
-- Internal Ground Floor Area (m2)
-- Sovereign Flat
-- Primary Service Appointment: Actual Duration (Minutes) as the training target
+## What it does
 
-There is **no surveyor multiplier**.
+1. Trains the duration model from completed surveys.
+2. Uploads `Future Surveys.xlsx`.
+3. Predicts each building's survey duration using:
+   - Building Height
+   - Internal Ground Floor Area (m2)
+   - Sovereign Flat
+4. Falls back to the available inputs when data is missing.
+5. Adds a survey-planning buffer (default 15%).
+6. Uses Google Maps Platform Routes API in `TRANSIT` mode.
+7. Builds a single-day route that:
+   - leaves Harpenden Station at 07:50 by default;
+   - favours short public-transport journeys between successive surveys;
+   - keeps same-postcode buildings together;
+   - checks the time-dependent public-transport journey home after each
+     candidate survey;
+   - rejects any addition that would return after 16:00.
 
-## Missing data
+Walking segments that form part of a Google transit route are included in the
+transit duration returned by Google.
 
-The predictor trains all usable feature combinations. If a new building is
-missing one or two inputs, it automatically falls back to a model that can use
-the information that is present.
+## Google Maps setup
 
-For example:
+In Google Cloud:
 
-- Floor count + area + flats -> three-input model
-- Area + flats -> two-input fallback
-- Floor count + area -> two-input fallback
-- Flats only -> one-input fallback
+1. Create/select a project.
+2. Add billing to the project.
+3. Enable **Routes API**.
+4. Create an API key.
+5. Restrict the key to the Routes API where practical.
 
-A prediction is only impossible if all three predictor fields are missing.
+You can either paste the key into the Streamlit app or set:
 
-## Aborted / suspicious visits
+```bash
+GOOGLE_MAPS_API_KEY=your_key_here
+```
 
-By default, historical rows with an actual duration below 6 minutes are excluded
-from training. This prevents obvious 1–5 minute visits from distorting the
-duration model.
+Do **not** commit the API key to GitHub.
 
-The threshold can be changed in the Streamlit sidebar.
-
-## Planning duration
-
-The app reports:
-
-1. **Predicted duration** — model estimate.
-2. **Planning duration** — prediction plus a configurable scheduling buffer
-   (default 15%), rounded up to the nearest 5 minutes.
-
-Use the planning duration in the future scheduling agent.
-
-## Run locally
+## Run
 
 ```bash
 python -m venv .venv
@@ -51,7 +52,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-On macOS/Linux:
+macOS/Linux:
 
 ```bash
 python3 -m venv .venv
@@ -60,28 +61,21 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Updating the model
+## Current routing algorithm
 
-Upload a fresh completed-surveys Excel export in the Streamlit sidebar.
-The predictor retrains immediately from the latest data.
+This version intentionally does not ask an LLM to invent or estimate journey
+times. Google Routes supplies the transit timings.
 
-For the eventual scheduling agent, import the class directly:
+At each survey stop the scheduler:
+- obtains transit times from the current location to the remaining candidates;
+- ranks the shortest journeys first;
+- checks the best candidates against a real transit journey back to Harpenden
+  after the proposed survey ends;
+- schedules the first feasible option;
+- repeats until no additional survey fits.
 
-```python
-from duration_predictor import DurationPredictor
+This naturally forms a transit-time cluster while respecting the hard return
+deadline.
 
-predictor = DurationPredictor().load_excel("Predictive Model.xlsx")
-
-result = predictor.predict(
-    building_height=24,
-    ground_floor_area=520,
-    flats=None,
-)
-
-print(result.predicted_minutes)
-print(result.planning_minutes)
-print(result.confidence)
-```
-
-The `planning_minutes` value is the one intended to be combined with travel time
-and daily start/finish constraints.
+This is the first single-day optimiser. A later version can add multi-day
+allocation / global optimisation after the routing data has been validated.

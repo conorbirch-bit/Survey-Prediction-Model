@@ -1,40 +1,44 @@
 from pathlib import Path
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 import io
+import os
 
 import pandas as pd
 import streamlit as st
 
-from duration_predictor import (
-    DurationPredictor,
-    FEATURE_COLUMNS,
-)
+from duration_predictor import DurationPredictor, FEATURE_COLUMNS
+from google_routes import GoogleTransitRouter, GoogleRoutesError
+from scheduler import DailyTransitScheduler, postcode_district
 
-st.set_page_config(page_title="Site Survey Duration Predictor", layout="wide")
-st.title("Site Survey Duration Predictor")
-st.caption(
-    "Predicts survey time from building height, ground-floor area and Sovereign flats. "
-    "Missing inputs automatically trigger the appropriate fallback model."
-)
 
+LONDON_TZ = ZoneInfo("Europe/London")
 DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
+st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
+st.title("Site Survey Scheduling Agent")
+st.caption(
+    "Predict survey durations, then create a public-transport day route "
+    "starting and finishing at Harpenden Station."
+)
+
 with st.sidebar:
-    st.header("Training data")
-    uploaded = st.file_uploader(
-        "Upload completed-surveys Excel export",
+    st.header("Duration model")
+    training_file = st.file_uploader(
+        "Completed-surveys training spreadsheet",
         type=["xlsx", "xls"],
         key="training_file",
-        help="If no file is uploaded, the bundled Predictive Model.xlsx is used.",
+        help="If omitted, the bundled Predictive Model.xlsx is used.",
     )
     min_duration = st.number_input(
         "Minimum completed duration (minutes)",
         min_value=1,
         max_value=30,
         value=6,
-        help="Rows below this duration are excluded as likely aborted/failed visits.",
+        help="Historical rows below this are excluded from model training.",
     )
     buffer_pct = st.slider(
-        "Scheduling buffer",
+        "Survey scheduling buffer",
         min_value=0,
         max_value=50,
         value=15,
@@ -58,207 +62,506 @@ def train_from_bytes(file_bytes: bytes, min_duration: int, buffer_pct: int):
     ).fit(df)
 
 try:
-    if uploaded is not None:
-        predictor = train_from_bytes(uploaded.getvalue(), min_duration, buffer_pct)
+    if training_file is not None:
+        predictor = train_from_bytes(
+            training_file.getvalue(), min_duration, buffer_pct
+        )
     else:
-        predictor = train_from_path(str(DEFAULT_FILE), min_duration, buffer_pct)
+        predictor = train_from_path(
+            str(DEFAULT_FILE), min_duration, buffer_pct
+        )
 except Exception as exc:
-    st.error(f"Could not train model: {exc}")
+    st.error(f"Could not train duration model: {exc}")
     st.stop()
 
+
+def optional_number(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(result):
+        return None
+    return result
+
+
+def normalise_upcoming_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = predictor._normalise_columns(df.copy())
+
+    # Exact Salesforce export aliases used in Future Surveys.xlsx.
+    aliases = {
+        "Customer Reference": [
+            "Customer Reference Code  ↑",
+            "Customer Reference Code",
+            "Customer Reference",
+        ],
+        "Building Name": ["Building Name"],
+        "Postcode": ["Postcode", "Postal Code"],
+        "Resource Name": ["Resource Name: Name", "Resource Name"],
+        "Planned Start": [
+            "Planned Start",
+            "Primary Service Appointment: Scheduled Start",
+        ],
+    }
+
+    rename = {}
+    stripped = {str(c).strip(): c for c in df.columns}
+    for canonical, possibilities in aliases.items():
+        for option in possibilities:
+            if option in stripped:
+                rename[stripped[option]] = canonical
+                break
+
+    return df.rename(columns=rename)
+
+
+def predict_upcoming(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for _, row in df.iterrows():
+        try:
+            p = predictor.predict(
+                building_height=row.get(
+                    FEATURE_COLUMNS["building_height"]
+                ),
+                ground_floor_area=row.get(
+                    FEATURE_COLUMNS["ground_floor_area"]
+                ),
+                flats=row.get(FEATURE_COLUMNS["flats"]),
+            )
+            rows.append({
+                "Predicted Survey Duration (Minutes)": p.predicted_minutes,
+                "Planning Duration (Minutes)": p.planning_minutes,
+                "Prediction Confidence": p.confidence,
+                "Prediction Model Used": p.model_label,
+                "Validation MAE (Minutes)": p.validation_mae_minutes,
+                "Prediction Status": "Predicted",
+            })
+        except ValueError:
+            rows.append({
+                "Predicted Survey Duration (Minutes)": None,
+                "Planning Duration (Minutes)": None,
+                "Prediction Confidence": "None",
+                "Prediction Model Used": "No usable input data",
+                "Validation MAE (Minutes)": None,
+                "Prediction Status": "Could not predict",
+            })
+
+    return pd.concat(
+        [df.reset_index(drop=True), pd.DataFrame(rows)],
+        axis=1,
+    )
+
+
 tab1, tab2, tab3 = st.tabs([
-    "Predict a building",
-    "Predict upcoming surveys",
+    "Predict one building",
+    "Upcoming surveys + routing",
     "Model diagnostics",
 ])
 
 with tab1:
-    st.subheader("Building inputs")
-    st.write("Leave any unavailable field blank.")
+    st.subheader("Single-building prediction")
+    st.write("Leave any unavailable input blank.")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        height_text = st.text_input("Building Height", placeholder="e.g. 24")
+        height_text = st.text_input(
+            "Building Height", placeholder="e.g. 24"
+        )
     with c2:
         area_text = st.text_input(
             "Internal Ground Floor Area (m²)", placeholder="e.g. 520"
         )
     with c3:
-        flats_text = st.text_input("Sovereign Flats", placeholder="e.g. 42")
-
-    def optional_number(text):
-        text = text.strip()
-        if not text:
-            return None
-        try:
-            return float(text)
-        except ValueError:
-            return None
+        flats_text = st.text_input(
+            "Sovereign Flats", placeholder="e.g. 42"
+        )
 
     if st.button("Predict survey duration", type="primary"):
-        height = optional_number(height_text)
-        area = optional_number(area_text)
-        flats = optional_number(flats_text)
-
         try:
-            prediction = predictor.predict(
-                building_height=height,
-                ground_floor_area=area,
-                flats=flats,
+            p = predictor.predict(
+                building_height=optional_number(height_text),
+                ground_floor_area=optional_number(area_text),
+                flats=optional_number(flats_text),
             )
-
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Predicted duration", f"{prediction.predicted_minutes:.0f} min")
-            m2.metric("Planning duration", f"{prediction.planning_minutes} min")
-            m3.metric("Confidence", prediction.confidence)
-
-            st.success(f"Model used: {prediction.model_label}")
-            st.caption(
-                f"Trained on {prediction.training_rows} usable surveys"
-                + (
-                    f" · leave-one-out MAE ≈ {prediction.validation_mae_minutes:.1f} min"
-                    if prediction.validation_mae_minutes is not None else ""
-                )
-            )
-
-            if prediction.missing_inputs:
-                pretty_missing = ", ".join(
-                    DurationPredictor.pretty_feature(k)
-                    for k in prediction.missing_inputs
-                )
-                st.info(
-                    "Missing data handled automatically. "
-                    f"Not used: {pretty_missing}."
-                )
-
+            a, b, c = st.columns(3)
+            a.metric("Predicted duration", f"{p.predicted_minutes:.0f} min")
+            b.metric("Planning duration", f"{p.planning_minutes} min")
+            c.metric("Confidence", p.confidence)
+            st.success(f"Model used: {p.model_label}")
         except ValueError as exc:
             st.warning(str(exc))
 
-with tab2:
-    st.subheader("Upcoming surveys")
-    st.write(
-        "Upload an Excel spreadsheet containing upcoming buildings. "
-        "The app will add predicted and planning durations to every row."
-    )
 
+with tab2:
+    st.subheader("Upload future surveys")
     upcoming_file = st.file_uploader(
-        "Upload upcoming surveys spreadsheet",
+        "Future Surveys spreadsheet",
         type=["xlsx", "xls"],
         key="upcoming_file",
+        help=(
+            "Designed for the Salesforce Future Surveys.xlsx structure, "
+            "including Building Name, Postcode, Building Height, "
+            "Sovereign Flat and Internal Ground Floor Area."
+        ),
     )
 
-    if upcoming_file is not None:
+    if upcoming_file is None:
+        st.info("Upload Future Surveys.xlsx to predict and route the sites.")
+    else:
         try:
-            upcoming_df = pd.read_excel(upcoming_file)
-            upcoming_df = predictor._normalise_columns(upcoming_df)
+            raw_upcoming = pd.read_excel(upcoming_file)
+            upcoming = normalise_upcoming_columns(raw_upcoming)
 
-            required_any = [
-                FEATURE_COLUMNS["building_height"],
-                FEATURE_COLUMNS["ground_floor_area"],
-                FEATURE_COLUMNS["flats"],
-            ]
-
-            present_inputs = [c for c in required_any if c in upcoming_df.columns]
-
-            if not present_inputs:
+            if "Postcode" not in upcoming.columns:
                 st.error(
-                    "The upcoming-surveys spreadsheet needs at least one of these columns: "
-                    "Building Height, Internal Ground Floor Area (m2), or Sovereign Flat."
+                    "The future-surveys file needs a Postcode column for routing."
                 )
+                st.stop()
+
+            predictions = predict_upcoming(upcoming)
+
+            st.markdown("### Duration predictions")
+            p1, p2, p3 = st.columns(3)
+            p1.metric("Buildings", len(predictions))
+            p2.metric(
+                "Predicted",
+                int((predictions["Prediction Status"] == "Predicted").sum()),
+            )
+            p3.metric(
+                "Missing prediction",
+                int((predictions["Prediction Status"] != "Predicted").sum()),
+            )
+
+            display_cols = [
+                c for c in [
+                    "Customer Reference",
+                    "Building Name",
+                    "Postcode",
+                    "Resource Name",
+                    "Building Height",
+                    "Sovereign Flat",
+                    "Internal Ground Floor Area (m2)",
+                    "Predicted Survey Duration (Minutes)",
+                    "Planning Duration (Minutes)",
+                    "Prediction Confidence",
+                    "Prediction Model Used",
+                ] if c in predictions.columns
+            ]
+            st.dataframe(
+                predictions[display_cols],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            pred_output = io.BytesIO()
+            with pd.ExcelWriter(pred_output, engine="openpyxl") as writer:
+                predictions.to_excel(
+                    writer,
+                    sheet_name="Upcoming Surveys Predictions",
+                    index=False,
+                )
+            st.download_button(
+                "Download duration predictions",
+                data=pred_output.getvalue(),
+                file_name="Upcoming_Surveys_With_Predictions.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+            )
+
+            st.divider()
+            st.markdown("### Build a public-transport day")
+
+            routable = predictions[
+                (predictions["Prediction Status"] == "Predicted")
+                & predictions["Postcode"].notna()
+                & (predictions["Postcode"].astype(str).str.strip() != "")
+            ].copy()
+
+            if routable.empty:
+                st.warning("There are no sites with both a prediction and postcode.")
             else:
-                results = []
-                success_count = 0
-                failed_count = 0
+                controls1 = st.columns(3)
 
-                for _, row in upcoming_df.iterrows():
-                    height = (
-                        row.get(FEATURE_COLUMNS["building_height"])
-                        if FEATURE_COLUMNS["building_height"] in upcoming_df.columns
-                        else None
+                # Resource selector defaults to Conor Birch if present.
+                resource_options = ["All resources"]
+                if "Resource Name" in routable.columns:
+                    names = sorted(
+                        {
+                            str(x).strip()
+                            for x in routable["Resource Name"].dropna()
+                            if str(x).strip()
+                        }
                     )
-                    area = (
-                        row.get(FEATURE_COLUMNS["ground_floor_area"])
-                        if FEATURE_COLUMNS["ground_floor_area"] in upcoming_df.columns
-                        else None
-                    )
-                    flats = (
-                        row.get(FEATURE_COLUMNS["flats"])
-                        if FEATURE_COLUMNS["flats"] in upcoming_df.columns
-                        else None
-                    )
+                    resource_options += names
 
-                    try:
-                        p = predictor.predict(
-                            building_height=height,
-                            ground_floor_area=area,
-                            flats=flats,
-                        )
-                        results.append({
-                            "Predicted Survey Duration (Minutes)": p.predicted_minutes,
-                            "Planning Duration (Minutes)": p.planning_minutes,
-                            "Prediction Confidence": p.confidence,
-                            "Prediction Model Used": p.model_label,
-                            "Validation MAE (Minutes)": p.validation_mae_minutes,
-                            "Prediction Status": "Predicted",
-                        })
-                        success_count += 1
-                    except ValueError:
-                        results.append({
-                            "Predicted Survey Duration (Minutes)": None,
-                            "Planning Duration (Minutes)": None,
-                            "Prediction Confidence": "None",
-                            "Prediction Model Used": "No usable input data",
-                            "Validation MAE (Minutes)": None,
-                            "Prediction Status": "Could not predict",
-                        })
-                        failed_count += 1
-
-                result_df = pd.concat(
-                    [upcoming_df.reset_index(drop=True), pd.DataFrame(results)],
-                    axis=1
+                default_resource_index = (
+                    resource_options.index("Conor Birch")
+                    if "Conor Birch" in resource_options else 0
                 )
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Buildings", len(result_df))
-                c2.metric("Predicted", success_count)
-                c3.metric("Could not predict", failed_count)
-
-                st.dataframe(
-                    result_df,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    result_df.to_excel(
-                        writer,
-                        sheet_name="Upcoming Surveys Predictions",
-                        index=False,
+                with controls1[0]:
+                    resource = st.selectbox(
+                        "Sites to consider",
+                        resource_options,
+                        index=default_resource_index,
                     )
 
-                st.download_button(
-                    "Download predictions spreadsheet",
-                    data=output.getvalue(),
-                    file_name="Upcoming_Surveys_With_Predictions.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                )
+                filtered = routable.copy()
+                if resource != "All resources":
+                    filtered = filtered[
+                        filtered["Resource Name"].astype(str) == resource
+                    ].copy()
+
+                # Default date = earliest planned date in selected data, otherwise today.
+                default_date = datetime.now(LONDON_TZ).date()
+                if "Planned Start" in filtered.columns:
+                    parsed = pd.to_datetime(
+                        filtered["Planned Start"],
+                        dayfirst=True,
+                        errors="coerce",
+                    )
+                    valid_dates = parsed.dropna()
+                    if not valid_dates.empty:
+                        default_date = valid_dates.min().date()
+
+                with controls1[1]:
+                    route_date = st.date_input(
+                        "Survey date",
+                        value=default_date,
+                    )
+                with controls1[2]:
+                    home_location = st.text_input(
+                        "Start / finish location",
+                        value="Harpenden Station",
+                    )
+
+                controls2 = st.columns(4)
+                with controls2[0]:
+                    start_clock = st.time_input(
+                        "Leave home",
+                        value=time(7, 50),
+                    )
+                with controls2[1]:
+                    finish_clock = st.time_input(
+                        "Latest return",
+                        value=time(16, 0),
+                    )
+                with controls2[2]:
+                    same_postcode_minutes = st.number_input(
+                        "Same-postcode transfer",
+                        min_value=0,
+                        max_value=30,
+                        value=5,
+                        step=1,
+                        help=(
+                            "Used instead of a transit API call when two surveys "
+                            "share exactly the same postcode."
+                        ),
+                    )
+                with controls2[3]:
+                    transit_choice = st.selectbox(
+                        "Transit preference",
+                        ["Fastest / default", "Less walking", "Fewer transfers"],
+                    )
 
                 st.caption(
-                    "Rows with all three predictor fields blank are retained in the output "
-                    "and marked 'Could not predict'."
+                    f"{len(filtered)} predicted sites are currently eligible "
+                    "for this routing run."
                 )
 
+                key_from_env = os.getenv("GOOGLE_MAPS_API_KEY", "")
+                api_key = st.text_input(
+                    "Google Maps Platform API key",
+                    value=key_from_env,
+                    type="password",
+                    help=(
+                        "Enable the Routes API in Google Cloud. The key is used "
+                        "for this session and is not written into the project files."
+                    ),
+                )
+
+                preference_map = {
+                    "Fastest / default": None,
+                    "Less walking": "LESS_WALKING",
+                    "Fewer transfers": "FEWER_TRANSFERS",
+                }
+
+                if st.button(
+                    "Create daily public-transport schedule",
+                    type="primary",
+                    disabled=not bool(api_key.strip()),
+                ):
+                    start_dt = datetime.combine(
+                        route_date, start_clock, tzinfo=LONDON_TZ
+                    )
+                    finish_dt = datetime.combine(
+                        route_date, finish_clock, tzinfo=LONDON_TZ
+                    )
+
+                    if finish_dt <= start_dt:
+                        st.error("Latest return must be after the start time.")
+                    else:
+                        sites = []
+                        for _, row in filtered.iterrows():
+                            building_name = str(
+                                row.get("Building Name", "")
+                            ).strip()
+                            postcode = str(row.get("Postcode", "")).strip()
+
+                            # Building Name already contains a street address in the
+                            # supplied Salesforce export. Including postcode gives
+                            # Google more precise door-to-door routing context.
+                            route_location = (
+                                f"{building_name}, {postcode}"
+                                if building_name else postcode
+                            )
+
+                            sites.append({
+                                "customer_reference": row.get(
+                                    "Customer Reference", ""
+                                ),
+                                "building_name": building_name or postcode,
+                                "postcode": postcode,
+                                "route_location": route_location,
+                                "planning_minutes": int(
+                                    row["Planning Duration (Minutes)"]
+                                ),
+                                "predicted_minutes": float(
+                                    row["Predicted Survey Duration (Minutes)"]
+                                ),
+                                "confidence": row["Prediction Confidence"],
+                                "model_used": row["Prediction Model Used"],
+                            })
+
+                        try:
+                            with st.spinner(
+                                "Calculating live timetable-based transit journeys "
+                                "and testing which surveys fit..."
+                            ):
+                                router = GoogleTransitRouter(
+                                    api_key=api_key,
+                                    transit_preference=preference_map[
+                                        transit_choice
+                                    ],
+                                )
+                                scheduler = DailyTransitScheduler(
+                                    router=router,
+                                    home_location=home_location,
+                                    same_postcode_transfer_minutes=int(
+                                        same_postcode_minutes
+                                    ),
+                                )
+                                schedule = scheduler.build_day(
+                                    sites=sites,
+                                    start_time=start_dt,
+                                    latest_return=finish_dt,
+                                )
+
+                            if not schedule.items:
+                                st.warning(
+                                    "No survey could be fitted into this day while "
+                                    "still returning by the deadline."
+                                )
+                            else:
+                                st.success(
+                                    f"Scheduled {len(schedule.items)} surveys. "
+                                    f"Expected return to {home_location}: "
+                                    f"{schedule.return_time.strftime('%H:%M')}."
+                                )
+
+                                k1, k2, k3, k4 = st.columns(4)
+                                k1.metric("Surveys", len(schedule.items))
+                                k2.metric(
+                                    "Survey time",
+                                    f"{schedule.survey_minutes} min",
+                                )
+                                k3.metric(
+                                    "Transit time",
+                                    f"{schedule.travel_minutes} min",
+                                )
+                                k4.metric(
+                                    "Return home",
+                                    schedule.return_time.strftime("%H:%M"),
+                                )
+
+                                schedule_df = schedule.to_dataframe()
+                                st.dataframe(
+                                    schedule_df,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+
+                                clusters = [
+                                    item.cluster for item in schedule.items
+                                    if item.cluster
+                                ]
+                                if clusters:
+                                    st.caption(
+                                        "Route cluster: "
+                                        + " → ".join(dict.fromkeys(clusters))
+                                    )
+
+                                schedule_output = io.BytesIO()
+                                with pd.ExcelWriter(
+                                    schedule_output,
+                                    engine="openpyxl",
+                                ) as writer:
+                                    schedule_df.to_excel(
+                                        writer,
+                                        sheet_name="Daily Schedule",
+                                        index=False,
+                                    )
+                                    filtered.to_excel(
+                                        writer,
+                                        sheet_name="Candidate Sites",
+                                        index=False,
+                                    )
+
+                                st.download_button(
+                                    "Download daily schedule",
+                                    data=schedule_output.getvalue(),
+                                    file_name=(
+                                        f"Survey_Schedule_"
+                                        f"{route_date.isoformat()}.xlsx"
+                                    ),
+                                    mime=(
+                                        "application/vnd.openxmlformats-officedocument."
+                                        "spreadsheetml.sheet"
+                                    ),
+                                    type="primary",
+                                )
+
+                                if schedule.unscheduled_count:
+                                    st.info(
+                                        f"{schedule.unscheduled_count} eligible sites "
+                                        "were left for another day."
+                                    )
+
+                        except GoogleRoutesError as exc:
+                            st.error(str(exc))
+                        except Exception as exc:
+                            st.error(f"Could not build schedule: {exc}")
+
         except Exception as exc:
-            st.error(f"Could not process upcoming surveys spreadsheet: {exc}")
+            st.error(f"Could not process Future Surveys spreadsheet: {exc}")
+
 
 with tab3:
-    st.subheader("Fallback models")
-    summary = predictor.model_summary()
-    st.dataframe(summary, use_container_width=True, hide_index=True)
-
+    st.subheader("Duration fallback models")
+    st.dataframe(
+        predictor.model_summary(),
+        use_container_width=True,
+        hide_index=True,
+    )
     st.caption(
-        "MAE is leave-one-out cross-validation error on the current historical data. "
-        "It should be monitored as more completed surveys are added."
+        "MAE is leave-one-out cross-validation error on the historical "
+        "completed-survey data."
     )
