@@ -17,7 +17,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 5 — Building Height routing build")
+st.caption("Version 6 — Travel and survey buffer build")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
@@ -373,6 +373,44 @@ with tab2:
                         ["Fastest / default", "Less walking", "Fewer transfers"],
                     )
 
+                buffer_controls = st.columns(3)
+                with buffer_controls[0]:
+                    travel_leeway = st.number_input(
+                        "Travel leeway per journey (min)",
+                        min_value=0,
+                        max_value=30,
+                        value=5,
+                        step=1,
+                        help=(
+                            "Extra time added to every public-transport journey "
+                            "for delays, platform finding, crossings and general slack."
+                        ),
+                    )
+                with buffer_controls[1]:
+                    pre_survey_buffer = st.number_input(
+                        "Before each survey (min)",
+                        min_value=0,
+                        max_value=30,
+                        value=5,
+                        step=1,
+                        help=(
+                            "Time after arriving for getting bearings, finding "
+                            "the entrance, preparing equipment and getting started."
+                        ),
+                    )
+                with buffer_controls[2]:
+                    post_survey_buffer = st.number_input(
+                        "After each survey (min)",
+                        min_value=0,
+                        max_value=30,
+                        value=5,
+                        step=1,
+                        help=(
+                            "Time after the survey for packing bags, notes, "
+                            "orientating yourself and leaving the site."
+                        ),
+                    )
+
                 st.caption(
                     f"{len(filtered)} predicted sites are currently eligible "
                     "for this routing run."
@@ -458,6 +496,13 @@ with tab2:
                                     home_location=home_location,
                                     same_postcode_transfer_minutes=int(
                                         same_postcode_minutes
+                                    ),
+                                    travel_leeway_minutes=int(travel_leeway),
+                                    pre_survey_buffer_minutes=int(
+                                        pre_survey_buffer
+                                    ),
+                                    post_survey_buffer_minutes=int(
+                                        post_survey_buffer
                                     ),
                                 )
                                 schedule = scheduler.build_day(

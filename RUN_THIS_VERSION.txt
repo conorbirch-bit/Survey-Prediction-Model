@@ -1,19 +1,18 @@
-IMPORTANT — RUN THIS AS A FRESH PROJECT
+RUN THIS AS A FRESH PROJECT
 
 1. Extract this ZIP into a NEW folder.
-2. Do not merge it into the previous site_survey_duration_agent folder.
-3. Open PowerShell in this new folder.
-4. Stop any old Streamlit process with Ctrl+C.
-5. Run:
+2. Stop any old Streamlit process with Ctrl+C.
+3. Open PowerShell in the new folder.
+4. Run:
 
     pip install -r requirements.txt
     streamlit run app.py
 
-At the top of the browser app you should see:
+At the top of the app you should see:
 
-    Version 5 — Building Height routing build
+    Version 6 — Travel and survey buffer build
 
-If you do not see that exact text, you are still running an older app.
-
-This build imports `duration_predictor_height.py`, a new module name, so an old
-cached `duration_predictor.py` cannot be used accidentally.
+Default buffers:
+- Travel leeway: 5 min per journey
+- Before survey: 5 min
+- After survey: 5 min

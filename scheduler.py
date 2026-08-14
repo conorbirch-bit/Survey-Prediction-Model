@@ -122,11 +122,17 @@ class DailyTransitScheduler:
         home_location: str = "Harpenden Station",
         max_candidate_checks: int = 8,
         same_postcode_transfer_minutes: int = 5,
+        travel_leeway_minutes: int = 5,
+        pre_survey_buffer_minutes: int = 5,
+        post_survey_buffer_minutes: int = 5,
     ):
         self.router = router
         self.home_location = home_location
         self.max_candidate_checks = max_candidate_checks
         self.same_postcode_transfer_minutes = same_postcode_transfer_minutes
+        self.travel_leeway_minutes = travel_leeway_minutes
+        self.pre_survey_buffer_minutes = pre_survey_buffer_minutes
+        self.post_survey_buffer_minutes = post_survey_buffer_minutes
 
     @staticmethod
     def _same_postcode(a: str, b: str) -> bool:
@@ -187,10 +193,17 @@ class DailyTransitScheduler:
             for _, idx, travel_minutes in ranked[:self.max_candidate_checks]:
                 site = remaining[idx]
 
-                arrive = current_time + timedelta(minutes=travel_minutes)
-                survey_start = arrive
+                buffered_travel_minutes = travel_minutes + self.travel_leeway_minutes
+                arrive = current_time + timedelta(minutes=buffered_travel_minutes)
+
+                survey_start = arrive + timedelta(
+                    minutes=self.pre_survey_buffer_minutes
+                )
                 survey_end = survey_start + timedelta(
                     minutes=int(site["planning_minutes"])
+                )
+                ready_to_leave = survey_end + timedelta(
+                    minutes=self.post_survey_buffer_minutes
                 )
 
                 # Hard feasibility check using a real public-transport route home
@@ -199,30 +212,40 @@ class DailyTransitScheduler:
                     return_route = self.router.compute_route(
                         site["route_location"],
                         self.home_location,
-                        survey_end,
+                        ready_to_leave,
                     )
                 except Exception:
                     continue
 
-                return_time = survey_end + timedelta(
+                return_time = ready_to_leave + timedelta(
                     minutes=return_route.duration_minutes
+                    + self.travel_leeway_minutes
                 )
 
                 if return_time <= latest_return:
                     chosen = (
                         idx,
                         site,
-                        travel_minutes,
+                        buffered_travel_minutes,
                         arrive,
                         survey_start,
                         survey_end,
+                        ready_to_leave,
                     )
                     break
 
             if chosen is None:
                 break
 
-            idx, site, travel_minutes, arrive, survey_start, survey_end = chosen
+            (
+                idx,
+                site,
+                travel_minutes,
+                arrive,
+                survey_start,
+                survey_end,
+                ready_to_leave,
+            ) = chosen
 
             scheduled.append(
                 ScheduledSurvey(
@@ -245,7 +268,7 @@ class DailyTransitScheduler:
 
             current_location = site["route_location"]
             current_postcode = site.get("postcode", "")
-            current_time = survey_end
+            current_time = ready_to_leave
             remaining.pop(idx)
 
         # Always calculate the final journey home from the last site.
@@ -255,7 +278,9 @@ class DailyTransitScheduler:
                 self.home_location,
                 current_time,
             )
-            return_minutes = final_route.duration_minutes
+            return_minutes = (
+                final_route.duration_minutes + self.travel_leeway_minutes
+            )
             return_time = current_time + timedelta(minutes=return_minutes)
         else:
             return_minutes = 0.0

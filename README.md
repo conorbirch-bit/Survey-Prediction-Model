@@ -79,3 +79,17 @@ deadline.
 
 This is the first single-day optimiser. A later version can add multi-day
 allocation / global optimisation after the routing data has been validated.
+
+
+## Operational buffers
+
+Version 6 adds three configurable schedule buffers:
+
+- **Travel leeway per journey** — default 5 minutes. Added to every Google
+  public-transport journey, including the final journey home.
+- **Before each survey** — default 5 minutes. Allows time to find the correct
+  entrance, get bearings and prepare equipment.
+- **After each survey** — default 5 minutes. Allows time to pack equipment,
+  finish notes, orientate and leave the site.
+
+These are separate from the duration model's percentage survey buffer.
