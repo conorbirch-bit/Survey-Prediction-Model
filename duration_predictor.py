@@ -16,7 +16,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 
 FEATURE_COLUMNS = {
-    "floor_count": "Drawing Floor Count",
+    "building_height": "Building Height",
     "ground_floor_area": "Internal Ground Floor Area (m2)",
     "flats": "Sovereign Flat",
 }
@@ -53,7 +53,7 @@ class PredictionResult:
 class DurationPredictor:
     """
     Predicts site-survey duration from:
-      - Drawing Floor Count
+      - Building Height
       - Internal Ground Floor Area (m2)
       - Sovereign Flat
 
@@ -81,7 +81,7 @@ class DurationPredictor:
     def _normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
         # Be tolerant of small Salesforce/export naming differences.
         aliases = {
-            "Drawing Floor Count": ["Drawing Floor Count", "Drawing floor count"],
+            "Building Height": ["Building Height", "Building height"],
             "Internal Ground Floor Area (m2)": [
                 "Internal Ground Floor Area (m2)",
                 "Internal Ground Floor Area",
@@ -206,7 +206,7 @@ class DurationPredictor:
         ]
         if not compatible:
             raise ValueError(
-                "No prediction can be made because none of floor count, "
+                "No prediction can be made because none of building height, "
                 "ground-floor area or Sovereign flats is available."
             )
 
@@ -221,12 +221,12 @@ class DurationPredictor:
 
     def predict(
         self,
-        floor_count: Optional[float] = None,
+        building_height: Optional[float] = None,
         ground_floor_area: Optional[float] = None,
         flats: Optional[float] = None,
     ) -> PredictionResult:
         values = {
-            "floor_count": self._clean_value(floor_count),
+            "building_height": self._clean_value(building_height),
             "ground_floor_area": self._clean_value(ground_floor_area),
             "flats": self._clean_value(flats),
         }
@@ -275,7 +275,7 @@ class DurationPredictor:
     @staticmethod
     def pretty_feature(key: str) -> str:
         return {
-            "floor_count": "Floor count",
+            "building_height": "Building height",
             "ground_floor_area": "Ground-floor area",
             "flats": "Sovereign flats",
         }[key]
