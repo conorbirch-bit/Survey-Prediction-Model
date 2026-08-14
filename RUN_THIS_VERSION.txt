@@ -1,21 +1,20 @@
-VERSION 9 — AI WEEKLY PLANNER
+VERSION 10 — AI WEEK SUMMARY
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
 You should see:
-    Version 9 — AI weekly planner with future-cluster reasoning
+    Version 10 — AI week summary and schedule reasoning
 
-Add these to Streamlit Secrets:
-    GOOGLE_MAPS_API_KEY
-    OPENAI_API_KEY
-    OPENAI_MODEL
-    TFL_API_KEY
-    MET_OFFICE_API_KEY
-    MET_OFFICE_GLOBAL_SPOT_URL
+After a weekly schedule is created, the app now displays:
+    AI summary of the week
 
-The AI ranks current-week sites and can lower the priority of a site when its
-postcode district forms a materially stronger cluster in a later week.
-Google Routes and the deterministic scheduler still enforce the actual travel
-and 07:50–16:00 working-day constraints.
+This explains:
+- the clustering strategy
+- why sites were deferred
+- tighter/looser days
+- weather/TfL considerations
+- lower-confidence duration predictions
+
+The summary is explanation-only and cannot alter the validated schedule.

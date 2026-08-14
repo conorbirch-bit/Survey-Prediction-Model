@@ -20,7 +20,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 9 — AI weekly planner with future-cluster reasoning")
+st.caption("Version 10 — AI week summary and schedule reasoning")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
@@ -899,6 +899,87 @@ with tab2:
                                             "were left for another day."
                                         )
 
+                                    if use_ai_planner and openai_api_key:
+                                        st.markdown("#### AI explanation of the day")
+                                        try:
+                                            day_summary_df = pd.DataFrame([{
+                                                "Date": route_date.isoformat(),
+                                                "Surveys": len(schedule.items),
+                                                "Leave Harpenden": (
+                                                    schedule.start_time
+                                                    .strftime("%H:%M")
+                                                ),
+                                                "Return Harpenden": (
+                                                    schedule.return_time
+                                                    .strftime("%H:%M")
+                                                ),
+                                                "Survey Time (Minutes)": (
+                                                    schedule.survey_minutes
+                                                ),
+                                                "Travel Time (Minutes)": (
+                                                    schedule.travel_minutes
+                                                ),
+                                            }])
+
+                                            day_ai_decisions = []
+                                            for site in sites:
+                                                day_ai_decisions.append({
+                                                    "customer_reference": site.get(
+                                                        "customer_reference", ""
+                                                    ),
+                                                    "building_name": site.get(
+                                                        "building_name", ""
+                                                    ),
+                                                    "postcode": site.get(
+                                                        "postcode", ""
+                                                    ),
+                                                    "ai_priority": site.get(
+                                                        "ai_priority", 50
+                                                    ),
+                                                    "ai_decision": site.get(
+                                                        "ai_decision", "neutral"
+                                                    ),
+                                                    "ai_reason": site.get(
+                                                        "ai_reason", ""
+                                                    ),
+                                                })
+
+                                            day_narrative = (
+                                                OpenAISchedulePlanner(
+                                                    api_key=openai_api_key,
+                                                    model=openai_model,
+                                                ).summarise_week(
+                                                    week_summary=(
+                                                        day_summary_df.to_dict(
+                                                            orient="records"
+                                                        )
+                                                    ),
+                                                    full_schedule=(
+                                                        schedule_df.to_dict(
+                                                            orient="records"
+                                                        )
+                                                    ),
+                                                    ai_site_decisions=(
+                                                        day_ai_decisions
+                                                    ),
+                                                    unscheduled_sites=[],
+                                                    tfl_summary=tfl_summary,
+                                                    weather_summary=(
+                                                        weather_summary
+                                                    ),
+                                                    future_cluster_summary=(
+                                                        cluster_summary
+                                                    ),
+                                                )
+                                            )
+                                            st.write(day_narrative)
+                                        except Exception as exc:
+                                            st.warning(
+                                                "The day was created, but the AI "
+                                                "explanation could not be generated: "
+                                                f"{exc}"
+                                            )
+
                             else:
                                 if weekly_schedule.total_surveys == 0:
                                     st.warning(
@@ -948,6 +1029,111 @@ with tab2:
                                         use_container_width=True,
                                         hide_index=True,
                                     )
+
+                                    if use_ai_planner and openai_api_key:
+                                        st.markdown("#### AI summary of the week")
+
+                                        ai_decision_rows = []
+                                        for site in sites:
+                                            ai_decision_rows.append({
+                                                "customer_reference": site.get(
+                                                    "customer_reference", ""
+                                                ),
+                                                "building_name": site.get(
+                                                    "building_name", ""
+                                                ),
+                                                "postcode": site.get(
+                                                    "postcode", ""
+                                                ),
+                                                "ai_priority": site.get(
+                                                    "ai_priority", 50
+                                                ),
+                                                "ai_decision": site.get(
+                                                    "ai_decision", "neutral"
+                                                ),
+                                                "ai_reason": site.get(
+                                                    "ai_reason", ""
+                                                ),
+                                                "planning_minutes": site.get(
+                                                    "planning_minutes"
+                                                ),
+                                                "confidence": site.get(
+                                                    "confidence", ""
+                                                ),
+                                            })
+
+                                        unscheduled_for_summary = []
+                                        for remaining_site in (
+                                            weekly_schedule.unscheduled_sites
+                                        ):
+                                            unscheduled_for_summary.append({
+                                                "customer_reference": (
+                                                    remaining_site.get(
+                                                        "customer_reference", ""
+                                                    )
+                                                ),
+                                                "building_name": (
+                                                    remaining_site.get(
+                                                        "building_name", ""
+                                                    )
+                                                ),
+                                                "postcode": remaining_site.get(
+                                                    "postcode", ""
+                                                ),
+                                                "ai_priority": remaining_site.get(
+                                                    "ai_priority", 50
+                                                ),
+                                                "ai_decision": remaining_site.get(
+                                                    "ai_decision", "neutral"
+                                                ),
+                                                "ai_reason": remaining_site.get(
+                                                    "ai_reason", ""
+                                                ),
+                                            })
+
+                                        try:
+                                            planner_for_summary = (
+                                                OpenAISchedulePlanner(
+                                                    api_key=openai_api_key,
+                                                    model=openai_model,
+                                                )
+                                            )
+                                            week_narrative = (
+                                                planner_for_summary.summarise_week(
+                                                    week_summary=(
+                                                        week_summary_df
+                                                        .to_dict(
+                                                            orient="records"
+                                                        )
+                                                    ),
+                                                    full_schedule=(
+                                                        full_week_df
+                                                        .to_dict(
+                                                            orient="records"
+                                                        )
+                                                    ),
+                                                    ai_site_decisions=(
+                                                        ai_decision_rows
+                                                    ),
+                                                    unscheduled_sites=(
+                                                        unscheduled_for_summary
+                                                    ),
+                                                    tfl_summary=tfl_summary,
+                                                    weather_summary=(
+                                                        weather_summary
+                                                    ),
+                                                    future_cluster_summary=(
+                                                        cluster_summary
+                                                    ),
+                                                )
+                                            )
+                                            st.write(week_narrative)
+                                        except Exception as exc:
+                                            st.warning(
+                                                "The schedule was created, but "
+                                                "the AI week summary could not "
+                                                f"be generated: {exc}"
+                                            )
 
                                     if weekly_schedule.unscheduled_sites:
                                         remaining_df = pd.DataFrame(

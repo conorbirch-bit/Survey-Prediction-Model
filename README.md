@@ -223,3 +223,38 @@ delivery URLs can differ by subscription. Use the Global Spot hourly endpoint
 shown in your Weather DataHub product/API documentation.
 
 Never commit the real `secrets.toml` file to GitHub.
+
+
+## Version 9.1 weather fix
+
+The Met Office integration now targets the Global Spot **daily** endpoint
+directly and sends the required `dataSource=BD1` parameter.
+
+The parser recognises daily day/night fields rather than hourly fields and
+turns them into readable text for the OpenAI planning layer.
+
+If an unexpected Met Office schema is returned, the client reports the actual
+field names so the issue can be diagnosed without exposing the API key.
+
+
+## Version 10 — conversational schedule explanation
+
+After the deterministic weekly scheduler finishes, OpenAI now performs a
+second, explanation-only review of the completed schedule.
+
+It receives:
+- the final weekday-by-weekday schedule;
+- AI site priorities and defer reasons;
+- unscheduled sites;
+- future postcode-cluster counts;
+- TfL disruption context;
+- Met Office weather context;
+- duration-prediction confidence.
+
+It then produces a natural-language explanation of the week: why sites were
+grouped together, why some were deferred, which days look tighter, and what
+weather/disruption or low-confidence predictions are worth watching.
+
+This second AI call cannot modify the schedule. It is deliberately separated
+from the optimisation step so the explanation cannot override Google travel
+times or the hard working-day constraints.

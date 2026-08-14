@@ -33,6 +33,65 @@ class OpenAISchedulePlanner:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
+
+    def summarise_week(
+        self,
+        week_summary: list,
+        full_schedule: list,
+        ai_site_decisions: list,
+        unscheduled_sites: list,
+        tfl_summary: str,
+        weather_summary: str,
+        future_cluster_summary: str,
+    ) -> str:
+        """
+        Produce a concise, conversational explanation of the final schedule.
+        This is explanation/review only; it does not change the schedule.
+        """
+
+        instructions = """
+You are explaining a completed UK site-survey weekly schedule to an operations
+manager.
+
+Write in a natural, conversational but professional tone. Do not sound like a
+formal report and do not overstate certainty.
+
+Explain:
+- the overall strategy of the week;
+- why particular geographic/postcode clusters were grouped together;
+- why some sites were left for later if future clustering made that sensible;
+- where the week has more or less slack;
+- any material TfL disruption or weather considerations;
+- any lower-confidence survey-duration predictions that make a day less certain.
+
+Do not invent travel times, disruptions, weather, or operational facts.
+Only use the supplied data.
+
+Keep it to roughly 4-7 short paragraphs. Mention actual weekdays and areas when
+they are present. Finish with a brief "Overall" sentence describing how robust
+the week looks.
+
+Do not use JSON. Return normal prose only.
+"""
+
+        payload = {
+            "week_summary": week_summary,
+            "full_schedule": full_schedule,
+            "ai_site_decisions": ai_site_decisions,
+            "unscheduled_sites": unscheduled_sites,
+            "tfl_disruption_summary": tfl_summary,
+            "weather_summary": weather_summary,
+            "future_cluster_summary": future_cluster_summary,
+        }
+
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=json.dumps(payload, ensure_ascii=False, default=str),
+        )
+
+        return response.output_text.strip()
+
     def rank_sites(
         self,
         sites: List[dict],
