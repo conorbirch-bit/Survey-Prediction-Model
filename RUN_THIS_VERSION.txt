@@ -1,20 +1,22 @@
-RUN THIS AS A FRESH PROJECT
+VERSION 8 — GOOGLE API KEY VIA STREAMLIT SECRETS
 
-1. Extract this ZIP into a NEW folder.
-2. Stop the old Streamlit app with Ctrl+C.
-3. Open PowerShell in the new folder.
-4. Run:
-
+Run:
     pip install -r requirements.txt
     streamlit run app.py
 
-You should see:
+For Streamlit Community Cloud:
+1. Open the app.
+2. Open app Settings.
+3. Open Secrets.
+4. Add:
 
-    Version 7 — Full-week transit scheduling build
+    GOOGLE_MAPS_API_KEY = "YOUR_REAL_GOOGLE_API_KEY"
 
-Use:
-Upcoming surveys + routing
-→ Planning mode
-→ Full working week
-→ choose week commencing Monday
-→ Create public-transport schedule
+5. Save.
+
+For local development:
+1. Create .streamlit/secrets.toml
+2. Add the same line above.
+3. Restart Streamlit.
+
+The real secrets.toml file is ignored by Git and should never be uploaded.

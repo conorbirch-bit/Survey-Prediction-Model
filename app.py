@@ -17,7 +17,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 7 — Full-week transit scheduling build")
+st.caption("Version 8 — Google API key via Streamlit Secrets")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
@@ -449,16 +449,24 @@ with tab2:
                     "for this routing run."
                 )
 
-                key_from_env = os.getenv("GOOGLE_MAPS_API_KEY", "")
-                api_key = st.text_input(
-                    "Google Maps Platform API key",
-                    value=key_from_env,
-                    type="password",
-                    help=(
-                        "Enable the Routes API in Google Cloud. The key is used "
-                        "for this session and is not written into the project files."
-                    ),
-                )
+                # Google API key: prefer Streamlit Secrets.
+                # On Streamlit Community Cloud add:
+                # GOOGLE_MAPS_API_KEY = "your-key"
+                # under App settings -> Secrets.
+                try:
+                    api_key = st.secrets["GOOGLE_MAPS_API_KEY"]
+                except (KeyError, FileNotFoundError):
+                    # Optional local fallback for developers who prefer
+                    # an environment variable.
+                    api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+                if api_key:
+                    st.success("Google Maps API key loaded from secrets.")
+                else:
+                    st.error(
+                        "Google Maps API key not found. Add "
+                        "GOOGLE_MAPS_API_KEY to Streamlit Secrets."
+                    )
 
                 preference_map = {
                     "Fastest / default": None,

@@ -118,3 +118,43 @@ The Excel export contains:
 - one sheet per scheduled day
 - Unscheduled Sites
 - Candidate Sites
+
+
+## Google API key — Streamlit Secrets
+
+Version 8 reads the Google Maps API key automatically from Streamlit Secrets.
+
+### Streamlit Community Cloud
+
+Open the deployed app's settings and add this to **Secrets**:
+
+```toml
+GOOGLE_MAPS_API_KEY = "YOUR_REAL_GOOGLE_API_KEY"
+```
+
+Save the settings and restart/reboot the app if required.
+
+The API key no longer needs to be pasted into the app interface.
+
+### Running locally
+
+Create this file inside the project:
+
+```text
+.streamlit/secrets.toml
+```
+
+Put this inside it:
+
+```toml
+GOOGLE_MAPS_API_KEY = "YOUR_REAL_GOOGLE_API_KEY"
+```
+
+Then restart Streamlit:
+
+```bash
+streamlit run app.py
+```
+
+Do not commit `.streamlit/secrets.toml` to GitHub. This project includes it in
+`.gitignore`. A safe `secrets.toml.example` file is provided as a template.
