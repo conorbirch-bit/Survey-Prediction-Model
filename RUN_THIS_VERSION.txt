@@ -1,18 +1,20 @@
 RUN THIS AS A FRESH PROJECT
 
 1. Extract this ZIP into a NEW folder.
-2. Stop any old Streamlit process with Ctrl+C.
+2. Stop the old Streamlit app with Ctrl+C.
 3. Open PowerShell in the new folder.
 4. Run:
 
     pip install -r requirements.txt
     streamlit run app.py
 
-At the top of the app you should see:
+You should see:
 
-    Version 6 — Travel and survey buffer build
+    Version 7 — Full-week transit scheduling build
 
-Default buffers:
-- Travel leeway: 5 min per journey
-- Before survey: 5 min
-- After survey: 5 min
+Use:
+Upcoming surveys + routing
+→ Planning mode
+→ Full working week
+→ choose week commencing Monday
+→ Create public-transport schedule

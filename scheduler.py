@@ -103,6 +103,57 @@ class DailyScheduleResult:
         return pd.DataFrame(rows)
 
 
+@dataclass
+class WeeklyScheduleResult:
+    days: List[DailyScheduleResult]
+    unscheduled_sites: List[dict]
+
+    @property
+    def total_surveys(self) -> int:
+        return sum(len(day.items) for day in self.days)
+
+    @property
+    def total_survey_minutes(self) -> int:
+        return sum(day.survey_minutes for day in self.days)
+
+    @property
+    def total_travel_minutes(self) -> int:
+        return sum(day.travel_minutes for day in self.days)
+
+    def summary_dataframe(self) -> pd.DataFrame:
+        rows = []
+        for day in self.days:
+            clusters = []
+            for item in day.items:
+                if item.cluster and item.cluster not in clusters:
+                    clusters.append(item.cluster)
+
+            rows.append({
+                "Date": day.start_time.strftime("%A %d %B %Y"),
+                "Surveys": len(day.items),
+                "Clusters": " → ".join(clusters),
+                "Leave Harpenden": day.start_time.strftime("%H:%M"),
+                "Return Harpenden": day.return_time.strftime("%H:%M"),
+                "Survey Time (Minutes)": day.survey_minutes,
+                "Travel Time (Minutes)": day.travel_minutes,
+            })
+
+        return pd.DataFrame(rows)
+
+    def full_schedule_dataframe(self) -> pd.DataFrame:
+        frames = []
+        for day in self.days:
+            df = day.to_dataframe().copy()
+            df.insert(0, "Date", day.start_time.date().isoformat())
+            df.insert(1, "Day", day.start_time.strftime("%A"))
+            frames.append(df)
+
+        if not frames:
+            return pd.DataFrame()
+
+        return pd.concat(frames, ignore_index=True)
+
+
 class DailyTransitScheduler:
     """
     Greedy, time-dependent public-transport scheduler.
@@ -297,3 +348,78 @@ class DailyTransitScheduler:
             latest_return=latest_return,
             unscheduled_count=len(remaining),
         )
+
+    def build_week(
+        self,
+        sites: List[dict],
+        dates: Sequence,
+        start_clock,
+        latest_return_clock,
+        timezone,
+    ) -> WeeklyScheduleResult:
+        """
+        Build a multi-day schedule.
+
+        Each day uses the same live transit-routing logic as build_day.
+        Once a site is scheduled it is removed from the candidate pool before
+        the next day is planned.
+        """
+        remaining = [dict(site) for site in sites]
+        days: List[DailyScheduleResult] = []
+
+        for day_date in dates:
+            if not remaining:
+                break
+
+            start_dt = datetime.combine(
+                day_date,
+                start_clock,
+                tzinfo=timezone,
+            )
+            finish_dt = datetime.combine(
+                day_date,
+                latest_return_clock,
+                tzinfo=timezone,
+            )
+
+            day_result = self.build_day(
+                sites=remaining,
+                start_time=start_dt,
+                latest_return=finish_dt,
+            )
+            days.append(day_result)
+
+            scheduled_refs = {
+                item.customer_reference
+                for item in day_result.items
+                if item.customer_reference
+            }
+
+            # Use reference code where available, otherwise building+postcode.
+            scheduled_fallback = {
+                (item.building_name, item.postcode)
+                for item in day_result.items
+            }
+
+            new_remaining = []
+            for site in remaining:
+                ref = str(site.get("customer_reference", ""))
+                fallback = (
+                    str(site.get("building_name", "")),
+                    str(site.get("postcode", "")),
+                )
+
+                if ref and ref in scheduled_refs:
+                    continue
+                if fallback in scheduled_fallback:
+                    continue
+                new_remaining.append(site)
+
+            # If no progress is possible on this date, retain all sites and move on.
+            remaining = new_remaining
+
+        return WeeklyScheduleResult(
+            days=days,
+            unscheduled_sites=remaining,
+        )
+

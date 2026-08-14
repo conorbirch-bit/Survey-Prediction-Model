@@ -93,3 +93,28 @@ Version 6 adds three configurable schedule buffers:
   finish notes, orientate and leave the site.
 
 These are separate from the duration model's percentage survey buffer.
+
+
+## Full-week scheduling
+
+Version 7 adds a `Full working week` planning mode.
+
+Choose a week commencing Monday and the working days to use. The scheduler runs
+the existing live, time-dependent Google Transit routing logic for each day.
+Sites scheduled on Monday are removed before Tuesday is planned, and so on.
+
+Every selected day independently respects:
+- start at Harpenden Station;
+- default departure 07:50;
+- latest return 16:00;
+- travel leeway;
+- pre-survey setup buffer;
+- post-survey pack-up buffer;
+- predicted survey planning duration.
+
+The Excel export contains:
+- Week Summary
+- Full Week Schedule
+- one sheet per scheduled day
+- Unscheduled Sites
+- Candidate Sites

@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import io
 import os
@@ -17,7 +17,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 6 — Travel and survey buffer build")
+st.caption("Version 7 — Full-week transit scheduling build")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
@@ -278,7 +278,7 @@ with tab2:
             )
 
             st.divider()
-            st.markdown("### Build a public-transport day")
+            st.markdown("### Build public-transport schedules")
 
             routable = predictions[
                 (predictions["Prediction Status"] == "Predicted")
@@ -289,6 +289,12 @@ with tab2:
             if routable.empty:
                 st.warning("There are no sites with both a prediction and postcode.")
             else:
+                planning_mode = st.radio(
+                    "Planning mode",
+                    ["Single day", "Full working week"],
+                    horizontal=True,
+                )
+
                 controls1 = st.columns(3)
 
                 # Resource selector defaults to Conor Birch if present.
@@ -334,10 +340,22 @@ with tab2:
                         default_date = valid_dates.min().date()
 
                 with controls1[1]:
-                    route_date = st.date_input(
-                        "Survey date",
-                        value=default_date,
-                    )
+                    if planning_mode == "Single day":
+                        route_date = st.date_input(
+                            "Survey date",
+                            value=default_date,
+                        )
+                        week_start = None
+                    else:
+                        # Default to the Monday containing the earliest selected date.
+                        default_monday = default_date - timedelta(
+                            days=default_date.weekday()
+                        )
+                        week_start = st.date_input(
+                            "Week commencing (Monday)",
+                            value=default_monday,
+                        )
+                        route_date = None
                 with controls1[2]:
                     home_location = st.text_input(
                         "Start / finish location",
@@ -411,6 +429,21 @@ with tab2:
                         ),
                     )
 
+                if planning_mode == "Full working week":
+                    working_days = st.multiselect(
+                        "Working days",
+                        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                        default=[
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday",
+                        ],
+                    )
+                else:
+                    working_days = []
+
                 st.caption(
                     f"{len(filtered)} predicted sites are currently eligible "
                     "for this routing run."
@@ -434,19 +467,25 @@ with tab2:
                 }
 
                 if st.button(
-                    "Create daily public-transport schedule",
+                    "Create public-transport schedule",
                     type="primary",
                     disabled=not bool(api_key.strip()),
                 ):
-                    start_dt = datetime.combine(
-                        route_date, start_clock, tzinfo=LONDON_TZ
-                    )
-                    finish_dt = datetime.combine(
-                        route_date, finish_clock, tzinfo=LONDON_TZ
-                    )
+                    if planning_mode == "Single day":
+                        start_dt = datetime.combine(
+                            route_date, start_clock, tzinfo=LONDON_TZ
+                        )
+                        finish_dt = datetime.combine(
+                            route_date, finish_clock, tzinfo=LONDON_TZ
+                        )
+                    else:
+                        start_dt = None
+                        finish_dt = None
 
-                    if finish_dt <= start_dt:
+                    if finish_clock <= start_clock:
                         st.error("Latest return must be after the start time.")
+                    elif planning_mode == "Full working week" and not working_days:
+                        st.error("Choose at least one working day.")
                     else:
                         sites = []
                         for _, row in filtered.iterrows():
@@ -505,90 +544,242 @@ with tab2:
                                         post_survey_buffer
                                     ),
                                 )
-                                schedule = scheduler.build_day(
-                                    sites=sites,
-                                    start_time=start_dt,
-                                    latest_return=finish_dt,
-                                )
+                                if planning_mode == "Single day":
+                                    schedule = scheduler.build_day(
+                                        sites=sites,
+                                        start_time=start_dt,
+                                        latest_return=finish_dt,
+                                    )
+                                    weekly_schedule = None
+                                else:
+                                    day_names = [
+                                        "Monday", "Tuesday", "Wednesday",
+                                        "Thursday", "Friday"
+                                    ]
+                                    chosen_dates = []
+                                    for offset, name in enumerate(day_names):
+                                        if name in working_days:
+                                            chosen_dates.append(
+                                                week_start + timedelta(days=offset)
+                                            )
 
-                            if not schedule.items:
-                                st.warning(
-                                    "No survey could be fitted into this day while "
-                                    "still returning by the deadline."
-                                )
+                                    weekly_schedule = scheduler.build_week(
+                                        sites=sites,
+                                        dates=chosen_dates,
+                                        start_clock=start_clock,
+                                        latest_return_clock=finish_clock,
+                                        timezone=LONDON_TZ,
+                                    )
+                                    schedule = None
+
+                            if planning_mode == "Single day":
+                                if not schedule.items:
+                                    st.warning(
+                                        "No survey could be fitted into this day while "
+                                        "still returning by the deadline."
+                                    )
+                                else:
+                                    st.success(
+                                        f"Scheduled {len(schedule.items)} surveys. "
+                                        f"Expected return to {home_location}: "
+                                        f"{schedule.return_time.strftime('%H:%M')}."
+                                    )
+
+                                    k1, k2, k3, k4 = st.columns(4)
+                                    k1.metric("Surveys", len(schedule.items))
+                                    k2.metric(
+                                        "Survey time",
+                                        f"{schedule.survey_minutes} min",
+                                    )
+                                    k3.metric(
+                                        "Transit time",
+                                        f"{schedule.travel_minutes} min",
+                                    )
+                                    k4.metric(
+                                        "Return home",
+                                        schedule.return_time.strftime("%H:%M"),
+                                    )
+
+                                    schedule_df = schedule.to_dataframe()
+                                    st.dataframe(
+                                        schedule_df,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+
+                                    clusters = [
+                                        item.cluster for item in schedule.items
+                                        if item.cluster
+                                    ]
+                                    if clusters:
+                                        st.caption(
+                                            "Route cluster: "
+                                            + " → ".join(dict.fromkeys(clusters))
+                                        )
+
+                                    schedule_output = io.BytesIO()
+                                    with pd.ExcelWriter(
+                                        schedule_output,
+                                        engine="openpyxl",
+                                    ) as writer:
+                                        schedule_df.to_excel(
+                                            writer,
+                                            sheet_name="Daily Schedule",
+                                            index=False,
+                                        )
+                                        filtered.to_excel(
+                                            writer,
+                                            sheet_name="Candidate Sites",
+                                            index=False,
+                                        )
+
+                                    st.download_button(
+                                        "Download daily schedule",
+                                        data=schedule_output.getvalue(),
+                                        file_name=(
+                                            f"Survey_Schedule_"
+                                            f"{route_date.isoformat()}.xlsx"
+                                        ),
+                                        mime=(
+                                            "application/vnd.openxmlformats-officedocument."
+                                            "spreadsheetml.sheet"
+                                        ),
+                                        type="primary",
+                                    )
+
+                                    if schedule.unscheduled_count:
+                                        st.info(
+                                            f"{schedule.unscheduled_count} eligible sites "
+                                            "were left for another day."
+                                        )
+
                             else:
-                                st.success(
-                                    f"Scheduled {len(schedule.items)} surveys. "
-                                    f"Expected return to {home_location}: "
-                                    f"{schedule.return_time.strftime('%H:%M')}."
-                                )
-
-                                k1, k2, k3, k4 = st.columns(4)
-                                k1.metric("Surveys", len(schedule.items))
-                                k2.metric(
-                                    "Survey time",
-                                    f"{schedule.survey_minutes} min",
-                                )
-                                k3.metric(
-                                    "Transit time",
-                                    f"{schedule.travel_minutes} min",
-                                )
-                                k4.metric(
-                                    "Return home",
-                                    schedule.return_time.strftime("%H:%M"),
-                                )
-
-                                schedule_df = schedule.to_dataframe()
-                                st.dataframe(
-                                    schedule_df,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                )
-
-                                clusters = [
-                                    item.cluster for item in schedule.items
-                                    if item.cluster
-                                ]
-                                if clusters:
-                                    st.caption(
-                                        "Route cluster: "
-                                        + " → ".join(dict.fromkeys(clusters))
+                                if weekly_schedule.total_surveys == 0:
+                                    st.warning(
+                                        "No surveys could be fitted into the selected "
+                                        "working week while respecting the return deadline."
+                                    )
+                                else:
+                                    st.success(
+                                        f"Scheduled {weekly_schedule.total_surveys} surveys "
+                                        f"across {len(weekly_schedule.days)} days."
                                     )
 
-                                schedule_output = io.BytesIO()
-                                with pd.ExcelWriter(
-                                    schedule_output,
-                                    engine="openpyxl",
-                                ) as writer:
-                                    schedule_df.to_excel(
-                                        writer,
-                                        sheet_name="Daily Schedule",
-                                        index=False,
+                                    w1, w2, w3, w4 = st.columns(4)
+                                    w1.metric(
+                                        "Surveys scheduled",
+                                        weekly_schedule.total_surveys,
                                     )
-                                    filtered.to_excel(
-                                        writer,
-                                        sheet_name="Candidate Sites",
-                                        index=False,
+                                    w2.metric(
+                                        "Survey time",
+                                        f"{weekly_schedule.total_survey_minutes} min",
+                                    )
+                                    w3.metric(
+                                        "Transit time",
+                                        f"{weekly_schedule.total_travel_minutes} min",
+                                    )
+                                    w4.metric(
+                                        "Sites remaining",
+                                        len(weekly_schedule.unscheduled_sites),
                                     )
 
-                                st.download_button(
-                                    "Download daily schedule",
-                                    data=schedule_output.getvalue(),
-                                    file_name=(
-                                        f"Survey_Schedule_"
-                                        f"{route_date.isoformat()}.xlsx"
-                                    ),
-                                    mime=(
-                                        "application/vnd.openxmlformats-officedocument."
-                                        "spreadsheetml.sheet"
-                                    ),
-                                    type="primary",
-                                )
+                                    st.markdown("#### Week summary")
+                                    week_summary_df = (
+                                        weekly_schedule.summary_dataframe()
+                                    )
+                                    st.dataframe(
+                                        week_summary_df,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
 
-                                if schedule.unscheduled_count:
-                                    st.info(
-                                        f"{schedule.unscheduled_count} eligible sites "
-                                        "were left for another day."
+                                    st.markdown("#### Full schedule")
+                                    full_week_df = (
+                                        weekly_schedule.full_schedule_dataframe()
+                                    )
+                                    st.dataframe(
+                                        full_week_df,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+
+                                    if weekly_schedule.unscheduled_sites:
+                                        remaining_df = pd.DataFrame(
+                                            weekly_schedule.unscheduled_sites
+                                        )
+                                        remaining_display = [
+                                            c for c in [
+                                                "customer_reference",
+                                                "building_name",
+                                                "postcode",
+                                                "planning_minutes",
+                                                "confidence",
+                                            ] if c in remaining_df.columns
+                                        ]
+                                        with st.expander(
+                                            "Sites not fitted into this week"
+                                        ):
+                                            st.dataframe(
+                                                remaining_df[remaining_display],
+                                                use_container_width=True,
+                                                hide_index=True,
+                                            )
+
+                                    week_output = io.BytesIO()
+                                    with pd.ExcelWriter(
+                                        week_output,
+                                        engine="openpyxl",
+                                    ) as writer:
+                                        week_summary_df.to_excel(
+                                            writer,
+                                            sheet_name="Week Summary",
+                                            index=False,
+                                        )
+                                        full_week_df.to_excel(
+                                            writer,
+                                            sheet_name="Full Week Schedule",
+                                            index=False,
+                                        )
+
+                                        for day in weekly_schedule.days:
+                                            if not day.items:
+                                                continue
+                                            sheet_name = day.start_time.strftime(
+                                                "%a %d %b"
+                                            )[:31]
+                                            day.to_dataframe().to_excel(
+                                                writer,
+                                                sheet_name=sheet_name,
+                                                index=False,
+                                            )
+
+                                        if weekly_schedule.unscheduled_sites:
+                                            pd.DataFrame(
+                                                weekly_schedule.unscheduled_sites
+                                            ).to_excel(
+                                                writer,
+                                                sheet_name="Unscheduled Sites",
+                                                index=False,
+                                            )
+
+                                        filtered.to_excel(
+                                            writer,
+                                            sheet_name="Candidate Sites",
+                                            index=False,
+                                        )
+
+                                    st.download_button(
+                                        "Download full-week schedule",
+                                        data=week_output.getvalue(),
+                                        file_name=(
+                                            f"Survey_Week_"
+                                            f"{week_start.isoformat()}.xlsx"
+                                        ),
+                                        mime=(
+                                            "application/vnd.openxmlformats-officedocument."
+                                            "spreadsheetml.sheet"
+                                        ),
+                                        type="primary",
                                     )
 
                         except GoogleRoutesError as exc:
