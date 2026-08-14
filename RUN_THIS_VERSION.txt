@@ -1,22 +1,21 @@
-VERSION 8 — GOOGLE API KEY VIA STREAMLIT SECRETS
+VERSION 9 — AI WEEKLY PLANNER
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
-For Streamlit Community Cloud:
-1. Open the app.
-2. Open app Settings.
-3. Open Secrets.
-4. Add:
+You should see:
+    Version 9 — AI weekly planner with future-cluster reasoning
 
-    GOOGLE_MAPS_API_KEY = "YOUR_REAL_GOOGLE_API_KEY"
+Add these to Streamlit Secrets:
+    GOOGLE_MAPS_API_KEY
+    OPENAI_API_KEY
+    OPENAI_MODEL
+    TFL_API_KEY
+    MET_OFFICE_API_KEY
+    MET_OFFICE_GLOBAL_SPOT_URL
 
-5. Save.
-
-For local development:
-1. Create .streamlit/secrets.toml
-2. Add the same line above.
-3. Restart Streamlit.
-
-The real secrets.toml file is ignored by Git and should never be uploaded.
+The AI ranks current-week sites and can lower the priority of a site when its
+postcode district forms a materially stronger cluster in a later week.
+Google Routes and the deterministic scheduler still enforce the actual travel
+and 07:50–16:00 working-day constraints.

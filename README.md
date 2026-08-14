@@ -158,3 +158,68 @@ streamlit run app.py
 
 Do not commit `.streamlit/secrets.toml` to GitHub. This project includes it in
 `.gitignore`. A safe `secrets.toml.example` file is provided as a template.
+
+
+## Version 9 — AI planning layer
+
+The OpenAI model is used as a decision layer, not as a source of journey times.
+
+Inputs provided to the AI include:
+- each site's predicted/planning survey duration;
+- prediction confidence;
+- postcode district;
+- existing Planned Start;
+- how many sites in the same postcode district appear this week;
+- how many appear next week;
+- how many appear in the next three weeks;
+- TfL disruption context;
+- Met Office forecast context.
+
+The AI returns:
+- a 0–100 planning priority;
+- `schedule_this_week`, `neutral`, or `defer`;
+- a brief reason;
+- an overall week strategy.
+
+A deliberate `defer` is penalised in the route optimiser. This allows the
+planner to recognise cases such as:
+
+> One HA8 site is available this week, but five HA8 sites are already planned
+> for next week. Unless the single site is urgent, keep it for next week's HA8
+> cluster rather than creating a separate journey this week.
+
+### Safety / reliability boundary
+
+OpenAI does **not** fabricate transit duration and cannot override the hard
+working-day constraints.
+
+- Google Routes = actual public-transport journey calculations
+- Duration model = survey duration estimate
+- TfL = disruption context
+- Met Office Weather DataHub = forecast context
+- OpenAI = planning judgment / future-cluster reasoning
+- Python scheduler = hard constraint validation
+
+The AI priority can only modify candidate attractiveness by a capped amount.
+A geographically poor journey cannot become valid simply because the AI likes
+the site.
+
+## Secrets
+
+Create `.streamlit/secrets.toml` locally or add these in Streamlit Community
+Cloud Secrets:
+
+```toml
+GOOGLE_MAPS_API_KEY = "..."
+OPENAI_API_KEY = "..."
+OPENAI_MODEL = "gpt-5.6"
+TFL_API_KEY = "..."
+MET_OFFICE_API_KEY = "..."
+MET_OFFICE_GLOBAL_SPOT_URL = "..."
+```
+
+The Met Office endpoint is configurable because Weather DataHub product/version
+delivery URLs can differ by subscription. Use the Global Spot hourly endpoint
+shown in your Weather DataHub product/API documentation.
+
+Never commit the real `secrets.toml` file to GitHub.

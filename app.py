@@ -10,6 +10,9 @@ import streamlit as st
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
 from scheduler import DailyTransitScheduler, postcode_district
+from ai_planner import OpenAISchedulePlanner
+from tfl_client import TfLClient
+from metoffice_client import MetOfficeClient
 
 
 LONDON_TZ = ZoneInfo("Europe/London")
@@ -17,7 +20,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 8 — Google API key via Streamlit Secrets")
+st.caption("Version 9 — AI weekly planner with future-cluster reasoning")
 st.caption(
     "Predict survey durations, then create a public-transport day route "
     "starting and finishing at Harpenden Station."
@@ -158,6 +161,81 @@ def predict_upcoming(df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
 
+
+
+def get_secret(name: str, default: str = "") -> str:
+    try:
+        return str(st.secrets[name])
+    except (KeyError, FileNotFoundError):
+        return os.getenv(name, default)
+
+
+def planned_date_from_value(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    parsed = pd.to_datetime(value, dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def build_future_cluster_context(df: pd.DataFrame, week_start):
+    """
+    Count how many candidate sites share a postcode district in this week,
+    next week, and the following three weeks. Existing Planned Start is used
+    as a planning signal, not as a hard appointment constraint.
+    """
+    records = []
+    for _, row in df.iterrows():
+        pc = str(row.get("Postcode", "")).strip()
+        d = postcode_district(pc)
+        pd_date = planned_date_from_value(row.get("Planned Start"))
+        records.append((d, pd_date))
+
+    def count_for(district, start, end):
+        return sum(
+            1 for d, dt in records
+            if d == district and dt is not None and start <= dt <= end
+        )
+
+    this_end = week_start + timedelta(days=6)
+    next_start = week_start + timedelta(days=7)
+    next_end = week_start + timedelta(days=13)
+    three_end = week_start + timedelta(days=27)
+
+    rows = []
+    summary = {}
+    districts = sorted({d for d, _ in records if d})
+    for d in districts:
+        this_count = count_for(d, week_start, this_end)
+        next_count = count_for(d, next_start, next_end)
+        next3_count = count_for(d, next_start, three_end)
+        summary[d] = {
+            "this_week": this_count,
+            "next_week": next_count,
+            "next_3_weeks": next3_count,
+        }
+        rows.append(
+            f"{d}: this week={this_count}, next week={next_count}, "
+            f"next 3 weeks={next3_count}"
+        )
+    return summary, "\n".join(rows)
+
+
+def apply_ai_decisions(sites, decisions):
+    by_ref = {d.customer_reference: d for d in decisions}
+    for site in sites:
+        ref = str(site.get("customer_reference", ""))
+        decision = by_ref.get(ref)
+        if decision:
+            site["ai_priority"] = decision.priority
+            site["ai_decision"] = decision.decision
+            site["ai_reason"] = decision.reason
+        else:
+            site["ai_priority"] = 50
+            site["ai_decision"] = "neutral"
+            site["ai_reason"] = "No specific AI decision returned."
+    return sites
 
 tab1, tab2, tab3 = st.tabs([
     "Predict one building",
@@ -449,30 +527,58 @@ with tab2:
                     "for this routing run."
                 )
 
-                # Google API key: prefer Streamlit Secrets.
-                # On Streamlit Community Cloud add:
-                # GOOGLE_MAPS_API_KEY = "your-key"
-                # under App settings -> Secrets.
-                try:
-                    api_key = st.secrets["GOOGLE_MAPS_API_KEY"]
-                except (KeyError, FileNotFoundError):
-                    # Optional local fallback for developers who prefer
-                    # an environment variable.
-                    api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+                google_api_key = get_secret("GOOGLE_MAPS_API_KEY")
+                openai_api_key = get_secret("OPENAI_API_KEY")
+                openai_model = get_secret("OPENAI_MODEL", "gpt-5.6")
+                tfl_api_key = get_secret("TFL_API_KEY")
+                metoffice_api_key = get_secret("MET_OFFICE_API_KEY")
+                metoffice_endpoint = get_secret("MET_OFFICE_GLOBAL_SPOT_URL")
 
-                if api_key:
-                    st.success("Google Maps API key loaded from secrets.")
-                else:
-                    st.error(
-                        "Google Maps API key not found. Add "
-                        "GOOGLE_MAPS_API_KEY to Streamlit Secrets."
-                    )
+                integration_cols = st.columns(4)
+                integration_cols[0].metric(
+                    "Google Routes", "Ready" if google_api_key else "Missing"
+                )
+                integration_cols[1].metric(
+                    "OpenAI", "Ready" if openai_api_key else "Missing"
+                )
+                integration_cols[2].metric(
+                    "TfL", "Ready" if tfl_api_key else "Optional"
+                )
+                integration_cols[3].metric(
+                    "Met Office",
+                    "Ready" if (metoffice_api_key and metoffice_endpoint)
+                    else "Optional",
+                )
+
+                api_key = google_api_key
 
                 preference_map = {
                     "Fastest / default": None,
                     "Less walking": "LESS_WALKING",
                     "Fewer transfers": "FEWER_TRANSFERS",
                 }
+
+                use_ai_planner = st.checkbox(
+                    "Use OpenAI planning/reasoning layer",
+                    value=True,
+                    help=(
+                        "AI ranks sites using cluster timing, future-week cluster "
+                        "opportunities, TfL disruption and weather. Google/Python "
+                        "still enforce actual routes and hard time constraints."
+                    ),
+                )
+
+                ai_priority_weight = st.slider(
+                    "AI influence on site choice",
+                    min_value=0,
+                    max_value=40,
+                    value=20,
+                    step=5,
+                    help=(
+                        "Maximum equivalent minutes the AI priority can improve "
+                        "a site's routing score. Travel time remains dominant."
+                    ),
+                )
 
                 if st.button(
                     "Create public-transport schedule",
@@ -516,6 +622,7 @@ with tab2:
                                 ),
                                 "building_name": building_name or postcode,
                                 "postcode": postcode,
+                                "postcode_district": postcode_district(postcode),
                                 "route_location": route_location,
                                 "planning_minutes": int(
                                     row["Planning Duration (Minutes)"]
@@ -525,13 +632,101 @@ with tab2:
                                 ),
                                 "confidence": row["Prediction Confidence"],
                                 "model_used": row["Prediction Model Used"],
+                                "planned_start": str(
+                                    row.get("Planned Start", "") or ""
+                                ),
                             })
 
                         try:
                             with st.spinner(
-                                "Calculating live timetable-based transit journeys "
-                                "and testing which surveys fit..."
+                                "Reviewing cluster strategy, disruptions/weather, "
+                                "then calculating transit journeys..."
                             ):
+                                ai_strategy = ""
+                                tfl_summary = "TfL integration not configured."
+                                weather_summary = "Met Office integration not configured."
+
+                                # Determine the relevant planning period.
+                                if planning_mode == "Single day":
+                                    context_week_start = (
+                                        route_date - timedelta(
+                                            days=route_date.weekday()
+                                        )
+                                    )
+                                    period_start = route_date
+                                    period_end = route_date
+                                else:
+                                    context_week_start = week_start
+                                    period_start = week_start
+                                    period_end = week_start + timedelta(days=6)
+
+                                cluster_counts, cluster_summary = (
+                                    build_future_cluster_context(
+                                        filtered,
+                                        context_week_start,
+                                    )
+                                )
+
+                                for site in sites:
+                                    counts = cluster_counts.get(
+                                        site["postcode_district"],
+                                        {},
+                                    )
+                                    site["same_district_this_week"] = (
+                                        counts.get("this_week", 0)
+                                    )
+                                    site["same_district_next_week"] = (
+                                        counts.get("next_week", 0)
+                                    )
+                                    site["same_district_next_3_weeks"] = (
+                                        counts.get("next_3_weeks", 0)
+                                    )
+
+                                if tfl_api_key:
+                                    tfl_summary = TfLClient(
+                                        tfl_api_key
+                                    ).disruption_summary(
+                                        period_start,
+                                        period_end,
+                                    )
+
+                                # Harpenden/London operating area midpoint is used
+                                # for broad weekly weather risk. Route-level weather
+                                # can be added later if desired.
+                                if metoffice_api_key and metoffice_endpoint:
+                                    weather_summary = MetOfficeClient(
+                                        metoffice_api_key,
+                                        metoffice_endpoint,
+                                    ).forecast_summary(
+                                        latitude=51.65,
+                                        longitude=-0.20,
+                                        start_date=period_start,
+                                        end_date=period_end,
+                                    )
+
+                                if use_ai_planner:
+                                    if not openai_api_key:
+                                        raise ValueError(
+                                            "OPENAI_API_KEY is missing from secrets."
+                                        )
+                                    planner = OpenAISchedulePlanner(
+                                        api_key=openai_api_key,
+                                        model=openai_model,
+                                    )
+                                    decisions, ai_strategy = planner.rank_sites(
+                                        sites=sites,
+                                        week_label=(
+                                            f"{period_start} to {period_end}"
+                                        ),
+                                        tfl_summary=tfl_summary,
+                                        weather_summary=weather_summary,
+                                        future_cluster_summary=cluster_summary,
+                                    )
+                                    sites = apply_ai_decisions(
+                                        sites,
+                                        decisions,
+                                    )
+
                                 router = GoogleTransitRouter(
                                     api_key=api_key,
                                     transit_preference=preference_map[
@@ -550,6 +745,9 @@ with tab2:
                                     ),
                                     post_survey_buffer_minutes=int(
                                         post_survey_buffer
+                                    ),
+                                    ai_priority_weight_minutes=float(
+                                        ai_priority_weight
                                     ),
                                 )
                                 if planning_mode == "Single day":
@@ -579,6 +777,46 @@ with tab2:
                                         timezone=LONDON_TZ,
                                     )
                                     schedule = None
+
+                            if use_ai_planner and ai_strategy:
+                                st.markdown("#### AI planning strategy")
+                                st.info(ai_strategy)
+
+                                ai_rows = []
+                                for site in sites:
+                                    ai_rows.append({
+                                        "Customer Reference": site.get(
+                                            "customer_reference", ""
+                                        ),
+                                        "Building": site.get("building_name", ""),
+                                        "Postcode": site.get("postcode", ""),
+                                        "AI Priority": site.get("ai_priority", 50),
+                                        "AI Decision": site.get(
+                                            "ai_decision", "neutral"
+                                        ),
+                                        "AI Reason": site.get("ai_reason", ""),
+                                        "Same District This Week": site.get(
+                                            "same_district_this_week", 0
+                                        ),
+                                        "Same District Next Week": site.get(
+                                            "same_district_next_week", 0
+                                        ),
+                                        "Same District Next 3 Weeks": site.get(
+                                            "same_district_next_3_weeks", 0
+                                        ),
+                                    })
+                                with st.expander("AI site decisions"):
+                                    st.dataframe(
+                                        pd.DataFrame(ai_rows),
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
+
+                            with st.expander("External planning context"):
+                                st.markdown("**TfL disruption**")
+                                st.text(tfl_summary)
+                                st.markdown("**Met Office weather**")
+                                st.text(weather_summary)
 
                             if planning_mode == "Single day":
                                 if not schedule.items:

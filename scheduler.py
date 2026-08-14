@@ -176,6 +176,7 @@ class DailyTransitScheduler:
         travel_leeway_minutes: int = 5,
         pre_survey_buffer_minutes: int = 5,
         post_survey_buffer_minutes: int = 5,
+        ai_priority_weight_minutes: float = 20.0,
     ):
         self.router = router
         self.home_location = home_location
@@ -184,6 +185,7 @@ class DailyTransitScheduler:
         self.travel_leeway_minutes = travel_leeway_minutes
         self.pre_survey_buffer_minutes = pre_survey_buffer_minutes
         self.post_survey_buffer_minutes = post_survey_buffer_minutes
+        self.ai_priority_weight_minutes = ai_priority_weight_minutes
 
     @staticmethod
     def _same_postcode(a: str, b: str) -> bool:
@@ -232,7 +234,34 @@ class DailyTransitScheduler:
                     if current_district and current_district == next_district:
                         district_bonus = 5
 
-                score = float(minutes) - district_bonus
+                # AI priority is advisory: Google transit remains dominant.
+                # A 100-point AI priority can improve the candidate score by at
+                # most ai_priority_weight_minutes; a 0-point priority adds no bonus.
+                try:
+                    ai_priority = float(site.get("ai_priority", 50))
+                except Exception:
+                    ai_priority = 50.0
+                ai_priority = max(0.0, min(100.0, ai_priority))
+                # Centre the AI effect at 50. High-priority sites become
+                # somewhat more attractive; low-priority/deferred sites become
+                # somewhat less attractive. The absolute effect remains capped
+                # so AI cannot overpower real transit geography.
+                ai_adjustment = (
+                    (ai_priority - 50.0) / 50.0
+                ) * self.ai_priority_weight_minutes
+
+                defer_penalty = (
+                    15.0
+                    if str(site.get("ai_decision", "")).lower() == "defer"
+                    else 0.0
+                )
+
+                score = (
+                    float(minutes)
+                    - district_bonus
+                    - ai_adjustment
+                    + defer_penalty
+                )
                 ranked.append((score, idx, float(minutes)))
 
             if not ranked:
