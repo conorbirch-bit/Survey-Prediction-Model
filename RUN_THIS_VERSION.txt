@@ -1,27 +1,36 @@
-VERSION 13 — SALESFORCE MASTER + TEAM SCHEDULER
+VERSION 14 — UNIFIED WEEKLY SCHEDULER
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
 Look for:
-    Version 13 — Salesforce master import + team scheduling
+    Version 14 — unified weekly scheduling
 
-This version accepts the Salesforce report export directly.
+Top tabs:
+    Predict one building
+    Weekly scheduling
+    Model diagnostics
 
-Automatic rules:
+Weekly scheduling:
+    - upload the Salesforce/master portfolio once
+    - choose one Monday week commencing
+    - enter each surveyor's start / finish location
+    - tick the exact Mon-Fri dates each surveyor is available
+    - create all schedules together
+
+GOOGLE COST RULE:
+    Google Routes is used ONLY for the selected week.
+    Future weeks can influence clustering and drawing priority but do not trigger
+    Google route calculations.
+
+Availability also scales the detailed route shortlist:
+    5 days ≈ 40 candidates
+    3 days ≈ 24 candidates
+    2 days ≈ 16 candidates
+    1 day  ≈ 8 candidates
+when the default five-day cap is 40.
+
+Salesforce rule retained:
     Plan Drafting + Work Request = Needs Drawing
     Geospatial Asset Mapping = Ready
-
-The importer also:
-    - finds the real Salesforce header row
-    - fills grouped Work Type / Status labels down
-    - extracts postcodes from Building Name
-    - ignores report footer rows
-
-Team output now includes:
-    Drawing Priority
-
-Drawing Priority is a numbered queue for all Needs Drawing sites. Clusters
-needed for the target survey week are placed first; the rest are ordered using
-cheap portfolio signals without Google routing.

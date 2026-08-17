@@ -36,10 +36,10 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 13 — Salesforce master import + team scheduling")
+st.caption("Version 14 — unified weekly scheduling")
 st.caption(
-    "Predict survey durations, shortlist strategic postcode clusters, then use "
-    "Google transit routing only on realistic candidates."
+    "Upload the master portfolio, set surveyor availability for one week, then "
+    "use Google transit routing only for that selected week."
 )
 
 with st.sidebar:
@@ -263,11 +263,10 @@ def apply_ai_decisions(sites, decisions):
             site["ai_reason"] = "No specific AI decision returned."
     return sites
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "Predict one building",
-    "Upcoming surveys + routing",
+    "Weekly scheduling",
     "Model diagnostics",
-    "Team weekly schedule",
 ])
 
 with tab1:
@@ -305,1268 +304,11 @@ with tab1:
 
 
 with tab2:
-    st.subheader("Upload future surveys")
-    upcoming_file = st.file_uploader(
-        "Future Surveys spreadsheet",
-        type=["xlsx", "xls"],
-        key="upcoming_file",
-        help=(
-            "Designed for the Salesforce Future Surveys.xlsx structure, "
-            "including Building Name, Postcode, Building Height, "
-            "Sovereign Flat and Internal Ground Floor Area."
-        ),
-    )
-
-    if upcoming_file is None:
-        st.info("Upload Future Surveys.xlsx to predict and route the sites.")
-    else:
-        try:
-            raw_upcoming, detected_header_row = (
-                read_salesforce_or_standard_excel(
-                    upcoming_file.getvalue()
-                )
-            )
-            upcoming = normalise_upcoming_columns(raw_upcoming)
-
-            if detected_header_row > 0:
-                st.caption(
-                    f"Salesforce report detected: table header found on Excel row "
-                    f"{detected_header_row + 1}. Report/filter rows above it were ignored."
-                )
-
-            if "Postcode" not in upcoming.columns:
-                st.error(
-                    "The future-surveys file needs a Postcode column for routing."
-                )
-                st.stop()
-
-            predictions = predict_upcoming(upcoming)
-
-            st.markdown("### Duration predictions")
-            p1, p2, p3 = st.columns(3)
-            p1.metric("Buildings", len(predictions))
-            p2.metric(
-                "Predicted",
-                int((predictions["Prediction Status"] == "Predicted").sum()),
-            )
-            p3.metric(
-                "Missing prediction",
-                int((predictions["Prediction Status"] != "Predicted").sum()),
-            )
-
-            display_cols = [
-                c for c in [
-                    "Customer Reference",
-                    "Building Name",
-                    "Postcode",
-                    "Resource Name",
-                    "Drawing Status",
-                    "Earliest Survey Date",
-                    "Building Height",
-                    "Sovereign Flat",
-                    "Internal Ground Floor Area (m2)",
-                    "Predicted Survey Duration (Minutes)",
-                    "Planning Duration (Minutes)",
-                    "Prediction Confidence",
-                    "Prediction Model Used",
-                ] if c in predictions.columns
-            ]
-            st.dataframe(
-                predictions[display_cols],
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            pred_output = io.BytesIO()
-            with pd.ExcelWriter(pred_output, engine="openpyxl") as writer:
-                predictions.to_excel(
-                    writer,
-                    sheet_name="Upcoming Surveys Predictions",
-                    index=False,
-                )
-            st.download_button(
-                "Download duration predictions",
-                data=pred_output.getvalue(),
-                file_name="Upcoming_Surveys_With_Predictions.xlsx",
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-            )
-
-            st.divider()
-            st.markdown("### Build public-transport schedules")
-
-            routable = predictions[
-                (predictions["Prediction Status"] == "Predicted")
-                & predictions["Postcode"].notna()
-                & (predictions["Postcode"].astype(str).str.strip() != "")
-            ].copy()
-
-            if routable.empty:
-                st.warning("There are no sites with both a prediction and postcode.")
-            else:
-                planning_mode = st.radio(
-                    "Planning mode",
-                    ["Single day", "Full working week"],
-                    horizontal=True,
-                )
-
-                controls1 = st.columns(3)
-
-                # Resource selector defaults to Conor Birch if present.
-                resource_options = ["All resources"]
-                if "Resource Name" in routable.columns:
-                    names = sorted(
-                        {
-                            str(x).strip()
-                            for x in routable["Resource Name"].dropna()
-                            if str(x).strip()
-                        }
-                    )
-                    resource_options += names
-
-                default_resource_index = (
-                    resource_options.index("Conor Birch")
-                    if "Conor Birch" in resource_options else 0
-                )
-
-                with controls1[0]:
-                    resource = st.selectbox(
-                        "Sites to consider",
-                        resource_options,
-                        index=default_resource_index,
-                    )
-
-                filtered = routable.copy()
-                if resource != "All resources":
-                    filtered = filtered[
-                        filtered["Resource Name"].astype(str) == resource
-                    ].copy()
-
-                # Default date = earliest planned date in selected data, otherwise today.
-                default_date = datetime.now(LONDON_TZ).date()
-                if "Planned Start" in filtered.columns:
-                    parsed = pd.to_datetime(
-                        filtered["Planned Start"],
-                        dayfirst=True,
-                        errors="coerce",
-                    )
-                    valid_dates = parsed.dropna()
-                    if not valid_dates.empty:
-                        default_date = valid_dates.min().date()
-
-                with controls1[1]:
-                    if planning_mode == "Single day":
-                        route_date = st.date_input(
-                            "Survey date",
-                            value=default_date,
-                        )
-                        week_start = None
-                    else:
-                        # Default to the Monday containing the earliest selected date.
-                        default_monday = default_date - timedelta(
-                            days=default_date.weekday()
-                        )
-                        week_start = st.date_input(
-                            "Week commencing (Monday)",
-                            value=default_monday,
-                        )
-                        route_date = None
-                with controls1[2]:
-                    home_location = st.text_input(
-                        "Start / finish location",
-                        value="Harpenden Station",
-                    )
-
-                controls2 = st.columns(4)
-                with controls2[0]:
-                    start_clock = st.time_input(
-                        "Leave home",
-                        value=time(7, 50),
-                    )
-                with controls2[1]:
-                    finish_clock = st.time_input(
-                        "Latest return",
-                        value=time(16, 0),
-                    )
-                with controls2[2]:
-                    same_postcode_minutes = st.number_input(
-                        "Same-postcode transfer",
-                        min_value=0,
-                        max_value=30,
-                        value=5,
-                        step=1,
-                        help=(
-                            "Used instead of a transit API call when two surveys "
-                            "share exactly the same postcode."
-                        ),
-                    )
-                with controls2[3]:
-                    transit_choice = st.selectbox(
-                        "Transit preference",
-                        ["Fastest / default", "Less walking", "Fewer transfers"],
-                    )
-
-                buffer_controls = st.columns(3)
-                with buffer_controls[0]:
-                    travel_leeway = st.number_input(
-                        "Travel leeway per journey (min)",
-                        min_value=0,
-                        max_value=30,
-                        value=5,
-                        step=1,
-                        help=(
-                            "Extra time added to every public-transport journey "
-                            "for delays, platform finding, crossings and general slack."
-                        ),
-                    )
-                with buffer_controls[1]:
-                    pre_survey_buffer = st.number_input(
-                        "Before each survey (min)",
-                        min_value=0,
-                        max_value=30,
-                        value=5,
-                        step=1,
-                        help=(
-                            "Time after arriving for getting bearings, finding "
-                            "the entrance, preparing equipment and getting started."
-                        ),
-                    )
-                with buffer_controls[2]:
-                    post_survey_buffer = st.number_input(
-                        "After each survey (min)",
-                        min_value=0,
-                        max_value=30,
-                        value=5,
-                        step=1,
-                        help=(
-                            "Time after the survey for packing bags, notes, "
-                            "orientating yourself and leaving the site."
-                        ),
-                    )
-
-                if planning_mode == "Full working week":
-                    working_days = st.multiselect(
-                        "Working days",
-                        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-                        default=[
-                            "Monday",
-                            "Tuesday",
-                            "Wednesday",
-                            "Thursday",
-                            "Friday",
-                        ],
-                    )
-                else:
-                    working_days = []
-
-                st.caption(
-                    f"{len(filtered)} predicted sites are in the current portfolio "
-                    "before week eligibility and cluster filtering."
-                )
-
-                google_api_key = get_secret("GOOGLE_MAPS_API_KEY")
-                openai_api_key = get_secret("OPENAI_API_KEY")
-                openai_model = get_secret("OPENAI_MODEL", "gpt-5.6")
-                tfl_api_key = get_secret("TFL_API_KEY")
-                metoffice_api_key = get_secret("MET_OFFICE_API_KEY")
-                metoffice_endpoint = get_secret("MET_OFFICE_GLOBAL_SPOT_URL")
-
-                integration_cols = st.columns(4)
-                integration_cols[0].metric(
-                    "Google Routes", "Ready" if google_api_key else "Missing"
-                )
-                integration_cols[1].metric(
-                    "OpenAI", "Ready" if openai_api_key else "Missing"
-                )
-                integration_cols[2].metric(
-                    "TfL", "Ready" if tfl_api_key else "Optional"
-                )
-                integration_cols[3].metric(
-                    "Met Office",
-                    "Ready" if (metoffice_api_key and metoffice_endpoint)
-                    else "Optional",
-                )
-
-                api_key = google_api_key
-
-                preference_map = {
-                    "Fastest / default": None,
-                    "Less walking": "LESS_WALKING",
-                    "Fewer transfers": "FEWER_TRANSFERS",
-                }
-
-                use_ai_planner = st.checkbox(
-                    "Use OpenAI planning/reasoning layer",
-                    value=True,
-                    help=(
-                        "AI ranks sites using cluster timing, future-week cluster "
-                        "opportunities, TfL disruption and weather. Google/Python "
-                        "still enforce actual routes and hard time constraints."
-                    ),
-                )
-
-                ai_priority_weight = st.slider(
-                    "AI influence on site choice",
-                    min_value=0,
-                    max_value=40,
-                    value=20,
-                    step=5,
-                    help=(
-                        "Maximum equivalent minutes the AI priority can improve "
-                        "a site's routing score. Travel time remains dominant."
-                    ),
-                )
-
-                shortlist_controls = st.columns(2)
-                with shortlist_controls[0]:
-                    default_google_candidates = (
-                        25 if planning_mode == "Single day" else 60
-                    )
-                    max_sites_for_google = st.number_input(
-                        "Maximum sites sent to Google Routes",
-                        min_value=10,
-                        max_value=200,
-                        value=default_google_candidates,
-                        step=5,
-                        help=(
-                            "The full portfolio is clustered first. Google Route "
-                            "Matrix only sees this shortlisted number of sites."
-                        ),
-                    )
-                with shortlist_controls[1]:
-                    use_ai_cluster_filter = st.checkbox(
-                        "Use AI to choose portfolio clusters",
-                        value=True,
-                        help=(
-                            "OpenAI reviews cheap postcode-cluster summaries first. "
-                            "If disabled, clusters are shortlisted deterministically "
-                            "by eligible site volume."
-                        ),
-                    )
-
-                if st.button(
-                    "Create public-transport schedule",
-                    type="primary",
-                    disabled=not bool(api_key.strip()),
-                ):
-                    if planning_mode == "Single day":
-                        start_dt = datetime.combine(
-                            route_date, start_clock, tzinfo=LONDON_TZ
-                        )
-                        finish_dt = datetime.combine(
-                            route_date, finish_clock, tzinfo=LONDON_TZ
-                        )
-                    else:
-                        start_dt = None
-                        finish_dt = None
-
-                    if finish_clock <= start_clock:
-                        st.error("Latest return must be after the start time.")
-                    elif planning_mode == "Full working week" and not working_days:
-                        st.error("Choose at least one working day.")
-                    else:
-                        try:
-                            with st.spinner(
-                                "Filtering the portfolio into useful clusters before "
-                                "calling Google Routes..."
-                            ):
-                                ai_strategy = ""
-                                cluster_strategy = ""
-                                deferred_clusters = []
-                                tfl_summary = "TfL integration not configured."
-                                weather_summary = "Met Office integration not configured."
-
-                                # Determine the requested planning period.
-                                if planning_mode == "Single day":
-                                    context_week_start = (
-                                        route_date - timedelta(
-                                            days=route_date.weekday()
-                                        )
-                                    )
-                                    period_start = route_date
-                                    period_end = route_date
-                                    working_day_count = 1
-                                else:
-                                    context_week_start = week_start
-                                    period_start = week_start
-                                    period_end = week_start + timedelta(days=6)
-                                    working_day_count = len(working_days)
-
-                                # STEP 1: cheap portfolio eligibility / postcode clustering.
-                                portfolio_for_week = add_portfolio_fields(
-                                    filtered,
-                                    target_week_start=context_week_start,
-                                    today=datetime.now(LONDON_TZ).date(),
-                                )
-                                eligible_portfolio = portfolio_for_week[
-                                    portfolio_for_week[
-                                        "Eligible for Selected Week"
-                                    ] == True
-                                ].copy()
-
-                                if eligible_portfolio.empty:
-                                    raise ValueError(
-                                        "No sites are eligible for the selected week "
-                                        "after applying drawing/earliest-date rules."
-                                    )
-
-                                portfolio_cluster_summary_df = (
-                                    build_cluster_summary(
-                                        portfolio_for_week,
-                                        context_week_start,
-                                    )
-                                )
-
-                                # External context is gathered once for the week.
-                                if tfl_api_key:
-                                    tfl_summary = TfLClient(
-                                        tfl_api_key
-                                    ).disruption_summary(
-                                        period_start,
-                                        period_end,
-                                    )
-
-                                if metoffice_api_key and metoffice_endpoint:
-                                    weather_summary = MetOfficeClient(
-                                        metoffice_api_key,
-                                        metoffice_endpoint,
-                                    ).forecast_summary(
-                                        latitude=51.65,
-                                        longitude=-0.20,
-                                        start_date=period_start,
-                                        end_date=period_end,
-                                    )
-
-                                # STEP 2: AI chooses strategic clusters BEFORE Google.
-                                planner = None
-                                if (
-                                    use_ai_cluster_filter
-                                    or use_ai_planner
-                                ):
-                                    if not openai_api_key:
-                                        raise ValueError(
-                                            "OPENAI_API_KEY is missing from secrets."
-                                        )
-                                    planner = OpenAISchedulePlanner(
-                                        api_key=openai_api_key,
-                                        model=openai_model,
-                                    )
-
-                                if use_ai_cluster_filter:
-                                    (
-                                        cluster_decisions,
-                                        deferred_clusters,
-                                        cluster_strategy,
-                                    ) = planner.select_clusters(
-                                        cluster_summary=(
-                                            portfolio_cluster_summary_df
-                                            .to_dict(orient="records")
-                                        ),
-                                        week_label=(
-                                            f"{period_start} to {period_end}"
-                                        ),
-                                        working_days=working_day_count,
-                                        max_sites_for_google=int(
-                                            max_sites_for_google
-                                        ),
-                                        tfl_summary=tfl_summary,
-                                        weather_summary=weather_summary,
-                                    )
-                                    cluster_choices = [
-                                        {
-                                            "cluster": d.cluster,
-                                            "priority": d.priority,
-                                            "target_sites": d.target_sites,
-                                            "decision": d.decision,
-                                            "reason": d.reason,
-                                        }
-                                        for d in cluster_decisions
-                                    ]
-                                else:
-                                    cluster_choices = (
-                                        deterministic_cluster_choices(
-                                            portfolio_cluster_summary_df,
-                                            int(max_sites_for_google),
-                                        )
-                                    )
-                                    cluster_strategy = (
-                                        "AI cluster filter disabled. The portfolio "
-                                        "was shortlisted deterministically from the "
-                                        "largest eligible postcode clusters."
-                                    )
-
-                                if not cluster_choices:
-                                    raise ValueError(
-                                        "No postcode clusters were selected for routing."
-                                    )
-
-                                cluster_choices_df = pd.DataFrame(cluster_choices)
-
-                                # STEP 3: select only a small number of individual sites.
-                                shortlist_df = shortlist_sites(
-                                    portfolio=portfolio_for_week,
-                                    cluster_choices=cluster_choices,
-                                    max_sites_for_google=int(
-                                        max_sites_for_google
-                                    ),
-                                    target_week_start=context_week_start,
-                                )
-
-                                if shortlist_df.empty:
-                                    raise ValueError(
-                                        "The cluster filter produced no route candidates."
-                                    )
-
-                                # Existing future-date context is still useful for
-                                # site-level AI ranking within the cheap shortlist.
-                                (
-                                    cluster_counts,
-                                    future_cluster_summary_text,
-                                ) = build_future_cluster_context(
-                                    portfolio_for_week,
-                                    context_week_start,
-                                )
-
-                                sites = []
-                                for _, row in shortlist_df.iterrows():
-                                    building_name = str(
-                                        row.get("Building Name", "")
-                                    ).strip()
-                                    postcode = str(
-                                        row.get("Postcode", "")
-                                    ).strip()
-                                    route_location = (
-                                        f"{building_name}, {postcode}"
-                                        if building_name else postcode
-                                    )
-
-                                    site = {
-                                        "customer_reference": row.get(
-                                            "Customer Reference", ""
-                                        ),
-                                        "building_name": (
-                                            building_name or postcode
-                                        ),
-                                        "postcode": postcode,
-                                        "postcode_district": (
-                                            postcode_district(postcode)
-                                        ),
-                                        "route_location": route_location,
-                                        "planning_minutes": int(
-                                            row[
-                                                "Planning Duration (Minutes)"
-                                            ]
-                                        ),
-                                        "predicted_minutes": float(
-                                            row[
-                                                "Predicted Survey Duration (Minutes)"
-                                            ]
-                                        ),
-                                        "confidence": row[
-                                            "Prediction Confidence"
-                                        ],
-                                        "model_used": row[
-                                            "Prediction Model Used"
-                                        ],
-                                        "planned_start": str(
-                                            row.get("Planned Start", "") or ""
-                                        ),
-                                        "drawing_status": str(
-                                            row.get(
-                                                "Normalised Drawing Status",
-                                                "Unknown",
-                                            )
-                                        ),
-                                        "cluster_priority": row.get(
-                                            "AI Cluster Priority", 50
-                                        ),
-                                        "cluster_reason": row.get(
-                                            "AI Cluster Reason", ""
-                                        ),
-                                    }
-
-                                    counts = cluster_counts.get(
-                                        site["postcode_district"],
-                                        {},
-                                    )
-                                    site["same_district_this_week"] = (
-                                        counts.get("this_week", 0)
-                                    )
-                                    site["same_district_next_week"] = (
-                                        counts.get("next_week", 0)
-                                    )
-                                    site["same_district_next_3_weeks"] = (
-                                        counts.get("next_3_weeks", 0)
-                                    )
-                                    sites.append(site)
-
-                                # STEP 4: optional site-level reasoning only on shortlist.
-                                if use_ai_planner:
-                                    decisions, ai_strategy = planner.rank_sites(
-                                        sites=sites,
-                                        week_label=(
-                                            f"{period_start} to {period_end}"
-                                        ),
-                                        tfl_summary=tfl_summary,
-                                        weather_summary=weather_summary,
-                                        future_cluster_summary=(
-                                            future_cluster_summary_text
-                                        ),
-                                    )
-                                    sites = apply_ai_decisions(
-                                        sites,
-                                        decisions,
-                                    )
-                                else:
-                                    sites = apply_ai_decisions(sites, [])
-
-                                # STEP 5: paid / precise routing sees shortlist only.
-                                router = GoogleTransitRouter(
-                                    api_key=api_key,
-                                    transit_preference=preference_map[
-                                        transit_choice
-                                    ],
-                                )
-                                scheduler = DailyTransitScheduler(
-                                    router=router,
-                                    home_location=home_location,
-                                    same_postcode_transfer_minutes=int(
-                                        same_postcode_minutes
-                                    ),
-                                    travel_leeway_minutes=int(travel_leeway),
-                                    pre_survey_buffer_minutes=int(
-                                        pre_survey_buffer
-                                    ),
-                                    post_survey_buffer_minutes=int(
-                                        post_survey_buffer
-                                    ),
-                                    ai_priority_weight_minutes=float(
-                                        ai_priority_weight
-                                    ),
-                                )
-
-                                if planning_mode == "Single day":
-                                    schedule = scheduler.build_day(
-                                        sites=sites,
-                                        start_time=start_dt,
-                                        latest_return=finish_dt,
-                                    )
-                                    weekly_schedule = None
-                                else:
-                                    day_names = [
-                                        "Monday", "Tuesday", "Wednesday",
-                                        "Thursday", "Friday"
-                                    ]
-                                    chosen_dates = []
-                                    for offset, name in enumerate(day_names):
-                                        if name in working_days:
-                                            chosen_dates.append(
-                                                week_start
-                                                + timedelta(days=offset)
-                                            )
-
-                                    weekly_schedule = scheduler.build_week(
-                                        sites=sites,
-                                        dates=chosen_dates,
-                                        start_clock=start_clock,
-                                        latest_return_clock=finish_clock,
-                                        timezone=LONDON_TZ,
-                                    )
-                                    schedule = None
-
-                                eligible_portfolio_count = len(
-                                    eligible_portfolio
-                                )
-                                google_candidate_count = len(shortlist_df)
-                                portfolio_count = len(portfolio_for_week)
-                                excluded_before_google_count = max(
-                                    0,
-                                    eligible_portfolio_count
-                                    - google_candidate_count,
-                                )
-                                reduction_pct = (
-                                    100
-                                    * excluded_before_google_count
-                                    / eligible_portfolio_count
-                                    if eligible_portfolio_count
-                                    else 0
-                                )
-
-                                planning_context_summary = (
-                                    "Portfolio cluster strategy:\n"
-                                    f"{cluster_strategy}\n\n"
-                                    "Future cluster counts:\n"
-                                    f"{future_cluster_summary_text}"
-                                )
-
-                            st.markdown("#### Portfolio pre-filter")
-                            f1, f2, f3, f4 = st.columns(4)
-                            f1.metric("Portfolio sites", portfolio_count)
-                            f2.metric(
-                                "Eligible this week",
-                                eligible_portfolio_count,
-                            )
-                            f3.metric(
-                                "Sent to Google",
-                                google_candidate_count,
-                            )
-                            f4.metric(
-                                "Filtered before Google",
-                                f"{reduction_pct:.0f}%",
-                            )
-
-                            st.caption(
-                                f"{excluded_before_google_count} eligible sites "
-                                "were excluded before any detailed Google Route "
-                                "Matrix comparison."
-                            )
-
-                            if cluster_strategy:
-                                st.markdown("#### AI cluster strategy")
-                                st.info(cluster_strategy)
-
-                            with st.expander(
-                                "Portfolio cluster summary and Google shortlist"
-                            ):
-                                st.markdown("**Portfolio clusters**")
-                                st.dataframe(
-                                    portfolio_cluster_summary_df,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                )
-                                st.markdown("**Selected clusters**")
-                                st.dataframe(
-                                    cluster_choices_df,
-                                    use_container_width=True,
-                                    hide_index=True,
-                                )
-                                if deferred_clusters:
-                                    st.markdown("**AI-deferred clusters**")
-                                    st.dataframe(
-                                        pd.DataFrame(deferred_clusters),
-                                        use_container_width=True,
-                                        hide_index=True,
-                                    )
-                                st.markdown(
-                                    f"**Sites sent to Google ({len(shortlist_df)})**"
-                                )
-                                shortlist_display = [
-                                    c for c in [
-                                        "Customer Reference",
-                                        "Building Name",
-                                        "Postcode",
-                                        "Postcode Cluster",
-                                        "Drawing Status",
-                                        "Normalised Drawing Status",
-                                        "Planning Duration (Minutes)",
-                                        "Prediction Confidence",
-                                        "AI Cluster Priority",
-                                        "AI Cluster Reason",
-                                    ]
-                                    if c in shortlist_df.columns
-                                ]
-                                st.dataframe(
-                                    shortlist_df[shortlist_display],
-                                    use_container_width=True,
-                                    hide_index=True,
-                                )
-
-                            if use_ai_planner and ai_strategy:
-                                st.markdown("#### AI planning strategy")
-                                st.info(ai_strategy)
-
-                                ai_rows = []
-                                for site in sites:
-                                    ai_rows.append({
-                                        "Customer Reference": site.get(
-                                            "customer_reference", ""
-                                        ),
-                                        "Building": site.get("building_name", ""),
-                                        "Postcode": site.get("postcode", ""),
-                                        "AI Priority": site.get("ai_priority", 50),
-                                        "AI Decision": site.get(
-                                            "ai_decision", "neutral"
-                                        ),
-                                        "AI Reason": site.get("ai_reason", ""),
-                                        "Same District This Week": site.get(
-                                            "same_district_this_week", 0
-                                        ),
-                                        "Same District Next Week": site.get(
-                                            "same_district_next_week", 0
-                                        ),
-                                        "Same District Next 3 Weeks": site.get(
-                                            "same_district_next_3_weeks", 0
-                                        ),
-                                    })
-                                with st.expander("AI site decisions"):
-                                    st.dataframe(
-                                        pd.DataFrame(ai_rows),
-                                        use_container_width=True,
-                                        hide_index=True,
-                                    )
-
-                            with st.expander("External planning context"):
-                                st.markdown("**TfL disruption**")
-                                st.text(tfl_summary)
-                                st.markdown("**Met Office weather**")
-                                st.text(weather_summary)
-
-                            if planning_mode == "Single day":
-                                if not schedule.items:
-                                    st.warning(
-                                        "No survey could be fitted into this day while "
-                                        "still returning by the deadline."
-                                    )
-                                else:
-                                    st.success(
-                                        f"Scheduled {len(schedule.items)} surveys. "
-                                        f"Expected return to {home_location}: "
-                                        f"{schedule.return_time.strftime('%H:%M')}."
-                                    )
-
-                                    k1, k2, k3, k4 = st.columns(4)
-                                    k1.metric("Surveys", len(schedule.items))
-                                    k2.metric(
-                                        "Survey time",
-                                        f"{schedule.survey_minutes} min",
-                                    )
-                                    k3.metric(
-                                        "Transit time",
-                                        f"{schedule.travel_minutes} min",
-                                    )
-                                    k4.metric(
-                                        "Return home",
-                                        schedule.return_time.strftime("%H:%M"),
-                                    )
-
-                                    schedule_df = schedule.to_dataframe()
-                                    st.dataframe(
-                                        schedule_df,
-                                        use_container_width=True,
-                                        hide_index=True,
-                                    )
-
-                                    clusters = [
-                                        item.cluster for item in schedule.items
-                                        if item.cluster
-                                    ]
-                                    if clusters:
-                                        st.caption(
-                                            "Route cluster: "
-                                            + " → ".join(dict.fromkeys(clusters))
-                                        )
-
-                                    schedule_output = io.BytesIO()
-                                    with pd.ExcelWriter(
-                                        schedule_output,
-                                        engine="openpyxl",
-                                    ) as writer:
-                                        schedule_df.to_excel(
-                                            writer,
-                                            sheet_name="Daily Schedule",
-                                            index=False,
-                                        )
-                                        portfolio_for_week.to_excel(
-                                            writer,
-                                            sheet_name="Portfolio",
-                                            index=False,
-                                        )
-                                        portfolio_cluster_summary_df.to_excel(
-                                            writer,
-                                            sheet_name="Cluster Summary",
-                                            index=False,
-                                        )
-                                        cluster_choices_df.to_excel(
-                                            writer,
-                                            sheet_name="Selected Clusters",
-                                            index=False,
-                                        )
-                                        shortlist_df.to_excel(
-                                            writer,
-                                            sheet_name="Google Shortlist",
-                                            index=False,
-                                        )
-
-                                    st.download_button(
-                                        "Download daily schedule",
-                                        data=schedule_output.getvalue(),
-                                        file_name=(
-                                            f"Survey_Schedule_"
-                                            f"{route_date.isoformat()}.xlsx"
-                                        ),
-                                        mime=(
-                                            "application/vnd.openxmlformats-officedocument."
-                                            "spreadsheetml.sheet"
-                                        ),
-                                        type="primary",
-                                    )
-
-                                    if schedule.unscheduled_count:
-                                        st.info(
-                                            f"{schedule.unscheduled_count} shortlisted sites "
-                                            "were left for another day."
-                                        )
-
-                                    if use_ai_planner and openai_api_key:
-                                        st.markdown("#### AI explanation of the day")
-                                        try:
-                                            day_summary_df = pd.DataFrame([{
-                                                "Date": route_date.isoformat(),
-                                                "Surveys": len(schedule.items),
-                                                "Leave Harpenden": (
-                                                    schedule.start_time
-                                                    .strftime("%H:%M")
-                                                ),
-                                                "Return Harpenden": (
-                                                    schedule.return_time
-                                                    .strftime("%H:%M")
-                                                ),
-                                                "Survey Time (Minutes)": (
-                                                    schedule.survey_minutes
-                                                ),
-                                                "Travel Time (Minutes)": (
-                                                    schedule.travel_minutes
-                                                ),
-                                            }])
-
-                                            day_ai_decisions = []
-                                            for site in sites:
-                                                day_ai_decisions.append({
-                                                    "customer_reference": site.get(
-                                                        "customer_reference", ""
-                                                    ),
-                                                    "building_name": site.get(
-                                                        "building_name", ""
-                                                    ),
-                                                    "postcode": site.get(
-                                                        "postcode", ""
-                                                    ),
-                                                    "ai_priority": site.get(
-                                                        "ai_priority", 50
-                                                    ),
-                                                    "ai_decision": site.get(
-                                                        "ai_decision", "neutral"
-                                                    ),
-                                                    "ai_reason": site.get(
-                                                        "ai_reason", ""
-                                                    ),
-                                                })
-
-                                            day_narrative = (
-                                                OpenAISchedulePlanner(
-                                                    api_key=openai_api_key,
-                                                    model=openai_model,
-                                                ).summarise_week(
-                                                    week_summary=(
-                                                        day_summary_df.to_dict(
-                                                            orient="records"
-                                                        )
-                                                    ),
-                                                    full_schedule=(
-                                                        schedule_df.to_dict(
-                                                            orient="records"
-                                                        )
-                                                    ),
-                                                    ai_site_decisions=(
-                                                        day_ai_decisions
-                                                    ),
-                                                    unscheduled_sites=[],
-                                                    tfl_summary=tfl_summary,
-                                                    weather_summary=(
-                                                        weather_summary
-                                                    ),
-                                                    future_cluster_summary=(
-                                                        planning_context_summary
-                                                    ),
-                                                )
-                                            )
-                                            st.write(day_narrative)
-                                        except Exception as exc:
-                                            st.warning(
-                                                "The day was created, but the AI "
-                                                "explanation could not be generated: "
-                                                f"{exc}"
-                                            )
-
-                            else:
-                                if weekly_schedule.total_surveys == 0:
-                                    st.warning(
-                                        "No surveys could be fitted into the selected "
-                                        "working week while respecting the return deadline."
-                                    )
-                                else:
-                                    st.success(
-                                        f"Scheduled {weekly_schedule.total_surveys} surveys "
-                                        f"across {len(weekly_schedule.days)} days."
-                                    )
-
-                                    w1, w2, w3, w4 = st.columns(4)
-                                    w1.metric(
-                                        "Surveys scheduled",
-                                        weekly_schedule.total_surveys,
-                                    )
-                                    w2.metric(
-                                        "Survey time",
-                                        f"{weekly_schedule.total_survey_minutes} min",
-                                    )
-                                    w3.metric(
-                                        "Transit time",
-                                        f"{weekly_schedule.total_travel_minutes} min",
-                                    )
-                                    w4.metric(
-                                        "Shortlist remaining",
-                                        len(weekly_schedule.unscheduled_sites),
-                                    )
-
-                                    st.markdown("#### Week summary")
-                                    week_summary_df = (
-                                        weekly_schedule.summary_dataframe()
-                                    )
-                                    st.dataframe(
-                                        week_summary_df,
-                                        use_container_width=True,
-                                        hide_index=True,
-                                    )
-
-                                    st.markdown("#### Full schedule")
-                                    full_week_df = (
-                                        weekly_schedule.full_schedule_dataframe()
-                                    )
-                                    st.dataframe(
-                                        full_week_df,
-                                        use_container_width=True,
-                                        hide_index=True,
-                                    )
-
-                                    if use_ai_planner and openai_api_key:
-                                        st.markdown("#### AI summary of the week")
-
-                                        ai_decision_rows = []
-                                        for site in sites:
-                                            ai_decision_rows.append({
-                                                "customer_reference": site.get(
-                                                    "customer_reference", ""
-                                                ),
-                                                "building_name": site.get(
-                                                    "building_name", ""
-                                                ),
-                                                "postcode": site.get(
-                                                    "postcode", ""
-                                                ),
-                                                "ai_priority": site.get(
-                                                    "ai_priority", 50
-                                                ),
-                                                "ai_decision": site.get(
-                                                    "ai_decision", "neutral"
-                                                ),
-                                                "ai_reason": site.get(
-                                                    "ai_reason", ""
-                                                ),
-                                                "planning_minutes": site.get(
-                                                    "planning_minutes"
-                                                ),
-                                                "confidence": site.get(
-                                                    "confidence", ""
-                                                ),
-                                            })
-
-                                        unscheduled_for_summary = []
-                                        for remaining_site in (
-                                            weekly_schedule.unscheduled_sites
-                                        ):
-                                            unscheduled_for_summary.append({
-                                                "customer_reference": (
-                                                    remaining_site.get(
-                                                        "customer_reference", ""
-                                                    )
-                                                ),
-                                                "building_name": (
-                                                    remaining_site.get(
-                                                        "building_name", ""
-                                                    )
-                                                ),
-                                                "postcode": remaining_site.get(
-                                                    "postcode", ""
-                                                ),
-                                                "ai_priority": remaining_site.get(
-                                                    "ai_priority", 50
-                                                ),
-                                                "ai_decision": remaining_site.get(
-                                                    "ai_decision", "neutral"
-                                                ),
-                                                "ai_reason": remaining_site.get(
-                                                    "ai_reason", ""
-                                                ),
-                                            })
-
-                                        try:
-                                            planner_for_summary = (
-                                                OpenAISchedulePlanner(
-                                                    api_key=openai_api_key,
-                                                    model=openai_model,
-                                                )
-                                            )
-                                            week_narrative = (
-                                                planner_for_summary.summarise_week(
-                                                    week_summary=(
-                                                        week_summary_df
-                                                        .to_dict(
-                                                            orient="records"
-                                                        )
-                                                    ),
-                                                    full_schedule=(
-                                                        full_week_df
-                                                        .to_dict(
-                                                            orient="records"
-                                                        )
-                                                    ),
-                                                    ai_site_decisions=(
-                                                        ai_decision_rows
-                                                    ),
-                                                    unscheduled_sites=(
-                                                        unscheduled_for_summary
-                                                    ),
-                                                    tfl_summary=tfl_summary,
-                                                    weather_summary=(
-                                                        weather_summary
-                                                    ),
-                                                    future_cluster_summary=(
-                                                        planning_context_summary
-                                                    ),
-                                                )
-                                            )
-                                            st.write(week_narrative)
-                                        except Exception as exc:
-                                            st.warning(
-                                                "The schedule was created, but "
-                                                "the AI week summary could not "
-                                                f"be generated: {exc}"
-                                            )
-
-                                    if weekly_schedule.unscheduled_sites:
-                                        remaining_df = pd.DataFrame(
-                                            weekly_schedule.unscheduled_sites
-                                        )
-                                        remaining_display = [
-                                            c for c in [
-                                                "customer_reference",
-                                                "building_name",
-                                                "postcode",
-                                                "planning_minutes",
-                                                "confidence",
-                                            ] if c in remaining_df.columns
-                                        ]
-                                        with st.expander(
-                                            "Sites not fitted into this week"
-                                        ):
-                                            st.dataframe(
-                                                remaining_df[remaining_display],
-                                                use_container_width=True,
-                                                hide_index=True,
-                                            )
-
-                                    week_output = io.BytesIO()
-                                    with pd.ExcelWriter(
-                                        week_output,
-                                        engine="openpyxl",
-                                    ) as writer:
-                                        week_summary_df.to_excel(
-                                            writer,
-                                            sheet_name="Week Summary",
-                                            index=False,
-                                        )
-                                        full_week_df.to_excel(
-                                            writer,
-                                            sheet_name="Full Week Schedule",
-                                            index=False,
-                                        )
-
-                                        for day in weekly_schedule.days:
-                                            if not day.items:
-                                                continue
-                                            sheet_name = day.start_time.strftime(
-                                                "%a %d %b"
-                                            )[:31]
-                                            day.to_dataframe().to_excel(
-                                                writer,
-                                                sheet_name=sheet_name,
-                                                index=False,
-                                            )
-
-                                        if weekly_schedule.unscheduled_sites:
-                                            pd.DataFrame(
-                                                weekly_schedule.unscheduled_sites
-                                            ).to_excel(
-                                                writer,
-                                                sheet_name="Unscheduled Sites",
-                                                index=False,
-                                            )
-
-                                        portfolio_for_week.to_excel(
-                                            writer,
-                                            sheet_name="Portfolio",
-                                            index=False,
-                                        )
-                                        portfolio_cluster_summary_df.to_excel(
-                                            writer,
-                                            sheet_name="Cluster Summary",
-                                            index=False,
-                                        )
-                                        cluster_choices_df.to_excel(
-                                            writer,
-                                            sheet_name="Selected Clusters",
-                                            index=False,
-                                        )
-                                        shortlist_df.to_excel(
-                                            writer,
-                                            sheet_name="Google Shortlist",
-                                            index=False,
-                                        )
-
-                                    st.download_button(
-                                        "Download full-week schedule",
-                                        data=week_output.getvalue(),
-                                        file_name=(
-                                            f"Survey_Week_"
-                                            f"{week_start.isoformat()}.xlsx"
-                                        ),
-                                        mime=(
-                                            "application/vnd.openxmlformats-officedocument."
-                                            "spreadsheetml.sheet"
-                                        ),
-                                        type="primary",
-                                    )
-
-                        except GoogleRoutesError as exc:
-                            st.error(str(exc))
-                        except Exception as exc:
-                            st.error(f"Could not build schedule: {exc}")
-
-        except Exception as exc:
-            st.error(f"Could not process Future Surveys spreadsheet: {exc}")
-
-
-with tab3:
-    st.subheader("Duration fallback models")
-    st.dataframe(
-        predictor.model_summary(),
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.caption(
-        "MAE is leave-one-out cross-validation error on the historical "
-        "completed-survey data."
-    )
-
-
-with tab4:
-    st.subheader("Team weekly schedule")
+    st.subheader("Weekly scheduling")
     st.write(
-        "Plan one upcoming week for multiple surveyors. The full portfolio is "
-        "clustered once; only each surveyor's small allocated shortlist is sent "
-        "to Google Routes."
+        "Create the selected week's schedules for one or more surveyors. "
+        "The wider portfolio is used for cheap clustering and drawing priority; "
+        "Google Routes is only used for this one selected week."
     )
 
     team_file = st.file_uploader(
@@ -1648,90 +390,96 @@ with tab4:
                             key="team_finish_clock",
                         )
 
-                    team_working_days = st.multiselect(
-                        "Team working days",
-                        [
-                            "Monday",
-                            "Tuesday",
-                            "Wednesday",
-                            "Thursday",
-                            "Friday",
-                        ],
-                        default=[
-                            "Monday",
-                            "Tuesday",
-                            "Wednesday",
-                            "Thursday",
-                            "Friday",
-                        ],
-                        key="team_working_days",
+                    st.markdown("#### Surveyor availability")
+                    st.caption(
+                        "Tick the exact dates each person is available in the selected "
+                        "week. A surveyor with no dates ticked generates no Google "
+                        "routing calls."
                     )
 
-                    st.markdown("#### Surveyors")
-                    st.caption(
-                        "Add the four people now. Only rows marked Active, with an "
-                        "Active From date on/before the selected week and a start "
-                        "location, will generate paid Google routing."
-                    )
+                    selected_week_dates = [
+                        team_week_start + timedelta(days=offset)
+                        for offset in range(5)
+                    ]
+                    availability_columns = {
+                        d: d.strftime("%a %d %b")
+                        for d in selected_week_dates
+                    }
 
                     default_surveyors = pd.DataFrame([
                         {
                             "Name": "Conor Birch",
-                            "Active": True,
                             "Start / Finish Location": "Harpenden Station",
-                            "Active From": today,
+                            **{
+                                label: True
+                                for label in availability_columns.values()
+                            },
                         },
                         {
                             "Name": "Surveyor 2",
-                            "Active": False,
                             "Start / Finish Location": "",
-                            "Active From": default_team_week,
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
                         },
                         {
                             "Name": "Surveyor 3",
-                            "Active": False,
                             "Start / Finish Location": "",
-                            "Active From": default_team_week,
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
                         },
                         {
                             "Name": "Surveyor 4",
-                            "Active": False,
                             "Start / Finish Location": "",
-                            "Active From": default_team_week,
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
                         },
                     ])
 
+                    availability_config = {
+                        label: st.column_config.CheckboxColumn(
+                            label,
+                            help=f"Available on {d.strftime('%A %d %B %Y')}",
+                        )
+                        for d, label in availability_columns.items()
+                    }
+
                     edited_surveyors = st.data_editor(
                         default_surveyors,
-                        key="team_surveyor_editor",
+                        key=(
+                            "team_surveyor_editor_"
+                            f"{team_week_start.isoformat()}"
+                        ),
                         num_rows="fixed",
                         hide_index=True,
                         use_container_width=True,
-                        column_config={
-                            "Active": st.column_config.CheckboxColumn(
-                                "Active",
-                                help=(
-                                    "Only active surveyors are scheduled."
-                                ),
-                            ),
-                            "Active From": st.column_config.DateColumn(
-                                "Active From",
-                                format="DD/MM/YYYY",
-                            ),
-                        },
+                        column_config=availability_config,
+                    )
+
+                    st.info(
+                        "Cost rule: Google route calculations are restricted to "
+                        f"{team_week_start.strftime('%d %b %Y')}–"
+                        f"{(team_week_start + timedelta(days=6)).strftime('%d %b %Y')}. "
+                        "Future weeks influence clustering/drawing priority only."
                     )
 
                     team_settings = st.columns(4)
                     with team_settings[0]:
                         team_max_candidates = st.number_input(
-                            "Max Google candidates per surveyor",
+                            "Max Google candidates per full 5-day surveyor",
                             min_value=15,
                             max_value=100,
                             value=40,
                             step=5,
                             help=(
-                                "Each active surveyor gets their own capped shortlist. "
-                                "The whole portfolio is never sent to Google."
+                                "This is the five-day cap. Someone available for fewer "
+                                "days gets a proportionally smaller shortlist. The whole "
+                                "portfolio is never sent to Google."
                             ),
                         )
                     with team_settings[1]:
@@ -1827,23 +575,24 @@ with tab4:
                     )
 
                     if st.button(
-                        "Create team weekly schedules",
+                        "Create weekly schedules",
                         type="primary",
                         key="create_team_week",
                         disabled=not bool(team_google_key.strip()),
                     ):
-                        if team_finish_clock <= team_start_clock:
+                        if team_week_start.weekday() != 0:
+                            st.error(
+                                "Week commencing must be a Monday."
+                            )
+                        elif team_finish_clock <= team_start_clock:
                             st.error(
                                 "Latest return must be after the leave time."
                             )
-                        elif not team_working_days:
-                            st.error("Choose at least one team working day.")
                         else:
                             active_surveyors = []
                             invalid_active_rows = []
 
                             for _, row in edited_surveyors.iterrows():
-                                is_active = bool(row.get("Active", False))
                                 name = str(row.get("Name", "")).strip()
                                 location = str(
                                     row.get(
@@ -1851,51 +600,50 @@ with tab4:
                                         "",
                                     )
                                 ).strip()
-                                active_from_raw = row.get("Active From")
-                                active_from = pd.to_datetime(
-                                    active_from_raw,
-                                    errors="coerce",
-                                )
 
-                                if not is_active:
+                                available_dates = [
+                                    d
+                                    for d, label in availability_columns.items()
+                                    if bool(row.get(label, False))
+                                ]
+
+                                # No dates ticked = not working this week.
+                                if not available_dates:
                                     continue
+
                                 if not name:
                                     invalid_active_rows.append(
-                                        "An active surveyor has no name."
+                                        "A surveyor with availability selected "
+                                        "has no name."
                                     )
                                     continue
                                 if not location:
                                     invalid_active_rows.append(
-                                        f"{name} has no start / finish location."
+                                        f"{name} has availability selected but "
+                                        "no start / finish location."
                                     )
-                                    continue
-                                if pd.isna(active_from):
-                                    invalid_active_rows.append(
-                                        f"{name} has no valid Active From date."
-                                    )
-                                    continue
-
-                                active_from_date = active_from.date()
-                                if active_from_date > (
-                                    team_week_start + timedelta(days=6)
-                                ):
-                                    # They exist in the team, but are not active yet.
                                     continue
 
                                 active_surveyors.append(
                                     SurveyorConfig(
                                         name=name,
                                         start_location=location,
-                                        active_from=active_from_date,
+                                        available_dates=available_dates,
                                     )
                                 )
+
+                            all_available_dates = sorted({
+                                d
+                                for surveyor in active_surveyors
+                                for d in (surveyor.available_dates or [])
+                            })
 
                             if invalid_active_rows:
                                 for message in invalid_active_rows:
                                     st.error(message)
                             elif not active_surveyors:
                                 st.error(
-                                    "No surveyors are active for the selected week."
+                                    "No surveyors have any availability selected for this week."
                                 )
                             else:
                                 try:
@@ -1963,9 +711,25 @@ with tab4:
                                                 )
                                             )
 
-                                        total_team_candidate_cap = (
-                                            int(team_max_candidates)
-                                            * len(active_surveyors)
+                                        effective_candidate_caps = {
+                                            surveyor.name: max(
+                                                1,
+                                                round(
+                                                    int(team_max_candidates)
+                                                    * min(
+                                                        5,
+                                                        len(
+                                                            surveyor.available_dates
+                                                            or []
+                                                        ),
+                                                    )
+                                                    / 5
+                                                ),
+                                            )
+                                            for surveyor in active_surveyors
+                                        }
+                                        total_team_candidate_cap = sum(
+                                            effective_candidate_caps.values()
                                         )
 
                                         team_planner = None
@@ -2002,7 +766,7 @@ with tab4:
                                                     f"{team_period_end}"
                                                 ),
                                                 working_days=len(
-                                                    team_working_days
+                                                    all_available_dates
                                                 ),
                                                 max_sites_for_google=(
                                                     total_team_candidate_cap
@@ -2091,25 +855,8 @@ with tab4:
                                             )
                                         )
 
-                                        first_working_offset = min(
-                                            [
-                                                [
-                                                    "Monday",
-                                                    "Tuesday",
-                                                    "Wednesday",
-                                                    "Thursday",
-                                                    "Friday",
-                                                ].index(day)
-                                                for day in team_working_days
-                                            ]
-                                        )
                                         allocation_departure = datetime.combine(
-                                            (
-                                                team_week_start
-                                                + timedelta(
-                                                    days=first_working_offset
-                                                )
-                                            ),
+                                            min(all_available_dates),
                                             team_start_clock,
                                             tzinfo=LONDON_TZ,
                                         )
@@ -2161,22 +908,6 @@ with tab4:
                                                 ),
                                             )
                                         )
-
-                                        day_names = [
-                                            "Monday",
-                                            "Tuesday",
-                                            "Wednesday",
-                                            "Thursday",
-                                            "Friday",
-                                        ]
-                                        chosen_team_dates = [
-                                            team_week_start
-                                            + timedelta(days=offset)
-                                            for offset, day_name in enumerate(
-                                                day_names
-                                            )
-                                            if day_name in team_working_days
-                                        ]
 
                                         team_results = {}
                                         combined_candidate_frames = []
@@ -2303,14 +1034,9 @@ with tab4:
                                                 )
                                             )
 
-                                            surveyor_dates = [
-                                                d
-                                                for d in chosen_team_dates
-                                                if (
-                                                    surveyor.active_from is None
-                                                    or d >= surveyor.active_from
-                                                )
-                                            ]
+                                            surveyor_dates = list(
+                                                surveyor.available_dates or []
+                                            )
 
                                             if not surveyor_dates:
                                                 team_results[
@@ -2366,6 +1092,18 @@ with tab4:
                                                     "Start / Finish": (
                                                         surveyor.start_location
                                                     ),
+                                                    "Available Dates": ", ".join(
+                                                        d.strftime("%a %d %b")
+                                                        for d in (
+                                                            surveyor.available_dates
+                                                            or []
+                                                        )
+                                                    ),
+                                                    "Google Candidate Cap": (
+                                                        effective_candidate_caps.get(
+                                                            surveyor.name, 0
+                                                        )
+                                                    ),
                                                     "Surveys": 0,
                                                     "Survey Minutes": 0,
                                                     "Travel Minutes": 0,
@@ -2377,6 +1115,18 @@ with tab4:
                                                 "Surveyor": surveyor.name,
                                                 "Start / Finish": (
                                                     surveyor.start_location
+                                                ),
+                                                "Available Dates": ", ".join(
+                                                    d.strftime("%a %d %b")
+                                                    for d in (
+                                                        surveyor.available_dates
+                                                        or []
+                                                    )
+                                                ),
+                                                "Google Candidate Cap": (
+                                                    effective_candidate_caps.get(
+                                                        surveyor.name, 0
+                                                    )
                                                 ),
                                                 "Surveys": (
                                                     result.total_surveys
@@ -2793,3 +1543,18 @@ with tab4:
             st.error(
                 f"Could not process the master portfolio spreadsheet: {exc}"
             )
+
+
+with tab3:
+    st.subheader("Duration fallback models")
+    st.dataframe(
+        predictor.model_summary(),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "MAE is leave-one-out cross-validation error on the historical "
+        "completed-survey data."
+    )
+
+

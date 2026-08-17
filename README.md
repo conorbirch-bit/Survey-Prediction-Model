@@ -488,3 +488,61 @@ No Google route matrix is required to order the long-term remainder.
 
 The downloaded team workbook includes a `Drawing Priority` sheet containing the
 full list, not just the first rows shown in Streamlit.
+
+
+## Version 14 — unified weekly scheduling
+
+The separate `Upcoming surveys + routing` and `Team weekly schedule` workflows
+have been merged into one **Weekly scheduling** tab.
+
+The three top-level tabs are now:
+- Predict one building
+- Weekly scheduling
+- Model diagnostics
+
+The weekly scheduler works for one, two, three or four surveyors. If only one
+person has availability selected, it behaves as a one-person weekly scheduler.
+
+### Exact surveyor availability
+
+After choosing a Monday week commencing date, the app displays the five dates
+for that week as checkbox columns beside every surveyor, for example:
+
+```text
+Name       Start / Finish       Mon 24 Aug  Tue 25 Aug  Wed 26 Aug ...
+Conor      Harpenden Station        ✓           ✓           ✓
+Surveyor 2 Croydon Station          ✓           ✓
+Surveyor 3 Watford Junction                                 ✓
+```
+
+A surveyor with no dates selected creates no Google routing calls.
+
+The detailed Google candidate allowance also scales with availability. With the
+default 40-candidate five-day cap:
+- 5 available days → up to 40 candidates
+- 3 available days → about 24 candidates
+- 2 available days → about 16 candidates
+- 1 available day → about 8 candidates
+
+This prevents a part-week surveyor from receiving the same routing workload and
+API spend as someone working all five days.
+
+### Hard Google horizon
+
+Google Routes is only used for the single selected week.
+
+Paid Google calls are limited to:
+1. each available surveyor's home/start location to the small set of selected
+   cluster representatives, dated on that person's first available day;
+2. that surveyor's own capped candidate shortlist on their actual available
+   dates in the selected week.
+
+No Google routing is performed for week +1, week +2, week +3, etc.
+
+Future weeks may still influence:
+- AI cluster strategy;
+- future-cluster counts;
+- drawing priority.
+
+Those future signals use spreadsheet/postcode/AI analysis only, not Google
+journey calculations.

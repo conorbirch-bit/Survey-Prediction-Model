@@ -13,7 +13,7 @@ from portfolio_clusterer import _site_sort_frame
 class SurveyorConfig:
     name: str
     start_location: str
-    active_from: object = None
+    available_dates: object = None
 
 
 @dataclass
@@ -89,10 +89,19 @@ def home_to_cluster_matrix(
     result = {}
 
     for surveyor in surveyors:
+        surveyor_departure = departure_time
+        if surveyor.available_dates:
+            first_available = min(surveyor.available_dates)
+            surveyor_departure = departure_time.replace(
+                year=first_available.year,
+                month=first_available.month,
+                day=first_available.day,
+            )
+
         durations = router.one_to_many(
             surveyor.start_location,
             destinations,
-            departure_time,
+            surveyor_departure,
         )
         for rep, minutes in zip(representatives, durations):
             if minutes is not None:
@@ -141,7 +150,15 @@ def allocate_cluster_targets(
         return []
 
     capacities = {
-        s.name: int(max_sites_per_surveyor) for s in surveyors
+        s.name: max(
+            1,
+            round(
+                int(max_sites_per_surveyor)
+                * min(5, len(s.available_dates or []))
+                / 5
+            ),
+        )
+        for s in surveyors
     }
     assigned_sites = {s.name: 0 for s in surveyors}
     assigned_minutes = {s.name: 0.0 for s in surveyors}
@@ -214,9 +231,20 @@ def allocate_cluster_targets(
                         c_cluster,
                     )
                 )
+            total_available_days = max(
+                1,
+                sum(
+                    min(5, len(s.available_dates or []))
+                    for s in surveyors
+                ),
+            )
+            surveyor_day_share = (
+                min(5, len(surveyor.available_dates or []))
+                / total_available_days
+            )
             target_minutes = max(
                 1.0,
-                total_selected_minutes / len(surveyors),
+                total_selected_minutes * surveyor_day_share,
             )
 
             load_penalty = (
@@ -309,8 +337,20 @@ def build_team_shortlists(
     counts = {s.name: 0 for s in surveyors}
 
     for allocation in ordered:
+        surveyor_cfg = next(
+            s for s in surveyors
+            if s.name == allocation.surveyor_name
+        )
+        effective_capacity = max(
+            1,
+            round(
+                int(max_sites_per_surveyor)
+                * min(5, len(surveyor_cfg.available_dates or []))
+                / 5
+            ),
+        )
         remaining_capacity = (
-            int(max_sites_per_surveyor)
+            effective_capacity
             - counts[allocation.surveyor_name]
         )
         if remaining_capacity <= 0:
@@ -357,10 +397,18 @@ def build_team_shortlists(
             helper = [
                 c for c in df.columns if c.startswith("_")
             ]
+            effective_capacity = max(
+                1,
+                round(
+                    int(max_sites_per_surveyor)
+                    * min(5, len(surveyor.available_dates or []))
+                    / 5
+                ),
+            )
             output[surveyor.name] = df.drop(
                 columns=helper,
                 errors="ignore",
-            ).head(int(max_sites_per_surveyor))
+            ).head(effective_capacity)
 
     return output
 
