@@ -258,3 +258,233 @@ weather/disruption or low-confidence predictions are worth watching.
 This second AI call cannot modify the schedule. It is deliberately separated
 from the optimisation step so the explanation cannot override Google travel
 times or the hard working-day constraints.
+
+
+## Version 11 — cluster pre-filter before Google Routes
+
+This version changes the cost architecture.
+
+### Old flow
+
+```text
+All eligible sites
+→ Google Route Matrix
+→ schedule
+```
+
+With a large portfolio, Google could repeatedly compare the current location
+against hundreds or thousands of sites.
+
+### New flow
+
+```text
+Full portfolio
+→ drawing / earliest-date eligibility
+→ free postcode-district aggregation
+→ OpenAI reviews cluster summaries
+→ small strategic site shortlist
+→ Google Route Matrix
+→ validated weekly schedule
+```
+
+Google Routes only receives the number set in **Maximum sites sent to Google
+Routes** (default 60 for a full week and 25 for a single day).
+
+The app displays:
+- total portfolio sites;
+- sites eligible for the selected week;
+- sites actually sent to Google;
+- percentage filtered before Google;
+- cluster summaries;
+- AI-selected clusters;
+- the exact Google shortlist.
+
+### Drawing-status rule
+
+The master spreadsheet can optionally contain:
+
+```text
+Drawing Status
+Earliest Survey Date
+```
+
+Recognised drawing states include values such as `Ready`, `Drawn`,
+`Drawing Complete`, `Needs Drawing`, `Undrawn`, etc.
+
+If a site is marked **Needs Drawing**, the app gives the drawing team a one-week
+lead time:
+
+- current-week scheduling: the site is excluded;
+- next Monday onwards: the site can be considered using its available duration
+  inputs, even if Ground Floor Area is still missing.
+
+If `Earliest Survey Date` is supplied, that explicit date takes precedence.
+
+This means a future master portfolio can contain both:
+- existing survey-ready sites;
+- sites that still need drawings.
+
+### Duration accuracy
+
+Sites that only have Building Height + Sovereign Flats still receive a fallback
+duration prediction. Once Internal Ground Floor Area is added, the duration
+model automatically uses the richer three-input model.
+
+### AI / Google responsibility split
+
+- **Postcode logic** cheaply creates the portfolio cluster summaries.
+- **OpenAI** decides which clusters are strategically worth considering.
+- **OpenAI site reasoning** only sees the reduced shortlist.
+- **Google Routes** calculates actual public-transport journeys only for the
+  shortlist.
+- **Python** continues to enforce the hard start/return constraints.
+
+The AI cannot send more sites to Google than the UI maximum.
+
+### Excel output
+
+The schedule workbook now includes:
+- schedule sheets;
+- Portfolio;
+- Cluster Summary;
+- Selected Clusters;
+- Google Shortlist.
+
+This makes the filtering decision auditable.
+
+
+## Version 12 — multi-surveyor weekly scheduling
+
+Version 12 keeps the Version 11 cost-control architecture and adds a dedicated
+**Team weekly schedule** tab.
+
+### Team flow
+
+```text
+Full portfolio
+→ drawing / earliest-date eligibility
+→ cheap postcode-district cluster summary
+→ AI strategic cluster selection
+→ tiny Google home-to-cluster assignment matrix
+→ split cluster workload across active surveyors
+→ capped, non-overlapping shortlist for each surveyor
+→ Google transit scheduler for each person's own shortlist
+→ combined team workbook
+```
+
+### Surveyor setup
+
+The team editor contains four rows by default:
+
+- Conor Birch
+- Surveyor 2
+- Surveyor 3
+- Surveyor 4
+
+Each row has:
+- Name
+- Active
+- Start / Finish Location
+- Active From
+
+Only active surveyors whose start date falls within/before the selected week are
+routed. An inactive or future-starting surveyor creates no Google routing spend.
+
+The currently selected team working days and leave/latest-return times are shared
+across the team. Individual start locations and active dates are supported.
+
+### Cost control
+
+The new control **Max Google candidates per surveyor** defaults to 40.
+
+For a three-person week this therefore caps the detailed candidate pool at about:
+
+```text
+3 surveyors × 40 = 120 candidate sites
+```
+
+rather than exposing the full portfolio to every surveyor.
+
+Before detailed routing, Google is used once for a deliberately tiny allocation
+matrix:
+
+```text
+active surveyor homes × selected cluster representatives
+```
+
+For example, 3 surveyors and 6 selected clusters creates only 18 home-to-cluster
+elements. This gives the team allocator real transit evidence about which
+clusters are sensible from each person's home, without matrixing the full
+portfolio.
+
+Large clusters may be split across more than one surveyor. Site assignment is
+non-overlapping: the same building cannot be placed in two surveyors' candidate
+pools.
+
+### Team workbook
+
+The downloaded team workbook contains:
+- Team Summary
+- Full Team Schedule
+- Cluster Summary
+- Selected Clusters
+- Team Allocations
+- Home Cluster Matrix
+- Google Shortlists
+- Portfolio
+- one full-week schedule sheet per active surveyor
+
+### Long-range planning
+
+Version 12 still uses detailed Google transit routing only for the week being
+created. The wider portfolio remains represented by cheap cluster summaries for
+strategic planning.
+
+
+## Version 13 — direct Salesforce master report support
+
+Version 13 can read the Salesforce report format used by the current master list
+without requiring a manual clean-up step.
+
+### Salesforce import handling
+
+The importer now:
+- detects the real table header even when report titles and Salesforce filters
+  occupy the first rows of the workbook;
+- strips Salesforce sort arrows from headers;
+- carries grouped `Work Type Name` and `Status` values down to each building;
+- removes report footer / totals rows;
+- extracts a UK postcode from the end of `Building Name` when there is no
+  standalone Postcode column.
+
+### Drawing-status business rule
+
+The following combination is automatically interpreted as a drawing job:
+
+```text
+Work Type Name = Plan Drafting
+AND
+Status = Work Request
+→ Drawing Status = Needs Drawing
+```
+
+`Geospatial Asset Mapping` rows are treated as `Ready` unless an explicit
+Drawing Status already exists.
+
+The existing one-week lead-time rule then applies:
+- Needs Drawing rows are excluded from the current survey week;
+- they can become provisionally eligible from the following Monday.
+
+### Drawing Priority queue
+
+The Team weekly schedule now also creates a full numbered `Drawing Priority`
+queue for every `Needs Drawing` site.
+
+Priority logic:
+1. sites belonging to clusters selected for the target survey week;
+2. remaining sites ordered cheaply by cluster workload / planned-date signals.
+
+No Google route matrix is required to order the long-term remainder.
+
+The downloaded team workbook includes a `Drawing Priority` sheet containing the
+full list, not just the first rows shown in Streamlit.

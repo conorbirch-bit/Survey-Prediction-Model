@@ -1,20 +1,27 @@
-VERSION 10 — AI WEEK SUMMARY
+VERSION 13 — SALESFORCE MASTER + TEAM SCHEDULER
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
-You should see:
-    Version 10 — AI week summary and schedule reasoning
+Look for:
+    Version 13 — Salesforce master import + team scheduling
 
-After a weekly schedule is created, the app now displays:
-    AI summary of the week
+This version accepts the Salesforce report export directly.
 
-This explains:
-- the clustering strategy
-- why sites were deferred
-- tighter/looser days
-- weather/TfL considerations
-- lower-confidence duration predictions
+Automatic rules:
+    Plan Drafting + Work Request = Needs Drawing
+    Geospatial Asset Mapping = Ready
 
-The summary is explanation-only and cannot alter the validated schedule.
+The importer also:
+    - finds the real Salesforce header row
+    - fills grouped Work Type / Status labels down
+    - extracts postcodes from Building Name
+    - ignores report footer rows
+
+Team output now includes:
+    Drawing Priority
+
+Drawing Priority is a numbered queue for all Needs Drawing sites. Clusters
+needed for the target survey week are placed first; the rest are ordered using
+cheap portfolio signals without Google routing.

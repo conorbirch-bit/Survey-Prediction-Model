@@ -15,6 +15,15 @@ class AIPlanDecision:
     reason: str
 
 
+@dataclass
+class AIClusterDecision:
+    cluster: str
+    priority: int
+    target_sites: int
+    decision: str
+    reason: str
+
+
 class OpenAISchedulePlanner:
     """
     AI decision layer.
@@ -33,6 +42,142 @@ class OpenAISchedulePlanner:
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
+
+
+    def select_clusters(
+        self,
+        cluster_summary: list,
+        week_label: str,
+        working_days: int,
+        max_sites_for_google: int,
+        tfl_summary: str,
+        weather_summary: str,
+        team_size: int = 1,
+    ):
+        """
+        Strategic portfolio filter.
+
+        This runs BEFORE Google Routes. It receives postcode-cluster summaries,
+        not thousands of individual route candidates, and chooses which clusters
+        are worth precise transit routing for the requested week.
+        """
+
+        instructions = """
+You are the strategic portfolio-filter layer for UK site-survey scheduling.
+
+You are NOT a routing engine. Do not estimate or invent journey times. Google
+Routes will only be called AFTER your cluster shortlist.
+
+You are given cheap postcode-district summaries across a potentially very large
+portfolio. Choose a small set of clusters that are genuinely worth considering
+for the requested survey week.
+
+Objectives:
+- create geographically coherent survey days;
+- prefer clusters with enough eligible survey work to sustain useful days;
+- respect existing planned work where it creates sensible continuity;
+- consider prediction confidence and total available survey hours;
+- use TfL disruption and weather only as risk/context, not as invented routing;
+- avoid selecting isolated clusters when a stronger cluster can fill the week;
+- remember that sites awaiting drawing may become useful in later weeks, but
+  only "Eligible This Week" sites can enter the Google shortlist now;
+- keep Google cost low by not selecting unnecessary clusters.
+
+The total target_sites across selected clusters should normally be close to,
+but never exceed, max_sites_for_google. Select enough candidates that the
+deterministic Google scheduler has choice, but do not send the whole portfolio.
+
+For one surveyor, roughly 2-6 clusters for a five-day week is normally enough.
+For a team, select enough coherent clusters to feed the active surveyors without
+creating unnecessary geographic spread. A team of 3-4 may reasonably need more
+clusters than a single surveyor. For a single day, usually 1-2 clusters per
+active surveyor is enough.
+
+Priority is 0-100. Return JSON only:
+{
+  "selected_clusters": [
+    {
+      "cluster": "NW9",
+      "priority": 92,
+      "target_sites": 18,
+      "decision": "consider_this_week",
+      "reason": "brief reason"
+    }
+  ],
+  "deferred_clusters": [
+    {
+      "cluster": "SW9",
+      "reason": "brief reason"
+    }
+  ],
+  "strategy": "brief strategic explanation"
+}
+"""
+
+        payload = {
+            "week": week_label,
+            "working_days": int(working_days),
+            "team_size": int(team_size),
+            "max_sites_for_google": int(max_sites_for_google),
+            "cluster_summary": cluster_summary,
+            "tfl_disruption_summary": tfl_summary,
+            "weather_summary": weather_summary,
+        }
+
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=json.dumps(payload, ensure_ascii=False, default=str),
+        )
+
+        text = response.output_text.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+
+        data = json.loads(text)
+
+        decisions = []
+        total_requested = 0
+        for item in data.get("selected_clusters", []):
+            cluster = str(item.get("cluster", "")).strip()
+            if not cluster:
+                continue
+
+            try:
+                priority = int(item.get("priority", 50))
+            except Exception:
+                priority = 50
+            priority = max(0, min(100, priority))
+
+            try:
+                target_sites = int(item.get("target_sites", 1))
+            except Exception:
+                target_sites = 1
+            target_sites = max(1, target_sites)
+
+            # Hard cap: AI can never ask Google to see more than the UI limit.
+            remaining = max(0, int(max_sites_for_google) - total_requested)
+            if remaining <= 0:
+                break
+            target_sites = min(target_sites, remaining)
+            total_requested += target_sites
+
+            decisions.append(
+                AIClusterDecision(
+                    cluster=cluster,
+                    priority=priority,
+                    target_sites=target_sites,
+                    decision=str(
+                        item.get("decision", "consider_this_week")
+                    ),
+                    reason=str(item.get("reason", "")),
+                )
+            )
+
+        deferred = data.get("deferred_clusters", [])
+        return decisions, deferred, str(data.get("strategy", ""))
 
     def summarise_week(
         self,
