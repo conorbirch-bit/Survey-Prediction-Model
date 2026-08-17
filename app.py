@@ -36,7 +36,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 14 — unified weekly scheduling")
+st.caption("Version 15 — unified weekly scheduling + same-campus routing bypass")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -494,12 +494,17 @@ with tab2:
                         )
                     with team_settings[2]:
                         team_same_postcode = st.number_input(
-                            "Same-postcode transfer (min)",
+                            "Same-campus transfer (min)",
                             min_value=0,
                             max_value=30,
                             value=5,
                             step=1,
                             key="team_same_postcode",
+                            help=(
+                                "Used instead of Google when two consecutive "
+                                "buildings have the same full postcode and similar "
+                                "building/address names."
+                            ),
                         )
                     with team_settings[3]:
                         use_team_ai_clusters = st.checkbox(

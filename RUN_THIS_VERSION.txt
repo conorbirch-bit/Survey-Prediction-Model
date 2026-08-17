@@ -1,36 +1,24 @@
-VERSION 14 — UNIFIED WEEKLY SCHEDULER
+VERSION 15 — UNIFIED WEEKLY SCHEDULER + SAME-CAMPUS BYPASS
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
 Look for:
-    Version 14 — unified weekly scheduling
+    Version 15 — unified weekly scheduling + same-campus routing bypass
 
-Top tabs:
-    Predict one building
-    Weekly scheduling
-    Model diagnostics
+Key cost optimisation:
+    same full postcode + similar building/address name
+    = same campus
 
-Weekly scheduling:
-    - upload the Salesforce/master portfolio once
-    - choose one Monday week commencing
-    - enter each surveyor's start / finish location
-    - tick the exact Mon-Fri dates each surveyor is available
-    - create all schedules together
+Google Route Matrix sees only ONE representative destination per campus.
+Movement between buildings on that campus uses the fixed Same-campus transfer
+time (default 5 minutes) and does not call Google.
 
-GOOGLE COST RULE:
-    Google Routes is used ONLY for the selected week.
-    Future weeks can influence clustering and drawing priority but do not trigger
-    Google route calculations.
+Google is still used:
+    - to reach the campus
+    - between different campuses
+    - to validate the trip home
 
-Availability also scales the detailed route shortlist:
-    5 days ≈ 40 candidates
-    3 days ≈ 24 candidates
-    2 days ≈ 16 candidates
-    1 day  ≈ 8 candidates
-when the default five-day cap is 40.
-
-Salesforce rule retained:
-    Plan Drafting + Work Request = Needs Drawing
-    Geospatial Asset Mapping = Ready
+Hard horizon remains:
+    Google Routes is used ONLY for the single selected week.

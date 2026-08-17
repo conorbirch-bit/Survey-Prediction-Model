@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 import math
 import re
+from difflib import SequenceMatcher
 
 import pandas as pd
 
@@ -21,6 +22,99 @@ def postcode_district(postcode: str) -> str:
     # Fallback for compact postcodes: remove the final three-character inward code.
     compact = re.sub(r"\s+", "", text)
     return compact[:-3] if len(compact) > 3 else compact
+
+
+def _normalise_postcode(postcode: str) -> str:
+    return re.sub(r"\s+", "", str(postcode or "").upper())
+
+
+def _normalise_site_name(name: str, postcode: str = "") -> str:
+    """
+    Reduce Salesforce building/address text to a comparable campus signature.
+
+    Examples:
+      "102831 | A-B, 155 Cambridge Street SW1V 4QB"
+      "101100 | 157 Cambridge Street SW1V 4QB"
+
+    both become close to "cambridge street".
+    """
+    text = str(name or "").lower()
+
+    # Remove a leading Salesforce / asset reference before the pipe.
+    if "|" in text:
+        text = text.split("|", 1)[1]
+
+    pc = _normalise_postcode(postcode).lower()
+    compact_text = re.sub(r"\s+", "", text)
+    if pc and pc in compact_text:
+        # Remove postcode in a spacing-insensitive way by first replacing the
+        # normally formatted postcode variants.
+        formatted = str(postcode or "").lower().strip()
+        if formatted:
+            text = text.replace(formatted, " ")
+
+    # Remove flat numbers, street numbers and punctuation so nearby blocks with
+    # the same underlying estate/address wording compare well.
+    text = re.sub(r"\b\d+[a-z]?\b", " ", text)
+    text = re.sub(r"\b[a-z]\s*-\s*[a-z]\b", " ", text)
+    text = re.sub(r"[^a-z\s]", " ", text)
+
+    # These tokens commonly vary between blocks on the same campus but do not
+    # materially identify a different site.
+    weak_tokens = {
+        "block", "blocks", "building", "buildings",
+        "flat", "flats", "car", "park", "parking",
+        "entrance", "wing", "tower",
+    }
+
+    tokens = [
+        token
+        for token in text.split()
+        if len(token) > 1 and token not in weak_tokens
+    ]
+    return " ".join(tokens)
+
+
+def same_campus(
+    name_a: str,
+    postcode_a: str,
+    name_b: str,
+    postcode_b: str,
+    similarity_threshold: float = 0.62,
+) -> bool:
+    """
+    Treat two buildings as the same campus/site group when:
+      1) their full postcodes match; and
+      2) their normalised building/address names are similar.
+
+    This is intentionally conservative: postcode match is mandatory.
+    """
+    pc_a = _normalise_postcode(postcode_a)
+    pc_b = _normalise_postcode(postcode_b)
+    if not pc_a or pc_a != pc_b:
+        return False
+
+    a = _normalise_site_name(name_a, postcode_a)
+    b = _normalise_site_name(name_b, postcode_b)
+    if not a or not b:
+        return False
+
+    tokens_a = set(a.split())
+    tokens_b = set(b.split())
+
+    # Strong signal: one address signature is contained within the other.
+    if tokens_a.issubset(tokens_b) or tokens_b.issubset(tokens_a):
+        if len(tokens_a & tokens_b) >= 2:
+            return True
+
+    jaccard = (
+        len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+        if (tokens_a | tokens_b)
+        else 0.0
+    )
+    sequence = SequenceMatcher(None, a, b).ratio()
+
+    return max(jaccard, sequence) >= similarity_threshold
 
 
 @dataclass
@@ -158,9 +252,11 @@ class DailyTransitScheduler:
     """
     Greedy, time-dependent public-transport scheduler.
 
-    At every stop it asks Google for current-location -> all remaining sites,
-    then tests the best candidates to ensure the survey plus a transit journey
-    home still finishes before the hard return deadline.
+    At every stop it asks Google for current-location -> remaining sites that
+    are not already recognised as the same campus. Same-postcode + similar-name
+    internal moves bypass Google completely and use the configured fixed transfer
+    time. It then tests the best candidates to ensure the survey plus a transit
+    journey home still finishes before the hard return deadline.
 
     Shorter inter-site public-transport journeys are naturally favoured, so the
     chosen route tends to form a geographic/transit cluster without hardcoding
@@ -203,23 +299,80 @@ class DailyTransitScheduler:
 
         current_location = self.home_location
         current_postcode = ""
+        current_building_name = ""
         current_time = start_time
 
         while remaining:
-            destinations = [s["route_location"] for s in remaining]
+            # Same-campus candidates are deliberately EXCLUDED from the Google
+            # Route Matrix. They receive the fixed internal-transfer time instead.
+            #
+            # Remaining destinations are also collapsed by campus before Google
+            # is called. If six candidate buildings share the same full postcode
+            # and similar address/name text, Google sees one representative
+            # destination and that journey time is reused for all six candidates.
+            travel_by_index = {}
+            external_indices = []
 
-            # If already at the same postcode as a candidate, avoid a pointless
-            # transit lookup for that site and treat it as a short internal move.
-            matrix = self.router.one_to_many(
-                current_location,
-                destinations,
-                current_time,
-            )
+            for idx, site in enumerate(remaining):
+                if (
+                    current_postcode
+                    and same_campus(
+                        current_building_name,
+                        current_postcode,
+                        site.get("building_name", ""),
+                        site.get("postcode", ""),
+                    )
+                ):
+                    travel_by_index[idx] = float(
+                        self.same_postcode_transfer_minutes
+                    )
+                else:
+                    external_indices.append(idx)
+
+            campus_groups = []
+            for idx in external_indices:
+                site = remaining[idx]
+                placed = False
+
+                for group in campus_groups:
+                    representative = remaining[group["indices"][0]]
+                    if same_campus(
+                        representative.get("building_name", ""),
+                        representative.get("postcode", ""),
+                        site.get("building_name", ""),
+                        site.get("postcode", ""),
+                    ):
+                        group["indices"].append(idx)
+                        placed = True
+                        break
+
+                if not placed:
+                    campus_groups.append({
+                        "indices": [idx],
+                        "route_location": site["route_location"],
+                    })
+
+            if campus_groups:
+                google_destinations = [
+                    group["route_location"]
+                    for group in campus_groups
+                ]
+                google_matrix = self.router.one_to_many(
+                    current_location,
+                    google_destinations,
+                    current_time,
+                )
+
+                for group, minutes in zip(
+                    campus_groups,
+                    google_matrix,
+                ):
+                    for idx in group["indices"]:
+                        travel_by_index[idx] = minutes
 
             ranked = []
-            for idx, (site, minutes) in enumerate(zip(remaining, matrix)):
-                if self._same_postcode(current_postcode, site.get("postcode")):
-                    minutes = float(self.same_postcode_transfer_minutes)
+            for idx, site in enumerate(remaining):
+                minutes = travel_by_index.get(idx)
 
                 if minutes is None:
                     continue
@@ -348,6 +501,7 @@ class DailyTransitScheduler:
 
             current_location = site["route_location"]
             current_postcode = site.get("postcode", "")
+            current_building_name = site.get("building_name", "")
             current_time = ready_to_leave
             remaining.pop(idx)
 

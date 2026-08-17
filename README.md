@@ -546,3 +546,58 @@ Future weeks may still influence:
 
 Those future signals use spreadsheet/postcode/AI analysis only, not Google
 journey calculations.
+
+
+## Version 15 — same-campus Google bypass
+
+Version 15 reduces Google Route Matrix usage for sites that are effectively on
+the same campus / estate.
+
+Two buildings are treated as the same campus when:
+1. their **full postcode is identical**; and
+2. their normalised building/address names are sufficiently similar.
+
+The name comparison strips Salesforce asset IDs, street/flat numbers,
+postcodes and weak words such as `block`, `building`, `car park`, etc.
+
+Examples that are recognised as the same campus:
+
+```text
+102831 | A-B, 155 Cambridge Street SW1V 4QB
+101100 | 157 Cambridge Street SW1V 4QB
+101101 | 159 Cambridge Street SW1V 4QB
+```
+
+and:
+
+```text
+Arlidge House EC1N 8TW
+Car Park Arlidge House EC1N 8TW
+```
+
+### Google cost behaviour
+
+Before calling Google, remaining candidates are grouped into same-campus groups.
+
+If six candidate buildings are on the same campus:
+
+```text
+Home
+→ Google sees ONE representative campus destination
+→ first campus building
+→ fixed internal transfer
+→ second campus building
+→ fixed internal transfer
+→ ...
+```
+
+The fixed internal transfer is controlled by **Same-campus transfer (min)**,
+default 5 minutes.
+
+Google is still used where it matters:
+- travelling from a surveyor's start location to a campus;
+- travelling between genuinely different campuses/locations;
+- validating the journey home against the hard return deadline.
+
+The existing Version 14 rule remains unchanged: Google is only used for the one
+selected scheduling week, never for future-week strategic clustering.
