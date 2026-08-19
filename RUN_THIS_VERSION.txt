@@ -1,24 +1,34 @@
-VERSION 15 — UNIFIED WEEKLY SCHEDULER + SAME-CAMPUS BYPASS
+VERSION 16 — WEEKLY NOTES WITH HARD-RULE PROTECTION
 
 Run:
     pip install -r requirements.txt
     streamlit run app.py
 
 Look for:
-    Version 15 — unified weekly scheduling + same-campus routing bypass
+    Version 16 — weekly notes with hard-rule protection
 
-Key cost optimisation:
-    same full postcode + similar building/address name
-    = same campus
+New section under Weekly scheduling:
+    Weekly notes / special requests
 
-Google Route Matrix sees only ONE representative destination per campus.
-Movement between buildings on that campus uses the fixed Same-campus transfer
-time (default 5 minutes) and does not call Google.
+Example:
+    Keep Conor as close to Kilburn as possible for Thursday
 
-Google is still used:
-    - to reach the campus
-    - between different campuses
-    - to validate the trip home
+Rule hierarchy:
+    1. Build normal valid schedule.
+    2. Try the note separately.
+    3. Commit it ONLY if the requested area/day can be achieved while all
+       existing hard rules remain valid.
+    4. Otherwise reject it and keep the baseline schedule.
 
-Hard horizon remains:
-    Google Routes is used ONLY for the single selected week.
+Hard rules notes cannot override:
+    - drawing/site eligibility
+    - surveyor availability
+    - no duplicate assignments
+    - buffers / predicted durations
+    - hard latest return
+    - Google routes only the ONE selected week
+
+Supported notes in v16:
+    named surveyor + location preference + specific day/date
+
+Rejected/accepted notes are visible in the app and exported to Weekly Notes.

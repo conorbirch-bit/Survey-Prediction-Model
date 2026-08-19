@@ -601,3 +601,80 @@ Google is still used where it matters:
 
 The existing Version 14 rule remains unchanged: Google is only used for the one
 selected scheduling week, never for future-week strategic clustering.
+
+## Version 16 — weekly notes with hard-rule protection
+
+Version 16 adds an optional **Weekly notes / special requests** section to the
+unified weekly scheduler.
+
+Example:
+
+```text
+Keep Conor as close to Kilburn as possible for Thursday
+```
+
+### Safety / rule hierarchy
+
+Weekly notes are deliberately below the existing hard scheduling rules.
+They can never override:
+- drawing / survey eligibility;
+- the surveyor's selected availability dates;
+- no duplicate building assignments across surveyors;
+- survey duration and operational buffers;
+- the hard latest-return time;
+- Google routing being restricted to the one selected week.
+
+The notes layer is transactional:
+
+```text
+normal valid weekly schedule
+        ↓
+try special request in a separate route trial
+        ↓
+request satisfied + all hard rules still valid?
+        ↓                         ↓
+      YES                        NO
+       ↓                          ↓
+commit trial               reject request
+                         keep baseline schedule
+```
+
+A rejected note therefore does not partially influence or corrupt the normal
+schedule.
+
+### Supported note type
+
+This version intentionally supports one narrow request type reliably:
+
+**named surveyor + requested area + specific day/date**
+
+Examples:
+- `Keep Conor as close to Kilburn as possible for Thursday`
+- `Try to keep Toby around Wembley on Tuesday`
+
+OpenAI parses the note into a structured request. Ambiguous or unsupported notes
+are rejected rather than guessed.
+
+### How location notes are validated
+
+For a supported request, Google is used only inside the selected week to compare
+the requested area against **one representative per eligible postcode cluster**.
+The closest eligible cluster must fall within the configurable
+`Maximum distance from requested area` threshold (default 30 transit minutes).
+
+The scheduler then creates a small trial candidate pool for that surveyor,
+reserves the request-area candidates until the requested date, and reruns only
+that surveyor's selected week. The request is accepted only if the requested
+cluster is actually scheduled on that date and the normal hard rules remain
+valid.
+
+The request results are shown as **Accepted** or **Rejected** with a reason and
+are exported to a `Weekly Notes` sheet in the team workbook.
+
+### API horizon
+
+The original cost rule remains unchanged. Notes may add:
+- one small requested-area → cluster-representative matrix; and
+- one trial reroute for the affected surveyor.
+
+Both use dates in the selected week only. No future week is sent to Google.

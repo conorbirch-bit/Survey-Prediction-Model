@@ -24,6 +24,18 @@ class AIClusterDecision:
     reason: str
 
 
+@dataclass
+class WeekSpecialRequest:
+    raw_note: str
+    request_type: str
+    surveyor_name: str
+    requested_date: str
+    location: str
+    interpretation: str
+    supported: bool
+    rejection_reason: str
+
+
 class OpenAISchedulePlanner:
     """
     AI decision layer.
@@ -43,6 +55,88 @@ class OpenAISchedulePlanner:
         self.model = model
 
 
+
+    def parse_week_notes(
+        self,
+        notes_text: str,
+        surveyors: list,
+        week_dates: list,
+    ):
+        """Parse free-text weekly requests into a narrow supported schema.
+
+        Notes never alter hard scheduling rules. Unsupported or ambiguous notes
+        are explicitly rejected instead of being guessed.
+        """
+        if not str(notes_text or "").strip():
+            return []
+
+        instructions = """
+You parse optional operational notes for a UK site-survey weekly scheduler.
+
+The scheduler's hard rules can NEVER be overridden: drawing/site eligibility,
+surveyor availability, no duplicate site assignment, fixed travel/survey buffers,
+latest return time, and the one-selected-week Google routing horizon all remain
+absolute.
+
+For this version, the ONLY supported note type is a location preference for a
+named surveyor on a specific date/day in the selected week, for example:
+- "keep Conor as close to Kilburn as possible for Thursday"
+- "try to keep Toby around Wembley on Tuesday"
+
+Do not invent a surveyor, date, location or requirement. If the note is not of
+that supported form, is ambiguous, or asks to break/replace another rule, mark it
+unsupported and explain why briefly.
+
+Return JSON only:
+{
+  "requests": [
+    {
+      "raw_note": "original note",
+      "request_type": "location_preference" | "unsupported",
+      "surveyor_name": "exact supplied surveyor name or empty",
+      "requested_date": "YYYY-MM-DD or empty",
+      "location": "requested place or empty",
+      "interpretation": "brief interpretation",
+      "supported": true | false,
+      "rejection_reason": "brief reason if unsupported"
+    }
+  ]
+}
+"""
+
+        payload = {
+            "notes": str(notes_text),
+            "surveyors": surveyors,
+            "selected_week_dates": week_dates,
+        }
+
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=json.dumps(payload, ensure_ascii=False, default=str),
+        )
+        text = response.output_text.strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+        data = json.loads(text)
+
+        requests = []
+        for item in data.get("requests", []):
+            requests.append(
+                WeekSpecialRequest(
+                    raw_note=str(item.get("raw_note", "")),
+                    request_type=str(item.get("request_type", "unsupported")),
+                    surveyor_name=str(item.get("surveyor_name", "")),
+                    requested_date=str(item.get("requested_date", "")),
+                    location=str(item.get("location", "")),
+                    interpretation=str(item.get("interpretation", "")),
+                    supported=bool(item.get("supported", False)),
+                    rejection_reason=str(item.get("rejection_reason", "")),
+                )
+            )
+        return requests
 
     def select_clusters(
         self,

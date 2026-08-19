@@ -409,11 +409,35 @@ class DailyTransitScheduler:
                     else 0.0
                 )
 
+                # Weekly notes are a preference layer only. A preferred site is
+                # fully reserved until its requested date, then strongly favoured
+                # on that date. The normal feasibility/return-home checks below
+                # still decide whether it can actually be scheduled.
+                special_request_adjustment = 0.0
+                preferred_date = site.get("special_request_date")
+                if preferred_date:
+                    try:
+                        if hasattr(preferred_date, "date"):
+                            preferred_date = preferred_date.date()
+                        current_day = start_time.date()
+                        if current_day < preferred_date:
+                            # Do not consume a request-area site on an earlier day.
+                            # If the note trial later fails, the entire trial is
+                            # discarded and the baseline schedule is restored.
+                            continue
+                        elif current_day == preferred_date:
+                            special_request_adjustment -= float(
+                                site.get("special_request_bonus_minutes", 75.0)
+                            )
+                    except Exception:
+                        pass
+
                 score = (
                     float(minutes)
                     - district_bonus
                     - ai_adjustment
                     + defer_penalty
+                    + special_request_adjustment
                 )
                 ranked.append((score, idx, float(minutes)))
 

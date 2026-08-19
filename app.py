@@ -14,6 +14,14 @@ from ai_planner import OpenAISchedulePlanner
 from tfl_client import TfLClient
 from metoffice_client import MetOfficeClient
 from salesforce_master import read_salesforce_or_standard_excel
+from special_requests import (
+    SpecialRequestResult,
+    all_cluster_representatives,
+    choose_nearby_cluster,
+    scheduled_reference_set,
+    build_trial_dataframe,
+    request_results_dataframe,
+)
 from team_scheduler import (
     SurveyorConfig,
     representative_sites,
@@ -36,7 +44,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 15 — unified weekly scheduling + same-campus routing bypass")
+st.caption("Version 16 — weekly notes with hard-rule protection")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -262,6 +270,74 @@ def apply_ai_decisions(sites, decisions):
             site["ai_decision"] = "neutral"
             site["ai_reason"] = "No specific AI decision returned."
     return sites
+
+def site_dataframe_to_dicts(df: pd.DataFrame):
+    sites = []
+    for _, site_row in df.iterrows():
+        building_name = str(site_row.get("Building Name", "")).strip()
+        postcode = str(site_row.get("Postcode", "")).strip()
+        route_location = (
+            f"{building_name}, {postcode}" if building_name else postcode
+        )
+
+        special_date = site_row.get("Special Request Date")
+        if special_date is not None and not pd.isna(special_date):
+            parsed_special_date = pd.to_datetime(
+                special_date, errors="coerce"
+            )
+            special_date = (
+                parsed_special_date.date()
+                if not pd.isna(parsed_special_date)
+                else None
+            )
+        else:
+            special_date = None
+
+        sites.append({
+            "customer_reference": site_row.get("Customer Reference", ""),
+            "building_name": building_name or postcode,
+            "postcode": postcode,
+            "postcode_district": postcode_district(postcode),
+            "route_location": route_location,
+            "planning_minutes": int(
+                site_row["Planning Duration (Minutes)"]
+            ),
+            "predicted_minutes": float(
+                site_row["Predicted Survey Duration (Minutes)"]
+            ),
+            "confidence": site_row["Prediction Confidence"],
+            "model_used": site_row["Prediction Model Used"],
+            "planned_start": str(
+                site_row.get("Planned Start", "") or ""
+            ),
+            "ai_priority": float(
+                site_row.get("AI Cluster Priority", 50)
+            ),
+            "ai_decision": "neutral",
+            "ai_reason": str(
+                site_row.get("AI Cluster Reason", "")
+            ),
+            "special_request_date": special_date,
+            "special_request_text": str(
+                site_row.get("Special Request Text", "") or ""
+            ),
+            "special_request_target_cluster": str(
+                site_row.get("Special Request Target Cluster", "") or ""
+            ),
+            "special_request_bonus_minutes": 75.0,
+        })
+    return sites
+
+
+def result_uses_cluster_on_date(result, requested_date, cluster):
+    if result is None:
+        return False
+    for day in result.days:
+        if day.start_time.date() != requested_date:
+            continue
+        if any(str(item.cluster) == str(cluster) for item in day.items):
+            return True
+    return False
 
 tab1, tab2, tab3 = st.tabs([
     "Predict one building",
@@ -546,6 +622,43 @@ with tab2:
                             key="team_post_buffer",
                         )
 
+                    st.markdown("#### Weekly notes / special requests")
+                    weekly_notes = st.text_area(
+                        "Optional requests for this week",
+                        value="",
+                        height=100,
+                        placeholder=(
+                            "e.g. Keep Conor as close to Kilburn as possible "
+                            "for Thursday"
+                        ),
+                        help=(
+                            "One request per line works best. Notes are tried only "
+                            "after a valid baseline schedule is built. If a request "
+                            "cannot be satisfied without the existing hard rules, "
+                            "the baseline schedule is kept and the note is rejected."
+                        ),
+                    )
+                    special_request_max_minutes = st.number_input(
+                        "Maximum distance from requested area (transit minutes)",
+                        min_value=5,
+                        max_value=90,
+                        value=30,
+                        step=5,
+                        help=(
+                            "For a location note, at least one eligible postcode "
+                            "cluster must be within this Google transit time of the "
+                            "requested area or the note is rejected."
+                        ),
+                    )
+                    st.caption(
+                        "Supported in this version: named-surveyor location requests "
+                        "for a specific day/date. Notes never override availability, "
+                        "drawing eligibility, return-time limits, buffers, duplicate-"
+                        "site rules, or the one-week Google horizon. A note may add "
+                        "one small area-to-cluster lookup and a trial reroute for the "
+                        "affected surveyor, but never routes a future week."
+                    )
+
                     generate_team_ai_summary = st.checkbox(
                         "Generate one AI summary of the final team week",
                         value=True,
@@ -741,6 +854,7 @@ with tab2:
                                         if (
                                             use_team_ai_clusters
                                             or generate_team_ai_summary
+                                            or bool(str(weekly_notes).strip())
                                         ):
                                             if not team_openai_key:
                                                 raise ValueError(
@@ -932,88 +1046,11 @@ with tab2:
                                                 surveyor_df
                                             )
 
-                                            surveyor_sites = []
-                                            for _, site_row in (
-                                                surveyor_df.iterrows()
-                                            ):
-                                                building_name = str(
-                                                    site_row.get(
-                                                        "Building Name",
-                                                        "",
-                                                    )
-                                                ).strip()
-                                                postcode = str(
-                                                    site_row.get(
-                                                        "Postcode",
-                                                        "",
-                                                    )
-                                                ).strip()
-                                                route_location = (
-                                                    f"{building_name}, "
-                                                    f"{postcode}"
-                                                    if building_name
-                                                    else postcode
+                                            surveyor_sites = (
+                                                site_dataframe_to_dicts(
+                                                    surveyor_df
                                                 )
-
-                                                surveyor_sites.append({
-                                                    "customer_reference": (
-                                                        site_row.get(
-                                                            "Customer Reference",
-                                                            "",
-                                                        )
-                                                    ),
-                                                    "building_name": (
-                                                        building_name
-                                                        or postcode
-                                                    ),
-                                                    "postcode": postcode,
-                                                    "postcode_district": (
-                                                        postcode_district(
-                                                            postcode
-                                                        )
-                                                    ),
-                                                    "route_location": (
-                                                        route_location
-                                                    ),
-                                                    "planning_minutes": int(
-                                                        site_row[
-                                                            "Planning Duration "
-                                                            "(Minutes)"
-                                                        ]
-                                                    ),
-                                                    "predicted_minutes": float(
-                                                        site_row[
-                                                            "Predicted Survey "
-                                                            "Duration (Minutes)"
-                                                        ]
-                                                    ),
-                                                    "confidence": site_row[
-                                                        "Prediction Confidence"
-                                                    ],
-                                                    "model_used": site_row[
-                                                        "Prediction Model Used"
-                                                    ],
-                                                    "planned_start": str(
-                                                        site_row.get(
-                                                            "Planned Start",
-                                                            "",
-                                                        )
-                                                        or ""
-                                                    ),
-                                                    "ai_priority": float(
-                                                        site_row.get(
-                                                            "AI Cluster Priority",
-                                                            50,
-                                                        )
-                                                    ),
-                                                    "ai_decision": "neutral",
-                                                    "ai_reason": str(
-                                                        site_row.get(
-                                                            "AI Cluster Reason",
-                                                            "",
-                                                        )
-                                                    ),
-                                                })
+                                            )
 
                                             surveyor_scheduler = (
                                                 DailyTransitScheduler(
@@ -1065,21 +1102,408 @@ with tab2:
                                                 )
                                             )
 
+                                        # Optional weekly notes are transactional:
+                                        # the baseline schedule above remains the fallback.
+                                        # A note only replaces an affected surveyor's week
+                                        # if the trial schedule can actually satisfy it
+                                        # while retaining every hard scheduler constraint.
+                                        special_request_results = []
+
+                                        if str(weekly_notes or "").strip():
+                                            parsed_requests = (
+                                                team_planner.parse_week_notes(
+                                                    notes_text=weekly_notes,
+                                                    surveyors=[
+                                                        {
+                                                            "name": s.name,
+                                                            "available_dates": [
+                                                                d.isoformat()
+                                                                for d in (
+                                                                    s.available_dates
+                                                                    or []
+                                                                )
+                                                            ],
+                                                        }
+                                                        for s in active_surveyors
+                                                    ],
+                                                    week_dates=[
+                                                        d.isoformat()
+                                                        for d in selected_week_dates
+                                                    ],
+                                                )
+                                            )
+
+                                            request_representatives = (
+                                                all_cluster_representatives(
+                                                    team_portfolio,
+                                                    team_week_start,
+                                                )
+                                            )
+
+                                            surveyor_lookup = {
+                                                s.name.lower(): s
+                                                for s in active_surveyors
+                                            }
+
+                                            for request in parsed_requests:
+                                                if (
+                                                    not request.supported
+                                                    or request.request_type
+                                                    != "location_preference"
+                                                ):
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=(
+                                                                request.surveyor_name
+                                                            ),
+                                                            requested_date=(
+                                                                request.requested_date
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            reason=(
+                                                                request.rejection_reason
+                                                                or "Unsupported or ambiguous weekly note."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                surveyor = surveyor_lookup.get(
+                                                    request.surveyor_name.lower()
+                                                )
+                                                if surveyor is None:
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=(
+                                                                request.surveyor_name
+                                                            ),
+                                                            requested_date=(
+                                                                request.requested_date
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            reason=(
+                                                                "The named surveyor is not active "
+                                                                "for the selected week."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                requested_ts = pd.to_datetime(
+                                                    request.requested_date,
+                                                    errors="coerce",
+                                                )
+                                                if pd.isna(requested_ts):
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                request.requested_date
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            reason=(
+                                                                "The requested day/date could not "
+                                                                "be resolved inside the selected week."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                requested_date = requested_ts.date()
+                                                if requested_date not in (
+                                                    surveyor.available_dates or []
+                                                ):
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            reason=(
+                                                                f"{surveyor.name} is not marked "
+                                                                "available on that date."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                if not request.location.strip():
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            reason=(
+                                                                "No location could be identified "
+                                                                "from the note."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                (
+                                                    nearby_cluster,
+                                                    nearest_minutes,
+                                                    _request_ranked_clusters,
+                                                ) = choose_nearby_cluster(
+                                                    router=team_router,
+                                                    request_location=(
+                                                        request.location
+                                                    ),
+                                                    requested_date=requested_date,
+                                                    start_clock=team_start_clock,
+                                                    timezone=LONDON_TZ,
+                                                    representatives=(
+                                                        request_representatives
+                                                    ),
+                                                    max_minutes=float(
+                                                        special_request_max_minutes
+                                                    ),
+                                                )
+
+                                                if nearby_cluster is None:
+                                                    if nearest_minutes is None:
+                                                        reason = (
+                                                            "Google could not identify a reachable "
+                                                            "eligible cluster near the requested area."
+                                                        )
+                                                    else:
+                                                        reason = (
+                                                            f"The nearest eligible cluster was about "
+                                                            f"{nearest_minutes:.0f} minutes from "
+                                                            f"{request.location}, above the "
+                                                            f"{int(special_request_max_minutes)}-minute "
+                                                            "request limit."
+                                                        )
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            anchor_to_cluster_minutes=(
+                                                                nearest_minutes
+                                                            ),
+                                                            reason=reason,
+                                                        )
+                                                    )
+                                                    continue
+
+                                                target_cluster = str(
+                                                    nearby_cluster["cluster"]
+                                                )
+                                                excluded_refs = (
+                                                    scheduled_reference_set(
+                                                        team_results,
+                                                        exclude_name=surveyor.name,
+                                                    )
+                                                )
+
+                                                cap = int(
+                                                    effective_candidate_caps.get(
+                                                        surveyor.name,
+                                                        team_max_candidates,
+                                                    )
+                                                )
+                                                day_count = max(
+                                                    1,
+                                                    len(
+                                                        surveyor.available_dates
+                                                        or []
+                                                    ),
+                                                )
+                                                target_count = max(
+                                                    4,
+                                                    (cap + day_count - 1)
+                                                    // day_count,
+                                                )
+
+                                                current_shortlist = (
+                                                    team_shortlists.get(
+                                                        surveyor.name,
+                                                        pd.DataFrame(),
+                                                    )
+                                                )
+                                                trial_df = build_trial_dataframe(
+                                                    portfolio=team_portfolio,
+                                                    current_shortlist=(
+                                                        current_shortlist
+                                                    ),
+                                                    target_cluster=target_cluster,
+                                                    surveyor_name=surveyor.name,
+                                                    requested_date=requested_date,
+                                                    raw_note=request.raw_note,
+                                                    excluded_refs=excluded_refs,
+                                                    candidate_cap=cap,
+                                                    target_candidate_count=(
+                                                        target_count
+                                                    ),
+                                                    target_week_start=(
+                                                        team_week_start
+                                                    ),
+                                                )
+
+                                                if trial_df.empty:
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            target_cluster=target_cluster,
+                                                            anchor_to_cluster_minutes=(
+                                                                nearest_minutes
+                                                            ),
+                                                            reason=(
+                                                                "No unallocated eligible sites were "
+                                                                "available in the nearby cluster."
+                                                            ),
+                                                        )
+                                                    )
+                                                    continue
+
+                                                trial_scheduler = DailyTransitScheduler(
+                                                    router=team_router,
+                                                    home_location=(
+                                                        surveyor.start_location
+                                                    ),
+                                                    same_postcode_transfer_minutes=int(
+                                                        team_same_postcode
+                                                    ),
+                                                    travel_leeway_minutes=int(
+                                                        team_travel_leeway
+                                                    ),
+                                                    pre_survey_buffer_minutes=int(
+                                                        team_pre_buffer
+                                                    ),
+                                                    post_survey_buffer_minutes=int(
+                                                        team_post_buffer
+                                                    ),
+                                                    ai_priority_weight_minutes=15.0,
+                                                )
+                                                trial_result = (
+                                                    trial_scheduler.build_week(
+                                                        sites=(
+                                                            site_dataframe_to_dicts(
+                                                                trial_df
+                                                            )
+                                                        ),
+                                                        dates=list(
+                                                            surveyor.available_dates
+                                                            or []
+                                                        ),
+                                                        start_clock=(
+                                                            team_start_clock
+                                                        ),
+                                                        latest_return_clock=(
+                                                            team_finish_clock
+                                                        ),
+                                                        timezone=LONDON_TZ,
+                                                    )
+                                                )
+
+                                                if result_uses_cluster_on_date(
+                                                    trial_result,
+                                                    requested_date,
+                                                    target_cluster,
+                                                ):
+                                                    # Transaction commits only here.
+                                                    team_results[
+                                                        surveyor.name
+                                                    ] = trial_result
+                                                    team_shortlists[
+                                                        surveyor.name
+                                                    ] = trial_df
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Accepted",
+                                                            target_cluster=target_cluster,
+                                                            anchor_to_cluster_minutes=(
+                                                                nearest_minutes
+                                                            ),
+                                                            reason=(
+                                                                f"A valid trial schedule kept "
+                                                                f"{surveyor.name} in/around "
+                                                                f"{target_cluster} on "
+                                                                f"{requested_date.strftime('%A')}. "
+                                                                "All hard scheduling rules remained valid."
+                                                            ),
+                                                        )
+                                                    )
+                                                else:
+                                                    special_request_results.append(
+                                                        SpecialRequestResult(
+                                                            raw_note=request.raw_note,
+                                                            surveyor_name=surveyor.name,
+                                                            requested_date=(
+                                                                requested_date.isoformat()
+                                                            ),
+                                                            location=request.location,
+                                                            status="Rejected",
+                                                            target_cluster=target_cluster,
+                                                            anchor_to_cluster_minutes=(
+                                                                nearest_minutes
+                                                            ),
+                                                            reason=(
+                                                                "The request could not be fitted on the "
+                                                                "requested date while preserving the "
+                                                                "existing return-time and scheduling rules. "
+                                                                "The baseline schedule was kept."
+                                                            ),
+                                                        )
+                                                    )
+
                                         team_allocations_df = (
                                             allocations_dataframe(
                                                 team_allocations
                                             )
                                         )
 
-                                        if combined_candidate_frames:
+                                        final_shortlist_frames = [
+                                            df
+                                            for df in team_shortlists.values()
+                                            if df is not None and not df.empty
+                                        ]
+                                        if final_shortlist_frames:
                                             team_google_shortlist = pd.concat(
-                                                combined_candidate_frames,
+                                                final_shortlist_frames,
                                                 ignore_index=True,
                                             ).drop_duplicates()
                                         else:
                                             team_google_shortlist = (
                                                 team_eligible.head(0)
                                             )
+
+                                        special_request_results_df = (
+                                            request_results_dataframe(
+                                                special_request_results
+                                            )
+                                        )
 
                                         # Build combined team outputs.
                                         team_summary_rows = []
@@ -1213,7 +1637,9 @@ with tab2:
                                             "Strategic cluster selection:\n"
                                             f"{team_cluster_strategy}\n\n"
                                             "Team cluster allocations:\n"
-                                            f"{team_allocations_df.to_dict(orient='records')}"
+                                            f"{team_allocations_df.to_dict(orient='records')}\n\n"
+                                            "Weekly special-request results:\n"
+                                            f"{special_request_results_df.to_dict(orient='records')}"
                                         )
 
                                     st.markdown("#### Team portfolio pre-filter")
@@ -1227,7 +1653,7 @@ with tab2:
                                         len(team_eligible),
                                     )
                                     tm3.metric(
-                                        "Google shortlist total",
+                                        "Detailed shortlist sites",
                                         len(team_google_shortlist),
                                     )
                                     reduction = (
@@ -1325,6 +1751,64 @@ with tab2:
                                             use_container_width=True,
                                             hide_index=True,
                                         )
+
+                                    if str(weekly_notes or "").strip():
+                                        st.markdown("#### Weekly notes result")
+                                        if special_request_results_df.empty:
+                                            st.warning(
+                                                "Notes were provided, but no requests "
+                                                "could be parsed. The baseline schedule "
+                                                "was kept unchanged."
+                                            )
+                                        else:
+                                            accepted_count = int(
+                                                (
+                                                    special_request_results_df[
+                                                        "status"
+                                                    ] == "Accepted"
+                                                ).sum()
+                                            )
+                                            rejected_count = int(
+                                                (
+                                                    special_request_results_df[
+                                                        "status"
+                                                    ] == "Rejected"
+                                                ).sum()
+                                            )
+                                            n1, n2 = st.columns(2)
+                                            n1.metric(
+                                                "Accepted notes",
+                                                accepted_count,
+                                            )
+                                            n2.metric(
+                                                "Rejected notes",
+                                                rejected_count,
+                                            )
+                                            st.dataframe(
+                                                special_request_results_df.rename(
+                                                    columns={
+                                                        "raw_note": "Note",
+                                                        "surveyor_name": "Surveyor",
+                                                        "requested_date": "Date",
+                                                        "location": "Requested Area",
+                                                        "status": "Status",
+                                                        "target_cluster": "Target Cluster",
+                                                        "anchor_to_cluster_minutes": (
+                                                            "Area → Cluster (Minutes)"
+                                                        ),
+                                                        "reason": "Result / Reason",
+                                                    }
+                                                ),
+                                                use_container_width=True,
+                                                hide_index=True,
+                                            )
+                                            st.caption(
+                                                "Rejected notes do not modify the "
+                                                "baseline schedule. Accepted notes were "
+                                                "committed only after a second valid "
+                                                "route trial passed the existing hard "
+                                                "constraints."
+                                            )
 
                                     st.markdown("#### Team week")
                                     st.dataframe(
@@ -1496,6 +1980,12 @@ with tab2:
                                             sheet_name="Drawing Priority",
                                             index=False,
                                         )
+                                        if not special_request_results_df.empty:
+                                            special_request_results_df.to_excel(
+                                                writer,
+                                                sheet_name="Weekly Notes",
+                                                index=False,
+                                            )
                                         team_portfolio.to_excel(
                                             writer,
                                             sheet_name="Portfolio",
