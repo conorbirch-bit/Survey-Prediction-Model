@@ -38,12 +38,14 @@ class ModelStats:
 @dataclass
 class PredictionResult:
     predicted_minutes: float
-    planning_minutes: int
+    planning_minutes: float
     model_features: Tuple[str, ...]
     model_label: str
     confidence: str
     validation_mae_minutes: Optional[float]
+    validation_rmse_minutes: Optional[float]
     training_rows: int
+    feature_count: int
     missing_inputs: Tuple[str, ...]
 
     def to_dict(self):
@@ -71,7 +73,9 @@ class DurationPredictor:
     ):
         self.min_completed_duration = min_completed_duration
         self.ridge_alpha = ridge_alpha
-        self.planning_buffer_pct = planning_buffer_pct
+        # Kept for backwards compatibility with older app calls.
+        # Version 17 intentionally applies no survey-duration uplift or rounding.
+        self.planning_buffer_pct = 0.0
         self.planning_round_to = planning_round_to
         self.models: Dict[Tuple[str, ...], Pipeline] = {}
         self.stats: Dict[Tuple[str, ...], ModelStats] = {}
@@ -134,6 +138,12 @@ class DurationPredictor:
             df[TARGET_COLUMN].notna()
             & (df[TARGET_COLUMN] >= self.min_completed_duration)
         ].copy()
+
+        # Residential duration model only: an explicit 0-flat record is a
+        # garage and is excluded. Missing flat counts are retained so the
+        # height + ground-floor-area fallback can still be trained.
+        flats_col = FEATURE_COLUMNS["flats"]
+        df = df[df[flats_col].isna() | (df[flats_col] > 0)].copy()
 
         self.training_data = df
         self.models.clear()
@@ -210,12 +220,29 @@ class DurationPredictor:
                 "ground-floor area or Sovereign flats is available."
             )
 
-        # Use as much available building information as possible.
-        # For ties, prefer the model with more historical rows, then lower MAE.
+        # Version 17 fallback rule:
+        # If ground-floor area is missing, use flats ONLY. Building height is
+        # deliberately ignored in that situation. This avoids switching to a
+        # height + flats equation when the more physically informative area
+        # input is absent.
+        if "ground_floor_area" not in available:
+            if "flats" in available and ("flats",) in self.models:
+                return ("flats",)
+            raise ValueError(
+                "Ground-floor area is unavailable and no Sovereign flat count "
+                "is available, so this residential model cannot predict duration."
+            )
+
+        # When area is available, use as much compatible information as possible.
+        # This preserves height + area as the main fallback when flats are missing.
         def rank(features):
-            s = self.stats[features]
-            mae = s.mae_minutes if s.mae_minutes is not None else float("inf")
-            return (len(features), s.rows, -mae)
+            stat = self.stats[features]
+            mae = (
+                stat.mae_minutes
+                if stat.mae_minutes is not None
+                else float("inf")
+            )
+            return (len(features), stat.rows, -mae)
 
         return max(compatible, key=rank)
 
@@ -231,6 +258,12 @@ class DurationPredictor:
             "flats": self._clean_value(flats),
         }
 
+        if values["flats"] == 0:
+            raise ValueError(
+                "0 Sovereign flats identifies a garage, which is excluded from "
+                "the residential survey-duration model."
+            )
+
         features = self._choose_model(values)
         cols = [FEATURE_COLUMNS[k] for k in features]
         x = np.array([[values[k] for k in features]], dtype=float)
@@ -238,16 +271,16 @@ class DurationPredictor:
         raw = float(self.models[features].predict(x)[0])
         predicted = max(self.min_completed_duration, raw)
 
-        buffered = predicted * (1 + self.planning_buffer_pct)
-        planning = int(
-            math.ceil(buffered / self.planning_round_to) * self.planning_round_to
-        )
+        # Planning duration is intentionally identical to the raw model
+        # prediction in Version 17: no percentage uplift and no 5-minute rounding.
+        predicted = round(predicted, 1)
+        planning = predicted
 
         stat = self.stats[features]
         missing = tuple(k for k, v in values.items() if v is None)
 
         return PredictionResult(
-            predicted_minutes=round(predicted, 1),
+            predicted_minutes=predicted,
             planning_minutes=planning,
             model_features=features,
             model_label=" + ".join(self.pretty_feature(k) for k in features),
@@ -256,7 +289,12 @@ class DurationPredictor:
                 round(stat.mae_minutes, 1)
                 if stat.mae_minutes is not None else None
             ),
+            validation_rmse_minutes=(
+                round(stat.rmse_minutes, 1)
+                if stat.rmse_minutes is not None else None
+            ),
             training_rows=stat.rows,
+            feature_count=len(features),
             missing_inputs=missing,
         )
 

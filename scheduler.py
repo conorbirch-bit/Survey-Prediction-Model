@@ -127,12 +127,15 @@ class ScheduledSurvey:
     depart_previous: datetime
     travel_minutes: float
     arrive_site: datetime
-    survey_minutes: int
+    survey_minutes: float
     survey_start: datetime
     survey_end: datetime
     predicted_minutes: float
     confidence: str
     model_used: str
+    building_height: Optional[float] = None
+    flats: Optional[float] = None
+    ground_floor_area: Optional[float] = None
 
 
 @dataclass
@@ -148,8 +151,8 @@ class DailyScheduleResult:
     unscheduled_count: int
 
     @property
-    def survey_minutes(self) -> int:
-        return sum(i.survey_minutes for i in self.items)
+    def survey_minutes(self) -> float:
+        return round(sum(i.survey_minutes for i in self.items), 1)
 
     @property
     def travel_minutes(self) -> int:
@@ -174,6 +177,9 @@ class DailyScheduleResult:
                 "Survey End": item.survey_end.strftime("%H:%M"),
                 "Planning Survey Duration (Minutes)": item.survey_minutes,
                 "Raw Predicted Duration (Minutes)": item.predicted_minutes,
+                "Building Height": item.building_height,
+                "Sovereign Flat": item.flats,
+                "Internal Ground Floor Area (m2)": item.ground_floor_area,
                 "Prediction Confidence": item.confidence,
                 "Prediction Model": item.model_used,
             })
@@ -191,6 +197,9 @@ class DailyScheduleResult:
             "Survey End": "",
             "Planning Survey Duration (Minutes)": "",
             "Raw Predicted Duration (Minutes)": "",
+            "Building Height": "",
+            "Sovereign Flat": "",
+            "Internal Ground Floor Area (m2)": "",
             "Prediction Confidence": "",
             "Prediction Model": "",
         })
@@ -207,7 +216,7 @@ class WeeklyScheduleResult:
         return sum(len(day.items) for day in self.days)
 
     @property
-    def total_survey_minutes(self) -> int:
+    def total_survey_minutes(self) -> float:
         return sum(day.survey_minutes for day in self.days)
 
     @property
@@ -457,7 +466,7 @@ class DailyTransitScheduler:
                     minutes=self.pre_survey_buffer_minutes
                 )
                 survey_end = survey_start + timedelta(
-                    minutes=int(site["planning_minutes"])
+                    minutes=float(site["planning_minutes"])
                 )
                 ready_to_leave = survey_end + timedelta(
                     minutes=self.post_survey_buffer_minutes
@@ -514,12 +523,15 @@ class DailyTransitScheduler:
                     depart_previous=current_time,
                     travel_minutes=travel_minutes,
                     arrive_site=arrive,
-                    survey_minutes=int(site["planning_minutes"]),
+                    survey_minutes=float(site["planning_minutes"]),
                     survey_start=survey_start,
                     survey_end=survey_end,
                     predicted_minutes=float(site["predicted_minutes"]),
                     confidence=str(site.get("confidence", "")),
                     model_used=str(site.get("model_used", "")),
+                    building_height=site.get("building_height"),
+                    flats=site.get("flats"),
+                    ground_floor_area=site.get("ground_floor_area"),
                 )
             )
 

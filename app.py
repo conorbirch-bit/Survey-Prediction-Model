@@ -44,7 +44,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 16 — weekly notes with hard-rule protection")
+st.caption("Version 17 — prediction-model updates")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -65,38 +65,32 @@ with st.sidebar:
         value=6,
         help="Historical rows below this are excluded from model training.",
     )
-    buffer_pct = st.slider(
-        "Survey scheduling buffer",
-        min_value=0,
-        max_value=50,
-        value=15,
-        step=5,
-        format="%d%%",
+    st.caption(
+        "Planning duration now equals the raw model prediction; no survey-duration "
+        "percentage uplift is applied."
     )
 
 @st.cache_resource(show_spinner=False)
-def train_from_path(path: str, min_duration: int, buffer_pct: int):
+def train_from_path(path: str, min_duration: int):
     return DurationPredictor(
         min_completed_duration=min_duration,
-        planning_buffer_pct=buffer_pct / 100,
     ).load_excel(path)
 
 @st.cache_resource(show_spinner=False)
-def train_from_bytes(file_bytes: bytes, min_duration: int, buffer_pct: int):
+def train_from_bytes(file_bytes: bytes, min_duration: int):
     df = pd.read_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
-        planning_buffer_pct=buffer_pct / 100,
     ).fit(df)
 
 try:
     if training_file is not None:
         predictor = train_from_bytes(
-            training_file.getvalue(), min_duration, buffer_pct
+            training_file.getvalue(), min_duration
         )
     else:
         predictor = train_from_path(
-            str(DEFAULT_FILE), min_duration, buffer_pct
+            str(DEFAULT_FILE), min_duration
         )
 except Exception as exc:
     st.error(f"Could not train duration model: {exc}")
@@ -178,6 +172,9 @@ def predict_upcoming(df: pd.DataFrame) -> pd.DataFrame:
                 "Prediction Confidence": p.confidence,
                 "Prediction Model Used": p.model_label,
                 "Validation MAE (Minutes)": p.validation_mae_minutes,
+                "Validation RMSE (Minutes)": p.validation_rmse_minutes,
+                "Prediction Training Rows": p.training_rows,
+                "Prediction Feature Count": p.feature_count,
                 "Prediction Status": "Predicted",
             })
         except ValueError:
@@ -187,6 +184,9 @@ def predict_upcoming(df: pd.DataFrame) -> pd.DataFrame:
                 "Prediction Confidence": "None",
                 "Prediction Model Used": "No usable input data",
                 "Validation MAE (Minutes)": None,
+                "Validation RMSE (Minutes)": None,
+                "Prediction Training Rows": None,
+                "Prediction Feature Count": None,
                 "Prediction Status": "Could not predict",
             })
 
@@ -299,7 +299,7 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "postcode": postcode,
             "postcode_district": postcode_district(postcode),
             "route_location": route_location,
-            "planning_minutes": int(
+            "planning_minutes": float(
                 site_row["Planning Duration (Minutes)"]
             ),
             "predicted_minutes": float(
@@ -307,6 +307,15 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             ),
             "confidence": site_row["Prediction Confidence"],
             "model_used": site_row["Prediction Model Used"],
+            "building_height": optional_number(
+                site_row.get(FEATURE_COLUMNS["building_height"])
+            ),
+            "flats": optional_number(
+                site_row.get(FEATURE_COLUMNS["flats"])
+            ),
+            "ground_floor_area": optional_number(
+                site_row.get(FEATURE_COLUMNS["ground_floor_area"])
+            ),
             "planned_start": str(
                 site_row.get("Planned Start", "") or ""
             ),
@@ -1682,48 +1691,6 @@ with tab2:
                                     st.markdown("#### Team cluster strategy")
                                     st.info(team_cluster_strategy)
 
-                                    st.markdown("#### Drawing priority")
-                                    if drawing_priority_queue.empty:
-                                        st.caption(
-                                            "No sites in this portfolio are currently "
-                                            "marked Needs Drawing."
-                                        )
-                                    else:
-                                        st.caption(
-                                            f"{len(drawing_priority_queue)} sites need "
-                                            "drawing. Work down this numbered list; "
-                                            "clusters needed for the target survey week "
-                                            "are placed first."
-                                        )
-                                        drawing_display_cols = [
-                                            c for c in [
-                                                "Drawing Order",
-                                                "Customer Reference",
-                                                "Building Name",
-                                                "Postcode",
-                                                "Postcode Cluster",
-                                                "Building Height",
-                                                "Sovereign Flat",
-                                                "Drawing Priority Tier",
-                                                "Drawing Cluster Priority",
-                                                "Drawing Priority Reason",
-                                            ]
-                                            if c in drawing_priority_queue.columns
-                                        ]
-                                        st.dataframe(
-                                            drawing_priority_queue[
-                                                drawing_display_cols
-                                            ].head(100),
-                                            use_container_width=True,
-                                            hide_index=True,
-                                        )
-                                        if len(drawing_priority_queue) > 100:
-                                            st.caption(
-                                                "Showing the first 100 drawing "
-                                                "priorities here; the downloaded "
-                                                "workbook contains the full queue."
-                                            )
-
                                     with st.expander(
                                         "Cluster allocation details"
                                     ):
@@ -1844,6 +1811,115 @@ with tab2:
                                         "Team transit time",
                                         f"{total_team_travel} min",
                                     )
+
+                                    st.markdown(
+                                        "#### Scheduled-building prediction reliability"
+                                    )
+                                    st.caption(
+                                        "LOOCV MAE = mean absolute error when each "
+                                        "historical building is held out once. MAE % "
+                                        "is LOOCV MAE divided by this building's raw "
+                                        "prediction. The ±MAE band is a practical error "
+                                        "reference, not a statistical confidence interval."
+                                    )
+                                    if combined_team_schedule.empty:
+                                        st.caption(
+                                            "No scheduled buildings are available for "
+                                            "reliability analysis."
+                                        )
+                                    else:
+                                        reliability_source = team_predictions[[
+                                            c for c in [
+                                                "Customer Reference",
+                                                "Prediction Model Used",
+                                                "Prediction Confidence",
+                                                "Validation MAE (Minutes)",
+                                                "Validation RMSE (Minutes)",
+                                                "Prediction Training Rows",
+                                                "Prediction Feature Count",
+                                                "Predicted Survey Duration (Minutes)",
+                                            ]
+                                            if c in team_predictions.columns
+                                        ]].drop_duplicates(
+                                            subset=["Customer Reference"]
+                                        )
+                                        reliability_df = combined_team_schedule[
+                                            combined_team_schedule[
+                                                "Sequence"
+                                            ].astype(str) != "RETURN"
+                                        ][[
+                                            "Surveyor",
+                                            "Date",
+                                            "Customer Reference",
+                                            "Building Name",
+                                            "Postcode",
+                                        ]].merge(
+                                            reliability_source,
+                                            on="Customer Reference",
+                                            how="left",
+                                        )
+                                        mae = pd.to_numeric(
+                                            reliability_df[
+                                                "Validation MAE (Minutes)"
+                                            ],
+                                            errors="coerce",
+                                        )
+                                        pred = pd.to_numeric(
+                                            reliability_df[
+                                                "Predicted Survey Duration (Minutes)"
+                                            ],
+                                            errors="coerce",
+                                        )
+                                        reliability_df[
+                                            "MAE as % of Prediction"
+                                        ] = (100 * mae / pred).round(1)
+                                        reliability_df[
+                                            "Prediction - MAE (Minutes)"
+                                        ] = (pred - mae).clip(
+                                            lower=float(min_duration)
+                                        ).round(1)
+                                        reliability_df[
+                                            "Prediction + MAE (Minutes)"
+                                        ] = (pred + mae).round(1)
+                                        def confidence_maths(row):
+                                            confidence = row.get(
+                                                "Prediction Confidence"
+                                            )
+                                            feature_count = pd.to_numeric(
+                                                row.get("Prediction Feature Count"),
+                                                errors="coerce",
+                                            )
+                                            required_medium_rows = (
+                                                max(15, 5 * int(feature_count))
+                                                if not pd.isna(feature_count)
+                                                else 15
+                                            )
+                                            if confidence == "High":
+                                                return (
+                                                    "High because LOOCV MAE ≤ 15 "
+                                                    "min and training rows ≥ 25"
+                                                )
+                                            if confidence == "Medium":
+                                                return (
+                                                    "Medium because LOOCV MAE ≤ 22 "
+                                                    f"min and training rows ≥ "
+                                                    f"{required_medium_rows}"
+                                                )
+                                            return (
+                                                "Low because MAE/row thresholds for "
+                                                "High or Medium were not met"
+                                            )
+
+                                        reliability_df[
+                                            "Confidence Maths"
+                                        ] = reliability_df.apply(
+                                            confidence_maths, axis=1
+                                        )
+                                        st.dataframe(
+                                            reliability_df,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
 
                                     for surveyor in active_surveyors:
                                         result = team_results.get(
