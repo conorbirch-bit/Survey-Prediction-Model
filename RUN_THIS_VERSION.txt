@@ -1,3 +1,3 @@
-VERSION 20.1 — SEGMENTED DURATION MODEL, CACHE-SAFE
-Garage = 0 flats; Small residential = 1–8 flats; Standard residential = 9+ flats.
+VERSION 20.2 — SEGMENTED DURATION MODEL, CACHE-SAFE
+Garage = 0 flats; Small residential = 1–6 flats; Standard residential = 7+ flats.
 Replace ALL repository files with this version, then reboot the Streamlit app.

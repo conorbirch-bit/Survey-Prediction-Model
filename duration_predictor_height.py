@@ -25,11 +25,11 @@ TARGET_COLUMN = "Primary Service Appointment: Actual Duration (Minutes)"
 REFERENCE_COLUMN = "Customer Reference Code  ↑"
 BUILDING_COLUMN = "Building Name"
 
-SMALL_SEGMENT = "1–8 flats"
-STANDARD_SEGMENT = "9+ flats"
+SMALL_SEGMENT = "1–6 flats"
+STANDARD_SEGMENT = "7+ flats"
 GARAGE_SEGMENT = "Garage"
 FALLBACK_SEGMENT = "Residential fallback (flats missing)"
-MODEL_VERSION = "20.1-segmented"
+MODEL_VERSION = "20.2-segmented-1-6"
 
 
 @dataclass
@@ -61,14 +61,14 @@ class PredictionResult:
 class DurationPredictor:
     model_version = MODEL_VERSION
     """
-    Version 20 segmented duration model.
+    Version 20.2 segmented duration model.
 
     Known flat counts select one of three independent model families:
       - 0 flats       -> Garage model
-      - 1 to 8 flats  -> Small-building model
-      - 9+ flats      -> Standard/larger-building model
+      - 1 to 6 flats  -> Small-building model
+      - 7+ flats      -> Standard/larger-building model
 
-    The 1–8 and 9+ residential families each train their own Ridge regressions
+    The 1–6 and 7+ residential families each train their own Ridge regressions
     for all viable combinations of Building Height, Ground Floor Area and
     Sovereign Flats. The existing Version 17 fallback rule is preserved:
     whenever Ground Floor Area is missing, a residential prediction uses
@@ -99,7 +99,7 @@ class DurationPredictor:
 
         # Global residential models are retained only for buildings whose flat
         # count is missing, because those buildings cannot be assigned to the
-        # 1–8 or 9+ family.
+        # 1–6 or 7+ family.
         self.models: Dict[Tuple[str, ...], Pipeline] = {}
         self.stats: Dict[Tuple[str, ...], ModelStats] = {}
 
@@ -321,8 +321,8 @@ class DurationPredictor:
         all_keys = list(FEATURE_COLUMNS.keys())
 
         residential = df[df[flats_col].isna() | (df[flats_col] > 0)].copy()
-        small = df[(df[flats_col] >= 1) & (df[flats_col] <= 8)].copy()
-        standard = df[df[flats_col] >= 9].copy()
+        small = df[(df[flats_col] >= 1) & (df[flats_col] <= 6)].copy()
+        standard = df[df[flats_col] >= 7].copy()
         garages = df[df[flats_col] == 0].copy()
 
         # Original all-residential family: used only when flat count is missing.
@@ -507,8 +507,8 @@ class DurationPredictor:
                     "No completed garage surveys are available to train the garage model."
                 )
 
-        # Small residential: 1–8 flats inclusive.
-        elif flats_value is not None and 1 <= flats_value < 9:
+        # Small residential: 1–6 flats inclusive.
+        elif flats_value is not None and 1 <= flats_value < 7:
             segment = SMALL_SEGMENT
             features = self._choose_residential_segment_model(segment, values)
             model = self.segment_models[segment][features]
@@ -520,8 +520,8 @@ class DurationPredictor:
                 + " + ".join(self.pretty_feature(k) for k in features)
             )
 
-        # Larger residential: 9 flats and above.
-        elif flats_value is not None and flats_value >= 9:
+        # Larger residential: 7 flats and above.
+        elif flats_value is not None and flats_value >= 7:
             segment = STANDARD_SEGMENT
             features = self._choose_residential_segment_model(segment, values)
             model = self.segment_models[segment][features]

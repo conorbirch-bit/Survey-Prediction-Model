@@ -44,7 +44,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.1 — segmented survey-duration model (cache-safe)")
+st.caption("Version 20.2 — segmented survey-duration model (1–6 / 7+)")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -71,7 +71,7 @@ with st.sidebar:
     )
 
 @st.cache_resource(show_spinner=False)
-def train_from_path_v20_1(path: str, min_duration: int):
+def train_from_path_v20_2(path: str, min_duration: int):
     return DurationPredictor(
         min_completed_duration=min_duration,
     ).load_excel(path)
@@ -143,7 +143,7 @@ def read_completed_training_excel(source, sheet_name=0):
 
 
 @st.cache_resource(show_spinner=False)
-def train_from_bytes_v20_1(file_bytes: bytes, min_duration: int):
+def train_from_bytes_v20_2(file_bytes: bytes, min_duration: int):
     df = read_completed_training_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
@@ -151,11 +151,11 @@ def train_from_bytes_v20_1(file_bytes: bytes, min_duration: int):
 
 try:
     if training_file is not None:
-        predictor = train_from_bytes_v20_1(
+        predictor = train_from_bytes_v20_2(
             training_file.getvalue(), min_duration
         )
     else:
-        predictor = train_from_path_v20_1(
+        predictor = train_from_path_v20_2(
             str(DEFAULT_FILE), min_duration
         )
 except Exception as exc:
@@ -163,15 +163,15 @@ except Exception as exc:
     st.stop()
 
 # Fail loudly rather than silently reusing an older cached/unsegmented predictor.
-if getattr(predictor, "model_version", None) != "20.1-segmented":
+if getattr(predictor, "model_version", None) != "20.2-segmented-1-6":
     st.error(
         "Old duration predictor detected. Replace all repository files with "
-        "Version 20.1 and reboot the Streamlit app."
+        "Version 20.2 and reboot the Streamlit app."
     )
     st.stop()
 
 with st.sidebar:
-    st.success("Active model: v20.1 segmented (Garage / 1–8 flats / 9+ flats)")
+    st.success("Active model: v20.2 segmented (Garage / 1–6 flats / 7+ flats)")
 
 
 def optional_number(value):

@@ -4,8 +4,8 @@
 Duration prediction is now split into independent model families based on Sovereign Flat count:
 
 - **Garage:** 0 flats. Garage history is kept separate from residential history. Height/area are used when enough garage rows exist; otherwise the historical mean garage duration is used.
-- **Small residential:** 1–8 flats inclusive. This family has its own regressions trained only on completed 1–8-flat buildings.
-- **Standard/larger residential:** 9+ flats. This family has its own regressions trained only on completed 9+-flat buildings.
+- **Small residential:** 1–6 flats inclusive. This family has its own regressions trained only on completed 1–6-flat buildings.
+- **Standard/larger residential:** 7+ flats. This family has its own regressions trained only on completed 7+-flat buildings.
 - **Flat count missing:** the existing all-residential Height + Area fallback is retained because the size family cannot be identified.
 
 The existing rule remains: when Ground Floor Area is unavailable for a residential building with a known flat count, prediction uses that segment's **flats-only** equation. Planning Survey Duration remains identical to Raw Predicted Duration.
@@ -36,5 +36,5 @@ The completed-surveys upload parser now lives in `app.py`, avoiding deployment/c
 The weekly scheduling master-portfolio upload now accepts the Salesforce To Do report layout used in `21.08.2026 - 12.17 Chat.xlsx`, including report title/filter rows above the real table header, grouped Work Type/Status rows, Salesforce Total/Count footer rows, and the `Ground Floor Area (m2)` field name. `Ground Floor Area (m2)` is mapped to the existing canonical `Internal Ground Floor Area (m2)` predictor input. All Version 18.1 scheduling, prediction, notes, routing and export behaviour is otherwise unchanged.
 
 
-### Version 20.1 cache safety
-The Streamlit training functions are cache-busted and the app verifies that the segmented predictor is actually active before scheduling.
+## Version 20.2 breakpoint
+The segmented duration breakpoint is now Garage = 0 flats, Small residential = 1–6 flats, Standard/larger residential = 7+ flats. All other Version 20.1 behaviour is unchanged.
