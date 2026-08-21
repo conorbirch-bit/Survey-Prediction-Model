@@ -426,6 +426,75 @@ def result_uses_cluster_on_date(result, requested_date, cluster):
             return True
     return False
 
+
+def build_salesforce_copy(schedule_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build the compact schedule table used for updating Salesforce.
+
+    Only genuine survey rows are included. Operational rows such as LUNCH and
+    RETURN are deliberately excluded.
+    """
+    columns = [
+        "Customer Reference Code",
+        "Building Name",
+        "Resource Name: Name",
+        "Planned Start",
+        "Primary Service Appointment: Scheduled Start",
+    ]
+
+    if schedule_df is None or schedule_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working = schedule_df.copy()
+
+    # Real surveys have a numeric sequence. LUNCH / RETURN do not.
+    numeric_sequence = pd.to_numeric(
+        working.get("Sequence"),
+        errors="coerce",
+    )
+    working = working[numeric_sequence.notna()].copy()
+
+    if working.empty:
+        return pd.DataFrame(columns=columns)
+
+    def salesforce_datetime(row):
+        date_value = pd.to_datetime(
+            row.get("Date"),
+            errors="coerce",
+        )
+        survey_start = str(row.get("Survey Start", "") or "").strip()
+
+        if pd.isna(date_value) or not survey_start:
+            return ""
+
+        combined = pd.to_datetime(
+            f"{date_value.date().isoformat()} {survey_start}",
+            errors="coerce",
+        )
+        if pd.isna(combined):
+            return ""
+
+        # Match the format used by the Salesforce report export.
+        return combined.strftime("%d/%m/%Y, %H:%M")
+
+    scheduled_start = working.apply(salesforce_datetime, axis=1)
+
+    result = pd.DataFrame({
+        "Customer Reference Code": working[
+            "Customer Reference"
+        ].fillna("").astype(str),
+        "Building Name": working[
+            "Building Name"
+        ].fillna("").astype(str),
+        "Resource Name: Name": working[
+            "Surveyor"
+        ].fillna("").astype(str),
+        "Planned Start": scheduled_start,
+        "Primary Service Appointment: Scheduled Start": scheduled_start,
+    })
+
+    return result.reset_index(drop=True)
+
 tab1, tab2, tab3 = st.tabs([
     "Predict one building",
     "Weekly scheduling",
@@ -1752,6 +1821,10 @@ with tab2:
                                                 pd.DataFrame()
                                             )
 
+                                        salesforce_copy_df = build_salesforce_copy(
+                                            combined_team_schedule
+                                        )
+
                                         cluster_matrix_rows = []
                                         for surveyor in active_surveyors:
                                             for rep in (
@@ -1974,6 +2047,24 @@ with tab2:
                                         f"{total_team_travel} min",
                                     )
 
+                                    st.markdown("#### Salesforce copy")
+                                    st.caption(
+                                        "Scheduled survey rows formatted for Salesforce. "
+                                        "Operational rows such as lunch and return-home "
+                                        "journeys are excluded."
+                                    )
+                                    if salesforce_copy_df.empty:
+                                        st.caption(
+                                            "No scheduled survey rows are available for "
+                                            "the Salesforce copy."
+                                        )
+                                    else:
+                                        st.dataframe(
+                                            salesforce_copy_df,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
+
                                     st.markdown(
                                         "#### Scheduled-building prediction reliability"
                                     )
@@ -2184,6 +2275,11 @@ with tab2:
                                         combined_team_schedule.to_excel(
                                             writer,
                                             sheet_name="Full Team Schedule",
+                                            index=False,
+                                        )
+                                        salesforce_copy_df.to_excel(
+                                            writer,
+                                            sheet_name="Salesforce Copy",
                                             index=False,
                                         )
                                         team_cluster_summary.to_excel(

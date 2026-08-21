@@ -1,1 +1,4 @@
-VERSION 20.6 — PROTECTED 30-MINUTE LUNCH BREAK\nSame logic as Version 20.5, plus one hard 30-minute lunch break per active surveyor/day.\nLunch starts no earlier than 11:45 and no later than 13:00.\n
+VERSION 20.7 — SALESFORCE COPY RESTORED
+Same scheduling logic as Version 20.6.
+Salesforce Copy is shown on the page and exported as its own worksheet.
+Lunch and return-home rows are NOT included in Salesforce Copy.

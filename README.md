@@ -61,3 +61,11 @@ All Version 20.3 duration prediction, Salesforce imports, weekly notes, same-cam
 ## Version 20.5 — Default surveyor team
 The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Rod Harrison (Rugby Station), Toby Lawal (Chadwell Heath Station), Harrison Grice (Gravesend Station), and Joe Reynolds (Hemel Hempstead Station), plus two blank spare surveyor slots. Only Conor is available by default; other surveyors generate no Google routing until availability dates are ticked.
 \n\n## Version 20.6 — Lunch break\n- Every active surveyor gets one 30-minute lunch break per working day.\n- Lunch is taken at the first sensible between-survey boundary from 11:45.\n- 13:00 is the latest permitted lunch start.\n- Lunch is included in hard return-home feasibility checks.\n- The lunch break appears as a LUNCH row in daily/full schedule outputs.\n- Days genuinely finishing before 11:45 do not receive an artificial lunch row.\n
+
+## Version 20.7 — Salesforce copy restored
+- Restores the Salesforce Copy table on the Streamlit results page.
+- Restores the Salesforce Copy worksheet in the downloaded weekly workbook.
+- Only genuine scheduled surveys are included.
+- LUNCH and RETURN rows are excluded from the Salesforce copy.
+- Salesforce date/time format is DD/MM/YYYY, HH:MM.
+- All Version 20.6 scheduling, lunch, prediction, endgame, notes, Released-only and routing logic is otherwise unchanged.
