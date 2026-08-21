@@ -1,10 +1,3 @@
-VERSION 20.5 — PRE-FILLED SURVEYOR TEAM
-Same logic as Version 20.4. Default surveyors added:
-- Conor Birch — Harpenden Station
-- Rod Harrison — Rugby Station
-- Toby Lawal — Chadwell Heath Station
-- Harrison Grice — Gravesend Station
-- Joe Reynolds — Hemel Hempstead Station
-- Spare Surveyor 1
-- Spare Surveyor 2
-Only Conor is ticked available by default.
+VERSION 20.6 — SALESFORCE UPLOAD TAB
+Same scheduling/prediction/routing/endgame logic as Version 20.5.
+Adds an output-only Salesforce Upload worksheet in the downloaded weekly workbook.

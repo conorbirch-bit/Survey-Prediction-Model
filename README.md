@@ -60,3 +60,6 @@ All Version 20.3 duration prediction, Salesforce imports, weekly notes, same-cam
 
 ## Version 20.5 — Default surveyor team
 The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Rod Harrison (Rugby Station), Toby Lawal (Chadwell Heath Station), Harrison Grice (Gravesend Station), and Joe Reynolds (Hemel Hempstead Station), plus two blank spare surveyor slots. Only Conor is available by default; other surveyors generate no Google routing until availability dates are ticked.
+
+## Version 20.6 — Salesforce upload output tab
+The downloaded weekly workbook now includes a `Salesforce Upload` worksheet matching the supplied Salesforce Field Service copy/paste format. It contains only Conor Birch, Rod Harrison and Toby Lawal. Their Service Resource mappings are fixed as: Conor = Harpenden = `0HnR50000005RlxKAE`; Rod = Rugby = `0Hn4L0000000Yy8SAE`; Toby = Chadwell Heath = `0HnR50000005S6vKAE`. Harrison Grice and Joe Reynolds remain in normal scheduling outputs but are intentionally excluded from this Salesforce tab until their Service Resource IDs are known. Work Order, Primary Service Appointment, Service Appointment ID, Customer Reference and Building Name are taken from the uploaded To Do/master portfolio; scheduled start/end are taken from the generated schedule.
