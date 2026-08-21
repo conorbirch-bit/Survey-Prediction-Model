@@ -1,3 +1,6 @@
-VERSION 20.2 — SEGMENTED DURATION MODEL, CACHE-SAFE
-Garage = 0 flats; Small residential = 1–6 flats; Standard residential = 7+ flats.
-Replace ALL repository files with this version, then reboot the Streamlit app.
+VERSION 20.4 — ENDGAME-AWARE ROLLING-HORIZON SCHEDULING
+Duration model unchanged: Garage / 1–6 flats / 7+ flats.
+Weekly hard gate unchanged: Work Type Name = Geospatial Asset Mapping AND Status = Released.
+New: preserve released geographic anchors when future drawing/unreleased work remains nearby, but give anchors back if needed to keep the current week supplied.
+Future planning uses portfolio metadata only; Google still routes one selected week only.
+Replace all deployed repository files with this version.

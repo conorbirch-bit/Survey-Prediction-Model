@@ -173,13 +173,35 @@ Objectives:
 - consider prediction confidence and total available survey hours;
 - use TfL disruption and weather only as risk/context, not as invented routing;
 - avoid selecting isolated clusters when a stronger cluster can fill the week;
-- remember that sites awaiting drawing may become useful in later weeks, but
-  only "Eligible This Week" sites can enter the Google shortlist now;
+- remember that sites awaiting drawing or release may become useful in later
+  weeks, but only "Eligible This Week" sites can enter the Google shortlist now;
+- plan for the END of the project, not only this week. If a cluster has a future
+  pipeline, avoid unnecessarily clearing every released site now and leaving the
+  later pipeline isolated. Where practical, use target_sites below
+  "Eligible This Week" so a small number of released sites remain as geographic
+  anchors for future work;
+- use "Suggested Anchor Reserve", "Future Pipeline Sites", "Endgame Risk" and
+  "Endgame Reason" as explicit rolling-horizon signals. A High/Medium endgame
+  risk means there is value in preserving some current released work for later;
+- do the reverse when a cluster has little/no future pipeline: if it is efficient
+  this week, clearing it can be sensible because leaving one released site behind
+  may itself create a future orphan;
+- do NOT preserve anchors at the cost of leaving the current team without enough
+  useful work. Current-week feasibility and full use of available survey capacity
+  still matter. The deterministic guardrail can release anchors if alternative
+  candidate capacity is insufficient;
+- avoid repeatedly deferring the same area without a concrete future-cluster
+  benefit;
 - keep Google cost low by not selecting unnecessary clusters.
 
 The total target_sites across selected clusters should normally be close to,
 but never exceed, max_sites_for_google. Select enough candidates that the
 deterministic Google scheduler has choice, but do not send the whole portfolio.
+
+IMPORTANT: target_sites is a portfolio-management decision, not just a cap. If
+a cluster has 10 eligible sites and the summary suggests preserving 2 anchors,
+you may deliberately return target_sites=8 and explain that the remaining two
+are being held to support future pipeline.
 
 For one surveyor, roughly 2-6 clusters for a five-day week is normally enough.
 For a team, select enough coherent clusters to feed the active surveyors without

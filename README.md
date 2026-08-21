@@ -38,3 +38,21 @@ The weekly scheduling master-portfolio upload now accepts the Salesforce To Do r
 
 ## Version 20.2 breakpoint
 The segmented duration breakpoint is now Garage = 0 flats, Small residential = 1–6 flats, Standard/larger residential = 7+ flats. All other Version 20.1 behaviour is unchanged.
+
+
+## Version 20.3 — Released-only weekly scheduling
+The selected-week schedule has a hard Salesforce release gate. A site is routable/schedulable only when `Work Type Name` is exactly `Geospatial Asset Mapping` and `Status` is exactly `Released` (case/whitespace insensitive). Other portfolio rows are retained for drawing priority and portfolio exports but cannot enter the week's Google shortlist or schedule. All Version 20.2 duration-model behavior is unchanged.
+
+## Version 20.4 — Endgame-aware rolling-horizon planning
+The weekly cluster pre-filter now looks across the whole remaining master portfolio before Google routing so the project does not simply consume the strongest clusters first and leave inefficient geographic orphans at the end.
+
+- The hard weekly gate is unchanged: only `Geospatial Asset Mapping` + `Released` rows can be scheduled this week.
+- Future pipeline is identified cheaply from Plan Drafting / Needs Drawing rows and Geospatial Asset Mapping rows that are not yet Released.
+- Each postcode-district summary now shows Future Pipeline Sites, Future Drawing Pipeline, Future GAM Awaiting Release, Suggested Anchor Reserve, Endgame Risk and Endgame Reason.
+- Where useful, a small number of currently Released sites are marked as future geographic anchor candidates. Same-campus future support is preferred first, then exact-postcode support, then postcode-district support.
+- The strategic target can deliberately shortlist fewer than all Released sites in an area, leaving anchor sites for future work.
+- A deterministic endgame guardrail replaces preserved anchors with non-anchor candidates elsewhere where possible. If there is not enough alternative candidate capacity, anchors are released again so the current week is not left under-supplied.
+- Endgame planning is portfolio-only and makes no future-week Google calls. Google remains restricted to the one selected week.
+- A new on-page `Endgame / orphan-risk planning` table and an `Endgame Plan` workbook sheet make the decisions auditable.
+
+All Version 20.3 duration prediction, Salesforce imports, weekly notes, same-campus logic, buffers, surveyor availability, Released-only eligibility and workbook outputs remain unchanged.

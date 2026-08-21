@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from scheduler import postcode_district
+from scheduler import postcode_district, same_campus
 
 
 READY_WORDS = {
@@ -59,6 +59,375 @@ def normalise_drawing_status(value) -> str:
     return _clean_text(value)
 
 
+
+
+def _is_future_pipeline_row(row: pd.Series) -> bool:
+    """
+    Cheap, non-routing signal that a site may become surveyable later.
+
+    The master file is a to-do portfolio, so we count:
+      - Plan Drafting work (drawing pipeline);
+      - Geospatial Asset Mapping work that is not yet Released;
+      - any row explicitly marked Needs Drawing.
+
+    Released Geospatial rows are current-week candidates, not future pipeline.
+    """
+    work_type = _clean_text(row.get("Work Type Name")).lower()
+    sf_status = _clean_text(row.get("Status")).lower()
+    drawing = _clean_text(row.get("Normalised Drawing Status")).lower()
+
+    if work_type == "geospatial asset mapping" and sf_status == "released":
+        return False
+    if work_type == "plan drafting":
+        return True
+    if work_type == "geospatial asset mapping":
+        return True
+    if drawing == "needs drawing":
+        return True
+    return False
+
+
+def _suggest_anchor_reserve(eligible_count: int, future_count: int) -> int:
+    """
+    Advisory reserve used by the endgame guardrail.
+
+    It intentionally stays small: the aim is to leave enough released work to
+    act as a future geographic anchor, not to starve the current week. The
+    guardrail can release these anchors again when candidate capacity would
+    otherwise be lost.
+    """
+    eligible_count = max(0, int(eligible_count or 0))
+    future_count = max(0, int(future_count or 0))
+    if eligible_count <= 0 or future_count <= 0:
+        return 0
+    if future_count >= 10 and eligible_count >= 8:
+        return min(3, eligible_count)
+    if future_count >= 5 and eligible_count >= 5:
+        return min(2, eligible_count)
+    if future_count >= 2 and eligible_count >= 2:
+        return 1
+    if future_count == 1 and eligible_count >= 4:
+        return 1
+    return 0
+
+
+def _endgame_risk(eligible_count: int, future_count: int, reserve: int) -> str:
+    if future_count <= 0:
+        return "Low"
+    if reserve >= 2 or (future_count >= 5 and eligible_count >= 4):
+        return "High"
+    if reserve >= 1 or future_count >= 2:
+        return "Medium"
+    return "Low"
+
+
+def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add portfolio-wide endgame/orphan-risk signals without paid routing calls.
+
+    Within a postcode district, released sites that best overlap the future
+    pipeline (same campus first, then same full postcode) are marked as anchor
+    candidates. Those rows are sorted later in the candidate order so they are
+    preserved when the selected cluster target is smaller than all released
+    sites in that district.
+    """
+    result = result.copy()
+    result["Future Pipeline Candidate"] = result.apply(_is_future_pipeline_row, axis=1)
+    result["Future Pipeline Sites in Cluster"] = 0
+    result["Suggested Anchor Reserve"] = 0
+    result["Endgame Risk"] = "Low"
+    result["Future Same Postcode Sites"] = 0
+    result["Future Same Campus Sites"] = 0
+    result["Endgame Anchor Score"] = 0.0
+    result["Endgame Anchor Candidate"] = False
+    result["Endgame Planning Note"] = "No future pipeline detected in this cluster."
+
+    for cluster, group in result.groupby("Postcode Cluster", dropna=False):
+        indices = list(group.index)
+        if not str(cluster or "").strip():
+            continue
+
+        eligible = group[group["Eligible for Selected Week"] == True]
+        future = group[group["Future Pipeline Candidate"] == True]
+        eligible_count = len(eligible)
+        future_count = len(future)
+        reserve = _suggest_anchor_reserve(eligible_count, future_count)
+        risk = _endgame_risk(eligible_count, future_count, reserve)
+
+        result.loc[indices, "Future Pipeline Sites in Cluster"] = future_count
+        result.loc[indices, "Suggested Anchor Reserve"] = reserve
+        result.loc[indices, "Endgame Risk"] = risk
+
+        if future_count > 0:
+            note = (
+                f"{future_count} future pipeline site(s) remain in {cluster}. "
+                f"Suggested released-site anchor reserve: {reserve}."
+            )
+            result.loc[indices, "Endgame Planning Note"] = note
+
+        if eligible.empty or future.empty or reserve <= 0:
+            continue
+
+        future_by_postcode = {}
+        for _, future_row in future.iterrows():
+            future_pc = _clean_text(future_row.get("Postcode")).upper()
+            if not future_pc:
+                continue
+            future_by_postcode.setdefault(future_pc, []).append(
+                _clean_text(future_row.get("Building Name"))
+            )
+
+        scored = []
+        for idx, row in eligible.iterrows():
+            pc = _clean_text(row.get("Postcode")).upper()
+            name = _clean_text(row.get("Building Name"))
+            future_names = future_by_postcode.get(pc, [])
+            same_postcode_count = len(future_names)
+            same_campus_count = 0
+            for future_name in future_names:
+                try:
+                    if same_campus(name, pc, future_name, pc):
+                        same_campus_count += 1
+                except Exception:
+                    pass
+
+            # Same-campus support is strongest, then exact postcode support;
+            # cluster-level pipeline provides a small baseline score.
+            score = (
+                same_campus_count * 100.0
+                + same_postcode_count * 20.0
+                + future_count
+            )
+            scored.append((score, same_campus_count, same_postcode_count, idx))
+
+        scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        anchor_indices = [item[3] for item in scored[:reserve]]
+
+        for score, same_campus_count, same_postcode_count, idx in scored:
+            result.at[idx, "Future Same Postcode Sites"] = same_postcode_count
+            result.at[idx, "Future Same Campus Sites"] = same_campus_count
+            result.at[idx, "Endgame Anchor Score"] = round(score, 1)
+
+        if anchor_indices:
+            result.loc[anchor_indices, "Endgame Anchor Candidate"] = True
+            for idx in anchor_indices:
+                support = int(result.at[idx, "Future Same Campus Sites"] or 0)
+                same_pc = int(result.at[idx, "Future Same Postcode Sites"] or 0)
+                if support:
+                    reason = f"Preserve if practical: supports {support} future same-campus site(s)."
+                elif same_pc:
+                    reason = f"Preserve if practical: supports {same_pc} future site(s) at the same postcode."
+                else:
+                    reason = "Preserve if practical as a geographic anchor for future work in this postcode district."
+                result.at[idx, "Endgame Planning Note"] = reason
+
+    return result
+
+
+def endgame_adjust_cluster_choices(
+    cluster_choices: Sequence[dict],
+    cluster_summary: pd.DataFrame,
+    max_sites_for_google: int,
+) -> Tuple[List[dict], pd.DataFrame]:
+    """
+    Preserve future anchors without reducing the candidate pool unnecessarily.
+
+    1) Start with the strategic choices already produced by AI/deterministic logic.
+    2) Where a selected cluster has future pipeline, reduce its target by the
+       small suggested anchor reserve.
+    3) Replace those removed candidates from non-anchor capacity elsewhere.
+    4) Only if replacement capacity is insufficient, release the lowest-risk
+       anchors so the current week's candidate count is restored.
+
+    This is deliberately a cheap portfolio operation; it never calls Google.
+    """
+    if cluster_summary is None or cluster_summary.empty:
+        return list(cluster_choices), pd.DataFrame()
+
+    summary_map = {
+        str(r.get("Cluster", "")).strip(): r
+        for r in cluster_summary.to_dict(orient="records")
+        if str(r.get("Cluster", "")).strip()
+    }
+
+    original_total = min(
+        int(max_sites_for_google),
+        sum(max(0, int(c.get("target_sites", 0) or 0)) for c in cluster_choices),
+    )
+    if original_total <= 0:
+        return list(cluster_choices), pd.DataFrame()
+
+    adjusted = []
+    audit = []
+    selected_clusters = set()
+
+    risk_rank = {"Low": 0, "Medium": 1, "High": 2}
+
+    for choice in cluster_choices:
+        cluster = str(choice.get("cluster", "")).strip()
+        if not cluster or cluster not in summary_map:
+            continue
+        row = summary_map[cluster]
+        eligible = int(row.get("Eligible This Week", 0) or 0)
+        reserve = int(row.get("Suggested Anchor Reserve", 0) or 0)
+        requested = min(eligible, max(0, int(choice.get("target_sites", 0) or 0)))
+        non_anchor_capacity = max(0, eligible - reserve)
+        target = min(requested, non_anchor_capacity) if reserve else requested
+
+        if target > 0:
+            new_choice = dict(choice)
+            new_choice["target_sites"] = target
+            if target < requested:
+                new_choice["reason"] = (
+                    str(choice.get("reason", ""))
+                    + f" Endgame guardrail preserves {requested - target} released anchor site(s) for future {cluster} work where practical."
+                ).strip()
+            adjusted.append(new_choice)
+            selected_clusters.add(cluster)
+
+        audit.append({
+            "Cluster": cluster,
+            "Eligible This Week": eligible,
+            "Future Pipeline Sites": int(row.get("Future Pipeline Sites", 0) or 0),
+            "Endgame Risk": str(row.get("Endgame Risk", "Low")),
+            "Suggested Anchor Reserve": reserve,
+            "Original Target": requested,
+            "Adjusted Target": target,
+            "Released Anchors Preserved": max(0, eligible - target),
+            "Guardrail Action": (
+                "Preserved anchor capacity" if target < requested else "No target reduction"
+            ),
+        })
+
+    current_total = sum(int(c.get("target_sites", 0) or 0) for c in adjusted)
+    missing = max(0, original_total - current_total)
+
+    # First replace removed anchor candidates with non-anchor capacity from the
+    # already selected clusters, then from other low-risk/strong clusters.
+    candidate_rows = sorted(
+        cluster_summary.to_dict(orient="records"),
+        key=lambda r: (
+            risk_rank.get(str(r.get("Endgame Risk", "Low")), 1),
+            -int(r.get("Eligible This Week", 0) or 0),
+            -float(r.get("Planning Hours Available", 0) or 0),
+        ),
+    )
+
+    def choice_for(cluster):
+        for c in adjusted:
+            if str(c.get("cluster", "")).strip() == cluster:
+                return c
+        return None
+
+    for row in candidate_rows:
+        if missing <= 0:
+            break
+        cluster = str(row.get("Cluster", "")).strip()
+        eligible = int(row.get("Eligible This Week", 0) or 0)
+        reserve = int(row.get("Suggested Anchor Reserve", 0) or 0)
+        non_anchor_capacity = max(0, eligible - reserve)
+        if non_anchor_capacity <= 0:
+            continue
+
+        existing = choice_for(cluster)
+        used = int(existing.get("target_sites", 0) or 0) if existing else 0
+        spare = max(0, non_anchor_capacity - used)
+        if spare <= 0:
+            continue
+        add = min(spare, missing)
+
+        if existing:
+            existing["target_sites"] = used + add
+            existing["reason"] = (
+                str(existing.get("reason", ""))
+                + f" Added {add} non-anchor candidate(s) to replace preserved anchors elsewhere."
+            ).strip()
+        else:
+            adjusted.append({
+                "cluster": cluster,
+                "priority": 45,
+                "target_sites": add,
+                "decision": "endgame_replacement",
+                "reason": (
+                    "Added as non-anchor replacement capacity so stronger future anchors can be preserved elsewhere."
+                ),
+            })
+            selected_clusters.add(cluster)
+        missing -= add
+
+    # If there still is not enough candidate capacity, release anchors from the
+    # lowest-risk clusters first. This prevents the endgame logic from leaving
+    # the current week under-supplied.
+    if missing > 0:
+        release_rows = sorted(
+            candidate_rows,
+            key=lambda r: (
+                risk_rank.get(str(r.get("Endgame Risk", "Low")), 1),
+                int(r.get("Future Pipeline Sites", 0) or 0),
+            ),
+        )
+        for row in release_rows:
+            if missing <= 0:
+                break
+            cluster = str(row.get("Cluster", "")).strip()
+            eligible = int(row.get("Eligible This Week", 0) or 0)
+            existing = choice_for(cluster)
+            used = int(existing.get("target_sites", 0) or 0) if existing else 0
+            spare = max(0, eligible - used)
+            if spare <= 0:
+                continue
+            add = min(spare, missing)
+            if existing:
+                existing["target_sites"] = used + add
+                existing["reason"] = (
+                    str(existing.get("reason", ""))
+                    + f" Released {add} anchor candidate(s) because replacement capacity was insufficient for this week's shortlist."
+                ).strip()
+            else:
+                adjusted.append({
+                    "cluster": cluster,
+                    "priority": 35,
+                    "target_sites": add,
+                    "decision": "anchor_released_for_capacity",
+                    "reason": "Anchor capacity released because the current week otherwise lacked enough candidate sites.",
+                })
+            missing -= add
+
+    # Rebuild audit using final targets.
+    final_target_map = {
+        str(c.get("cluster", "")).strip(): int(c.get("target_sites", 0) or 0)
+        for c in adjusted
+    }
+    audit_rows = []
+    for _, row in cluster_summary.iterrows():
+        cluster = str(row.get("Cluster", "")).strip()
+        eligible = int(row.get("Eligible This Week", 0) or 0)
+        future = int(row.get("Future Pipeline Sites", 0) or 0)
+        reserve = int(row.get("Suggested Anchor Reserve", 0) or 0)
+        final_target = final_target_map.get(cluster, 0)
+        if eligible <= 0 and future <= 0:
+            continue
+        audit_rows.append({
+            "Cluster": cluster,
+            "Eligible Released Now": eligible,
+            "Future Pipeline Sites": future,
+            "Future Drawing Pipeline": int(row.get("Future Drawing Pipeline", 0) or 0),
+            "Future GAM Awaiting Release": int(row.get("Future GAM Awaiting Release", 0) or 0),
+            "Endgame Risk": str(row.get("Endgame Risk", "Low")),
+            "Suggested Anchor Reserve": reserve,
+            "Candidate Target This Week": final_target,
+            "Released Sites Left Outside Shortlist": max(0, eligible - final_target),
+            "Endgame Reason": str(row.get("Endgame Reason", "")),
+        })
+
+    adjusted = sorted(
+        adjusted,
+        key=lambda c: int(c.get("priority", 50)),
+        reverse=True,
+    )
+    return adjusted, pd.DataFrame(audit_rows)
+
+
 def add_portfolio_fields(
     df: pd.DataFrame,
     target_week_start: date,
@@ -73,6 +442,8 @@ def add_portfolio_fields(
         the drawing team the requested one-week lead time.
       - If an explicit Earliest Survey Date exists, it takes precedence and the
         site is only eligible once that date has been reached.
+      - HARD GATE: the selected-week schedule only accepts rows where
+        Work Type Name = Geospatial Asset Mapping AND Status = Released.
     """
     result = df.copy()
 
@@ -106,16 +477,43 @@ def add_portfolio_fields(
             earliest = today
             reason = "Survey-ready / no drawing hold."
 
-        eligible = target_week_start >= monday_of(earliest)
+        date_eligible = target_week_start >= monday_of(earliest)
+
+        # Hard weekly scheduling gate: a site can only enter the selected
+        # week's routing/schedule when Salesforce has explicitly released the
+        # Geospatial Asset Mapping work. Other rows remain in the portfolio so
+        # they can still contribute to drawing priority and future planning.
+        work_type = _clean_text(row.get("Work Type Name")).lower()
+        sf_status = _clean_text(row.get("Status")).lower()
+        released_for_survey = (
+            work_type == "geospatial asset mapping"
+            and sf_status == "released"
+        )
+
+        eligible = bool(date_eligible and released_for_survey)
+
+        if not released_for_survey:
+            reason = (
+                "Not released for weekly survey scheduling: requires "
+                "Work Type Name = Geospatial Asset Mapping and Status = Released."
+            )
 
         earliest_dates.append(earliest)
-        eligibility.append(bool(eligible))
+        eligibility.append(eligible)
         reasons.append(reason)
 
     result["Calculated Earliest Survey Date"] = earliest_dates
     result["Eligible for Selected Week"] = eligibility
     result["Eligibility Reason"] = reasons
+    if "Work Type Name" in result.columns and "Status" in result.columns:
+        result["Released for Weekly Scheduling"] = (
+            result["Work Type Name"].astype(str).str.strip().str.lower().eq("geospatial asset mapping")
+            & result["Status"].astype(str).str.strip().str.lower().eq("released")
+        )
+    else:
+        result["Released for Weekly Scheduling"] = False
     result["Postcode Cluster"] = result["Postcode"].apply(postcode_district)
+    result = _annotate_endgame_fields(result)
 
     return result
 
@@ -189,6 +587,37 @@ def build_cluster_summary(
             for value in group["Building Name"].dropna().astype(str).head(3):
                 sample_buildings.append(value[:80])
 
+        future_pipeline = group[
+            group.get(
+                "Future Pipeline Candidate",
+                pd.Series(False, index=group.index),
+            ) == True
+        ]
+        future_count = len(future_pipeline)
+        future_drawing = int(
+            future_pipeline["Normalised Drawing Status"]
+            .astype(str).str.lower().eq("needs drawing").sum()
+        ) if "Normalised Drawing Status" in future_pipeline.columns else 0
+        future_gam_awaiting = 0
+        if "Work Type Name" in future_pipeline.columns and "Status" in future_pipeline.columns:
+            future_gam_awaiting = int((
+                future_pipeline["Work Type Name"].astype(str).str.strip().str.lower().eq("geospatial asset mapping")
+                & ~future_pipeline["Status"].astype(str).str.strip().str.lower().eq("released")
+            ).sum())
+
+        reserve = _suggest_anchor_reserve(len(eligible), future_count)
+        endgame_risk = _endgame_risk(len(eligible), future_count, reserve)
+        if future_count <= 0:
+            endgame_reason = "No known future pipeline in this postcode district; no anchor reserve needed."
+        elif reserve <= 0:
+            endgame_reason = (
+                f"{future_count} future site(s) remain, but current released volume is too small to reserve an anchor without risking this week's capacity."
+            )
+        else:
+            endgame_reason = (
+                f"{future_count} future site(s) remain; preserve about {reserve} released anchor site(s) where practical so later work is less likely to become isolated."
+            )
+
         rows.append({
             "Cluster": cluster,
             "Total Portfolio Sites": len(group),
@@ -209,6 +638,12 @@ def build_cluster_summary(
             "Existing Planned Next 3 Weeks": planned_count(
                 next_start, three_week_end
             ),
+            "Future Pipeline Sites": future_count,
+            "Future Drawing Pipeline": future_drawing,
+            "Future GAM Awaiting Release": future_gam_awaiting,
+            "Suggested Anchor Reserve": reserve,
+            "Endgame Risk": endgame_risk,
+            "Endgame Reason": endgame_reason,
             "Sample Buildings": " | ".join(sample_buildings),
         })
 
@@ -286,9 +721,21 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
         errors="coerce",
     ).fillna(9999)
 
+    # Endgame anchors are deliberately placed last inside their cluster. If a
+    # target asks for fewer than all released sites, the most useful future
+    # anchors are therefore the sites left behind. Existing planned-this-week
+    # work still takes precedence over the anchor preference.
+    result["_endgame_anchor"] = (
+        result.get(
+            "Endgame Anchor Candidate",
+            pd.Series(False, index=result.index),
+        ).astype(bool).astype(int)
+    )
+
     return result.sort_values(
         [
             "_planned_in_week",
+            "_endgame_anchor",
             "_planned_distance",
             "_confidence_rank",
             "_duration",

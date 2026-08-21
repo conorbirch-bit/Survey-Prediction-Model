@@ -36,6 +36,7 @@ from portfolio_clusterer import (
     deterministic_cluster_choices,
     shortlist_sites,
     build_drawing_priority_queue,
+    endgame_adjust_cluster_choices,
 )
 
 
@@ -44,7 +45,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.2 — segmented survey-duration model (1–6 / 7+)")
+st.caption("Version 20.4 — endgame-aware rolling-horizon scheduling")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -471,6 +472,10 @@ with tab2:
         "Create the selected week's schedules for one or more surveyors. "
         "The wider portfolio is used for cheap clustering and drawing priority; "
         "Google Routes is only used for this one selected week."
+    )
+    st.caption(
+        "Hard scheduling rule: only Work Type Name = Geospatial Asset Mapping "
+        "with Status = Released can be placed into the selected week's schedule."
     )
 
     team_file = st.file_uploader(
@@ -1018,6 +1023,39 @@ with tab2:
                                             raise ValueError(
                                                 "No clusters were selected for "
                                                 "the team week."
+                                            )
+
+                                        # Rolling-horizon endgame guardrail. This is a
+                                        # cheap portfolio-only adjustment: it can leave
+                                        # a small number of released sites as future
+                                        # geographic anchors, replace them with
+                                        # non-anchor candidates elsewhere, and only
+                                        # release anchors if current-week candidate
+                                        # capacity would otherwise be lost. No Google
+                                        # calls are made here.
+                                        (
+                                            team_cluster_choices,
+                                            team_endgame_plan_df,
+                                        ) = endgame_adjust_cluster_choices(
+                                            cluster_choices=team_cluster_choices,
+                                            cluster_summary=team_cluster_summary,
+                                            max_sites_for_google=(
+                                                total_team_candidate_cap
+                                            ),
+                                        )
+
+                                        if team_endgame_plan_df.empty:
+                                            team_endgame_plan_df = pd.DataFrame(
+                                                columns=[
+                                                    "Cluster",
+                                                    "Eligible Released Now",
+                                                    "Future Pipeline Sites",
+                                                    "Endgame Risk",
+                                                    "Suggested Anchor Reserve",
+                                                    "Candidate Target This Week",
+                                                    "Released Sites Left Outside Shortlist",
+                                                    "Endgame Reason",
+                                                ]
                                             )
 
                                         drawing_priority_queue = (
@@ -1722,6 +1760,8 @@ with tab2:
                                         team_strategy_context = (
                                             "Strategic cluster selection:\n"
                                             f"{team_cluster_strategy}\n\n"
+                                            "Endgame / orphan-risk plan:\n"
+                                            f"{team_endgame_plan_df.to_dict(orient='records')}\n\n"
                                             "Team cluster allocations:\n"
                                             f"{team_allocations_df.to_dict(orient='records')}\n\n"
                                             "Weekly special-request results:\n"
@@ -1767,6 +1807,27 @@ with tab2:
 
                                     st.markdown("#### Team cluster strategy")
                                     st.info(team_cluster_strategy)
+
+                                    st.markdown("#### Endgame / orphan-risk planning")
+                                    st.caption(
+                                        "This looks across the remaining portfolio before "
+                                        "Google routing. Released sites can be deliberately "
+                                        "left outside this week's shortlist as future "
+                                        "geographic anchors when drawing/unreleased work "
+                                        "remains nearby. Anchors are released again if they "
+                                        "are needed to avoid under-supplying the current week."
+                                    )
+                                    if team_endgame_plan_df.empty:
+                                        st.caption(
+                                            "No endgame planning signals were available for "
+                                            "the current portfolio."
+                                        )
+                                    else:
+                                        st.dataframe(
+                                            team_endgame_plan_df,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
 
                                     with st.expander(
                                         "Cluster allocation details"
@@ -2111,6 +2172,11 @@ with tab2:
                                         ).to_excel(
                                             writer,
                                             sheet_name="Selected Clusters",
+                                            index=False,
+                                        )
+                                        team_endgame_plan_df.to_excel(
+                                            writer,
+                                            sheet_name="Endgame Plan",
                                             index=False,
                                         )
                                         team_allocations_df.to_excel(
