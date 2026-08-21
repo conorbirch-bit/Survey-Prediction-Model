@@ -45,7 +45,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.4 — endgame-aware rolling-horizon scheduling")
+st.caption("Version 20.5 — endgame-aware scheduling with pre-filled surveyor team")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -583,7 +583,39 @@ with tab2:
                             },
                         },
                         {
-                            "Name": "Surveyor 2",
+                            "Name": "Rod Harrison",
+                            "Start / Finish Location": "Rugby Station",
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
+                        },
+                        {
+                            "Name": "Toby Lawal",
+                            "Start / Finish Location": "Chadwell Heath Station",
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
+                        },
+                        {
+                            "Name": "Harrison Grice",
+                            "Start / Finish Location": "Gravesend Station",
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
+                        },
+                        {
+                            "Name": "Joe Reynolds",
+                            "Start / Finish Location": "Hemel Hempstead Station",
+                            **{
+                                label: False
+                                for label in availability_columns.values()
+                            },
+                        },
+                        {
+                            "Name": "Spare Surveyor 1",
                             "Start / Finish Location": "",
                             **{
                                 label: False
@@ -591,15 +623,7 @@ with tab2:
                             },
                         },
                         {
-                            "Name": "Surveyor 3",
-                            "Start / Finish Location": "",
-                            **{
-                                label: False
-                                for label in availability_columns.values()
-                            },
-                        },
-                        {
-                            "Name": "Surveyor 4",
+                            "Name": "Spare Surveyor 2",
                             "Start / Finish Location": "",
                             **{
                                 label: False

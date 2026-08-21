@@ -56,3 +56,7 @@ The weekly cluster pre-filter now looks across the whole remaining master portfo
 - A new on-page `Endgame / orphan-risk planning` table and an `Endgame Plan` workbook sheet make the decisions auditable.
 
 All Version 20.3 duration prediction, Salesforce imports, weekly notes, same-campus logic, buffers, surveyor availability, Released-only eligibility and workbook outputs remain unchanged.
+
+
+## Version 20.5 — Default surveyor team
+The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Rod Harrison (Rugby Station), Toby Lawal (Chadwell Heath Station), Harrison Grice (Gravesend Station), and Joe Reynolds (Hemel Hempstead Station), plus two blank spare surveyor slots. Only Conor is available by default; other surveyors generate no Google routing until availability dates are ticked.
