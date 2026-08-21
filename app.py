@@ -38,10 +38,6 @@ from portfolio_clusterer import (
     build_drawing_priority_queue,
     endgame_adjust_cluster_choices,
 )
-from salesforce_upload import (
-    build_salesforce_upload_dataframe,
-    write_salesforce_upload_sheet,
-)
 
 
 LONDON_TZ = ZoneInfo("Europe/London")
@@ -49,7 +45,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.6 — Salesforce upload tab added")
+st.caption("Version 20.5 — endgame-aware scheduling with pre-filled surveyor team")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -2175,13 +2171,6 @@ with tab2:
                                                 f"{exc}"
                                             )
 
-                                    salesforce_upload_df = (
-                                        build_salesforce_upload_dataframe(
-                                            combined_team_schedule,
-                                            team_portfolio,
-                                        )
-                                    )
-
                                     team_output = io.BytesIO()
                                     with pd.ExcelWriter(
                                         team_output,
@@ -2266,17 +2255,6 @@ with tab2:
                                                 sheet_name=sheet_name,
                                                 index=False,
                                             )
-
-                                        # Output-only Salesforce copy/paste tab.
-                                        # Harrison/Joe stay in the normal schedule,
-                                        # but are intentionally excluded here until
-                                        # their Service Resource IDs are known.
-                                        write_salesforce_upload_sheet(
-                                            writer.book,
-                                            salesforce_upload_df,
-                                            sheet_name="Salesforce Upload",
-                                            index=2,
-                                        )
 
                                     st.download_button(
                                         "Download team weekly schedule",

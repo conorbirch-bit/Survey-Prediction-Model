@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 import math
 import re
@@ -149,6 +149,10 @@ class DailyScheduleResult:
     return_time: datetime
     latest_return: datetime
     unscheduled_count: int
+    lunch_start: Optional[datetime] = None
+    lunch_end: Optional[datetime] = None
+    lunch_location: str = ""
+    lunch_after_sequence: Optional[int] = None
 
     @property
     def survey_minutes(self) -> float:
@@ -163,6 +167,48 @@ class DailyScheduleResult:
 
     def to_dataframe(self) -> pd.DataFrame:
         rows = []
+
+        def lunch_row():
+            return {
+                "Sequence": "LUNCH",
+                "Customer Reference": "",
+                "Building Name": (
+                    f"Lunch break — {self.lunch_location}"
+                    if self.lunch_location
+                    else "Lunch break"
+                ),
+                "Postcode": "",
+                "Cluster": "",
+                "Depart Previous": "",
+                "Travel (Minutes)": "",
+                "Arrive": "",
+                "Survey Start": (
+                    self.lunch_start.strftime("%H:%M")
+                    if self.lunch_start
+                    else ""
+                ),
+                "Survey End": (
+                    self.lunch_end.strftime("%H:%M")
+                    if self.lunch_end
+                    else ""
+                ),
+                "Planning Survey Duration (Minutes)": 30,
+                "Raw Predicted Duration (Minutes)": "",
+                "Building Height": "",
+                "Sovereign Flat": "",
+                "Internal Ground Floor Area (m2)": "",
+                "Prediction Confidence": "",
+                "Prediction Model": "Lunch break",
+            }
+
+        lunch_inserted = False
+        if (
+            self.lunch_start is not None
+            and self.lunch_after_sequence == 0
+        ):
+            rows.append(lunch_row())
+            lunch_inserted = True
+
         for item in self.items:
             rows.append({
                 "Sequence": item.sequence,
@@ -184,6 +230,17 @@ class DailyScheduleResult:
                 "Prediction Model": item.model_used,
             })
 
+            if (
+                self.lunch_start is not None
+                and not lunch_inserted
+                and self.lunch_after_sequence == item.sequence
+            ):
+                rows.append(lunch_row())
+                lunch_inserted = True
+
+        if self.lunch_start is not None and not lunch_inserted:
+            rows.append(lunch_row())
+
         rows.append({
             "Sequence": "RETURN",
             "Customer Reference": "",
@@ -204,6 +261,7 @@ class DailyScheduleResult:
             "Prediction Model": "",
         })
         return pd.DataFrame(rows)
+
 
 
 @dataclass
@@ -282,6 +340,9 @@ class DailyTransitScheduler:
         pre_survey_buffer_minutes: int = 5,
         post_survey_buffer_minutes: int = 5,
         ai_priority_weight_minutes: float = 20.0,
+        lunch_minutes: int = 30,
+        lunch_window_start_clock=time(11, 45),
+        lunch_latest_start_clock=time(13, 0),
     ):
         self.router = router
         self.home_location = home_location
@@ -291,6 +352,9 @@ class DailyTransitScheduler:
         self.pre_survey_buffer_minutes = pre_survey_buffer_minutes
         self.post_survey_buffer_minutes = post_survey_buffer_minutes
         self.ai_priority_weight_minutes = ai_priority_weight_minutes
+        self.lunch_minutes = lunch_minutes
+        self.lunch_window_start_clock = lunch_window_start_clock
+        self.lunch_latest_start_clock = lunch_latest_start_clock
 
     @staticmethod
     def _same_postcode(a: str, b: str) -> bool:
@@ -311,7 +375,41 @@ class DailyTransitScheduler:
         current_building_name = ""
         current_time = start_time
 
+        lunch_taken = False
+        lunch_start = None
+        lunch_end = None
+        lunch_location = ""
+        lunch_after_sequence = None
+        lunch_window_start = datetime.combine(
+            start_time.date(),
+            self.lunch_window_start_clock,
+            tzinfo=start_time.tzinfo,
+        )
+        lunch_latest_start = datetime.combine(
+            start_time.date(),
+            self.lunch_latest_start_clock,
+            tzinfo=start_time.tzinfo,
+        )
+
         while remaining:
+            # Take lunch at the first natural between-survey boundary from 11:45.
+            # The break must START by 13:00. It is a hard constraint, not an AI
+            # preference, and therefore cannot be skipped to fit another survey.
+            if (
+                not lunch_taken
+                and lunch_window_start <= current_time <= lunch_latest_start
+            ):
+                lunch_start = current_time
+                lunch_end = lunch_start + timedelta(minutes=self.lunch_minutes)
+                lunch_location = current_location
+                lunch_after_sequence = len(scheduled)
+                current_time = lunch_end
+                lunch_taken = True
+
+            # This should only be reachable if no feasible pre-13:00 lunch could
+            # be protected. Do not schedule additional work after missing lunch.
+            if not lunch_taken and current_time > lunch_latest_start:
+                break
             # Same-campus candidates are deliberately EXCLUDED from the Google
             # Route Matrix. They receive the fixed internal-transfer time instead.
             #
@@ -456,6 +554,8 @@ class DailyTransitScheduler:
             ranked.sort(key=lambda x: x[0])
 
             chosen = None
+            lunch_blocked_candidate = False
+
             for _, idx, travel_minutes in ranked[:self.max_candidate_checks]:
                 site = remaining[idx]
 
@@ -472,18 +572,45 @@ class DailyTransitScheduler:
                     minutes=self.post_survey_buffer_minutes
                 )
 
+                # If we have not yet had lunch and taking this job would keep the
+                # surveyor occupied beyond the latest allowed lunch START (13:00),
+                # do not commit it. If no shorter feasible candidate exists, the
+                # scheduler will reserve lunch at 11:45 and then re-route.
+                if (
+                    not lunch_taken
+                    and current_time < lunch_window_start
+                    and ready_to_leave > lunch_latest_start
+                ):
+                    lunch_blocked_candidate = True
+                    continue
+
+                # If this survey finishes during the lunch-start window, include
+                # the 30-minute break in the return-home feasibility calculation.
+                # This prevents a site being accepted only because lunch was
+                # silently omitted from the hard return deadline.
+                return_departure_for_check = ready_to_leave
+                if (
+                    not lunch_taken
+                    and lunch_window_start <= ready_to_leave <= lunch_latest_start
+                ):
+                    return_departure_for_check = (
+                        ready_to_leave
+                        + timedelta(minutes=self.lunch_minutes)
+                    )
+
                 # Hard feasibility check using a real public-transport route home
-                # at the time this particular survey would finish.
+                # at the time this particular survey (and, where required, lunch)
+                # would finish.
                 try:
                     return_route = self.router.compute_route(
                         site["route_location"],
                         self.home_location,
-                        ready_to_leave,
+                        return_departure_for_check,
                     )
                 except Exception:
                     continue
 
-                return_time = ready_to_leave + timedelta(
+                return_time = return_departure_for_check + timedelta(
                     minutes=return_route.duration_minutes
                     + self.travel_leeway_minutes
                 )
@@ -501,6 +628,20 @@ class DailyTransitScheduler:
                     break
 
             if chosen is None:
+                # All otherwise-attractive candidates would cause lunch to be
+                # missed. Reserve lunch at 11:45, then re-run routing at 12:15.
+                if (
+                    lunch_blocked_candidate
+                    and not lunch_taken
+                    and current_time < lunch_window_start
+                ):
+                    lunch_start = lunch_window_start
+                    lunch_end = lunch_start + timedelta(minutes=self.lunch_minutes)
+                    lunch_location = current_location
+                    lunch_after_sequence = len(scheduled)
+                    current_time = lunch_end
+                    lunch_taken = True
+                    continue
                 break
 
             (
@@ -541,6 +682,21 @@ class DailyTransitScheduler:
             current_time = ready_to_leave
             remaining.pop(idx)
 
+        # If the final survey finishes during the lunch window, take the break
+        # before the final journey home. A day that genuinely finishes before
+        # 11:45 does not need a lunch break inserted.
+        if (
+            scheduled
+            and not lunch_taken
+            and lunch_window_start <= current_time <= lunch_latest_start
+        ):
+            lunch_start = current_time
+            lunch_end = lunch_start + timedelta(minutes=self.lunch_minutes)
+            lunch_location = current_location
+            lunch_after_sequence = len(scheduled)
+            current_time = lunch_end
+            lunch_taken = True
+
         # Always calculate the final journey home from the last site.
         if scheduled:
             final_route = self.router.compute_route(
@@ -566,6 +722,10 @@ class DailyTransitScheduler:
             return_time=return_time,
             latest_return=latest_return,
             unscheduled_count=len(remaining),
+            lunch_start=lunch_start,
+            lunch_end=lunch_end,
+            lunch_location=lunch_location,
+            lunch_after_sequence=lunch_after_sequence,
         )
 
     def build_week(

@@ -1,3 +1,1 @@
-VERSION 20.6 — SALESFORCE UPLOAD TAB
-Same scheduling/prediction/routing/endgame logic as Version 20.5.
-Adds an output-only Salesforce Upload worksheet in the downloaded weekly workbook.
+VERSION 20.6 — PROTECTED 30-MINUTE LUNCH BREAK\nSame logic as Version 20.5, plus one hard 30-minute lunch break per active surveyor/day.\nLunch starts no earlier than 11:45 and no later than 13:00.\n
