@@ -1,5 +1,4 @@
-VERSION 20.9 — FULL PORTFOLIO + SURVEY/HOME TIME WINDOWS
-All postcode-bearing rows inform future cluster/endgame planning.
-Only Released Geospatial rows with predictions can be scheduled this week.
-Time controls: first survey start / last survey finish / return home.
-Salesforce Copy and all other Version 20.8 features retained.
+VERSION 20.9.1 — SCHEDULER MODULE FIX
+Business logic is unchanged from Version 20.9.
+IMPORTANT: replace all repository files with this package and reboot the Streamlit app.
+The active scheduler module is scheduler_v20_9_1.py.

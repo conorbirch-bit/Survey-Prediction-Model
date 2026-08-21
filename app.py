@@ -9,7 +9,23 @@ import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
-from scheduler import DailyTransitScheduler, postcode_district
+from scheduler_v20_9_1 import DailyTransitScheduler, postcode_district
+import inspect
+
+_REQUIRED_BUILD_WEEK_ARGS = {
+    "first_survey_start_clock",
+    "latest_survey_finish_clock",
+    "latest_return_clock",
+}
+_build_week_args = set(
+    inspect.signature(DailyTransitScheduler.build_week).parameters
+)
+if not _REQUIRED_BUILD_WEEK_ARGS.issubset(_build_week_args):
+    raise RuntimeError(
+        "Version 20.9.1 scheduler mismatch: replace all repository files "
+        "with the files from the Version 20.9.1 package, then reboot the app."
+    )
+
 from ai_planner import OpenAISchedulePlanner
 from tfl_client import TfLClient
 from metoffice_client import MetOfficeClient
@@ -45,7 +61,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.9 — full-portfolio planning with survey/home time windows")
+st.caption("Version 20.9.1 — full-portfolio planning with protected survey/home windows")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."

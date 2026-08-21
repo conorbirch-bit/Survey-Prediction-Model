@@ -92,3 +92,10 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - Each candidate must satisfy both the last-survey-finish deadline and the return-home deadline.
 - Team cluster allocation gives extra weight to commute efficiency to reduce wasted travel while keeping candidate capacity unchanged.
 - Lunch, notes, endgame anchors, Salesforce Copy format, duration model and all other Version 20.8 behaviour remain unchanged.
+
+
+## Version 20.9.1 — scheduler compatibility fix
+- No scheduling/business-rule changes from Version 20.9.
+- The new time-window scheduler now lives in `scheduler_v20_9_1.py` so Streamlit cannot reuse an older cached `scheduler` module.
+- `app.py` validates the required `build_week()` arguments at startup.
+- Stale `__pycache__` files are not included in the package.

@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from scheduler import postcode_district, same_campus
+from scheduler_v20_9_1 import postcode_district, same_campus
 
 
 READY_WORDS = {
