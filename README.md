@@ -99,3 +99,4 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - The new time-window scheduler now lives in `scheduler_v20_9_1.py` so Streamlit cannot reuse an older cached `scheduler` module.
 - `app.py` validates the required `build_week()` arguments at startup.
 - Stale `__pycache__` files are not included in the package.
+\n\n## Version 20.9.2 — Work Done future pipeline\n- No weekly eligibility/routing changes from Version 20.9.1.\n- All Plan Drafting rows remain part of future planning.\n- Main Status = Work Done is explicitly recognised as future pipeline.\n- Parent Work Order: Status = Work Done is now also recognised.\n- Released GAM rows are not double-counted as future pipeline.\n- Cluster/endgame tables expose Future Work Done, Future Plan Drafting Work Done and Future Parent Work Done counts.\n- AI treats Work Done as a stronger near-term pipeline signal, but it still cannot schedule a site until GAM + Released.\n

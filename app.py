@@ -818,7 +818,8 @@ with tab2:
         "Hard current-week rule: only Work Type Name = Geospatial Asset Mapping "
         "with Status = Released, a usable postcode and a duration prediction can be "
         "placed into the selected week's schedule. Plan Drafting, Work Request, "
-        "Under Preparation and other non-released rows still influence future-cluster "
+        "Work Done, Parent Work Order Work Done, Under Preparation and other "
+        "non-released rows still influence future-cluster "
         "and orphan-risk planning."
     )
 
@@ -1473,6 +1474,9 @@ with tab2:
                                                     "Future Pipeline Sites",
                                                     "Future Plan Drafting",
                                                     "Future Under Preparation",
+                                                    "Future Work Done",
+                                                    "Future Plan Drafting Work Done",
+                                                    "Future Parent Work Done",
                                                     "Endgame Risk",
                                                     "Suggested Anchor Reserve",
                                                     "Candidate Target This Week",

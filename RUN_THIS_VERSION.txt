@@ -1,4 +1,1 @@
-VERSION 20.9.1 — SCHEDULER MODULE FIX
-Business logic is unchanged from Version 20.9.
-IMPORTANT: replace all repository files with this package and reboot the Streamlit app.
-The active scheduler module is scheduler_v20_9_1.py.
+VERSION 20.9.2 — WORK DONE PIPELINE FIX\nEverything else is unchanged from Version 20.9.1.\nFuture planning explicitly includes main Status=Work Done and Parent Work Order: Status=Work Done.\n

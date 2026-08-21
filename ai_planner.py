@@ -177,9 +177,14 @@ Objectives:
   Work Request, Geospatial rows in Under Preparation, and other not-yet-released
   work can all signal where later clusters will form, even when they lack a usable
   duration prediction today. Only "Eligible This Week" sites may enter Google now;
-- explicitly use "Future Plan Drafting" and "Future Under Preparation" alongside
-  the other future-pipeline fields when deciding whether a current released site
-  should be preserved as a future geographic anchor;
+- explicitly use "Future Plan Drafting", "Future Under Preparation",
+  "Future Work Done", "Future Plan Drafting Work Done" and
+  "Future Parent Work Done" alongside the other future-pipeline fields when
+  deciding whether a current released site should be preserved as a future
+  geographic anchor;
+- treat Work Done / Parent Work Done as a particularly useful near-term pipeline
+  signal because that work has progressed further than a simple Work Request.
+  It still cannot enter this week's Google schedule until the GAM row is Released;
 - plan for the END of the project, not only this week. If a cluster has a future
   pipeline, avoid unnecessarily clearing every released site now and leaving the
   later pipeline isolated. Where practical, use target_sites below

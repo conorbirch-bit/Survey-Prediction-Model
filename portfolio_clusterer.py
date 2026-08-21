@@ -65,28 +65,61 @@ def _is_future_pipeline_row(row: pd.Series) -> bool:
     """
     Cheap, non-routing signal that a site may become surveyable later.
 
-    The master file is a to-do portfolio, so we count:
-      - Plan Drafting work (drawing pipeline);
+    The master file is a to-do portfolio, so future planning counts:
+      - all Plan Drafting rows, including Work Request and Work Done;
       - Geospatial Asset Mapping work that is not yet Released;
+      - Status = Under Preparation;
+      - Status = Work Done where it appears on the main work order;
+      - Parent Work Order: Status = Work Done;
       - any row explicitly marked Needs Drawing.
 
-    Released Geospatial rows are current-week candidates, not future pipeline.
+    Released Geospatial rows are current-week candidates, not future pipeline,
+    even if their parent work order is already Work Done.
     """
     work_type = _clean_text(row.get("Work Type Name")).lower()
     sf_status = _clean_text(row.get("Status")).lower()
+    parent_status = _clean_text(
+        row.get("Parent Work Order: Status")
+    ).lower()
     drawing = _clean_text(row.get("Normalised Drawing Status")).lower()
 
+    # Never double-count work that is already a current-week Released GAM site.
     if work_type == "geospatial asset mapping" and sf_status == "released":
         return False
+
     if work_type == "plan drafting":
         return True
-    if sf_status == "under preparation":
+    if sf_status in {"under preparation", "work done"}:
+        return True
+    if parent_status == "work done":
         return True
     if work_type == "geospatial asset mapping":
         return True
     if drawing == "needs drawing":
         return True
     return False
+
+
+def _is_work_done_future_row(row: pd.Series) -> bool:
+    """
+    Stronger near-term pipeline signal.
+
+    A future row is tagged Work Done when either its own Salesforce Status or
+    its Parent Work Order Status is Work Done. Released GAM rows are excluded
+    because they are current-week work, not future pipeline.
+    """
+    if not _is_future_pipeline_row(row):
+        return False
+
+    sf_status = _clean_text(row.get("Status")).lower()
+    parent_status = _clean_text(
+        row.get("Parent Work Order: Status")
+    ).lower()
+
+    return (
+        sf_status == "work done"
+        or parent_status == "work done"
+    )
 
 
 def _suggest_anchor_reserve(eligible_count: int, future_count: int) -> int:
@@ -135,7 +168,12 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
     """
     result = result.copy()
     result["Future Pipeline Candidate"] = result.apply(_is_future_pipeline_row, axis=1)
+    result["Future Work Done Candidate"] = result.apply(
+        _is_work_done_future_row,
+        axis=1,
+    )
     result["Future Pipeline Sites in Cluster"] = 0
+    result["Future Work Done Sites in Cluster"] = 0
     result["Suggested Anchor Reserve"] = 0
     result["Endgame Risk"] = "Low"
     result["Future Same Postcode Sites"] = 0
@@ -151,18 +189,35 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
 
         eligible = group[group["Eligible for Selected Week"] == True]
         future = group[group["Future Pipeline Candidate"] == True]
+        future_work_done = future[
+            future.get(
+                "Future Work Done Candidate",
+                pd.Series(False, index=future.index),
+            ) == True
+        ]
         eligible_count = len(eligible)
         future_count = len(future)
+        future_work_done_count = len(future_work_done)
         reserve = _suggest_anchor_reserve(eligible_count, future_count)
         risk = _endgame_risk(eligible_count, future_count, reserve)
 
         result.loc[indices, "Future Pipeline Sites in Cluster"] = future_count
+        result.loc[
+            indices,
+            "Future Work Done Sites in Cluster",
+        ] = future_work_done_count
         result.loc[indices, "Suggested Anchor Reserve"] = reserve
         result.loc[indices, "Endgame Risk"] = risk
 
         if future_count > 0:
+            work_done_note = (
+                f" {future_work_done_count} are already Work Done / parent Work Done."
+                if future_work_done_count > 0
+                else ""
+            )
             note = (
-                f"{future_count} future pipeline site(s) remain in {cluster}. "
+                f"{future_count} future pipeline site(s) remain in {cluster}."
+                f"{work_done_note} "
                 f"Suggested released-site anchor reserve: {reserve}."
             )
             result.loc[indices, "Endgame Planning Note"] = note
@@ -416,6 +471,11 @@ def endgame_adjust_cluster_choices(
             "Future Drawing Pipeline": int(row.get("Future Drawing Pipeline", 0) or 0),
             "Future Plan Drafting": int(row.get("Future Plan Drafting", 0) or 0),
             "Future Under Preparation": int(row.get("Future Under Preparation", 0) or 0),
+            "Future Work Done": int(row.get("Future Work Done", 0) or 0),
+            "Future Plan Drafting Work Done": int(
+                row.get("Future Plan Drafting Work Done", 0) or 0
+            ),
+            "Future Parent Work Done": int(row.get("Future Parent Work Done", 0) or 0),
             "Future GAM Awaiting Release": int(row.get("Future GAM Awaiting Release", 0) or 0),
             "Endgame Risk": str(row.get("Endgame Risk", "Low")),
             "Suggested Anchor Reserve": reserve,
@@ -612,6 +672,9 @@ def build_cluster_summary(
         future_gam_awaiting = 0
         future_plan_drafting = 0
         future_under_preparation = 0
+        future_work_done = 0
+        future_plan_drafting_work_done = 0
+        future_parent_work_done = 0
         if "Work Type Name" in future_pipeline.columns:
             future_plan_drafting = int(
                 future_pipeline["Work Type Name"]
@@ -626,6 +689,39 @@ def build_cluster_summary(
             future_gam_awaiting = int((
                 future_pipeline["Work Type Name"].astype(str).str.strip().str.lower().eq("geospatial asset mapping")
                 & ~future_pipeline["Status"].astype(str).str.strip().str.lower().eq("released")
+            ).sum())
+
+        if not future_pipeline.empty:
+            main_status = (
+                future_pipeline["Status"]
+                .astype(str).str.strip().str.lower()
+                if "Status" in future_pipeline.columns
+                else pd.Series("", index=future_pipeline.index)
+            )
+            parent_status = (
+                future_pipeline["Parent Work Order: Status"]
+                .astype(str).str.strip().str.lower()
+                if "Parent Work Order: Status" in future_pipeline.columns
+                else pd.Series("", index=future_pipeline.index)
+            )
+            work_type = (
+                future_pipeline["Work Type Name"]
+                .astype(str).str.strip().str.lower()
+                if "Work Type Name" in future_pipeline.columns
+                else pd.Series("", index=future_pipeline.index)
+            )
+
+            work_done_mask = (
+                main_status.eq("work done")
+                | parent_status.eq("work done")
+            )
+            future_work_done = int(work_done_mask.sum())
+            future_parent_work_done = int(
+                parent_status.eq("work done").sum()
+            )
+            future_plan_drafting_work_done = int((
+                work_type.eq("plan drafting")
+                & work_done_mask
             ).sum())
 
         reserve = _suggest_anchor_reserve(len(eligible), future_count)
@@ -665,6 +761,9 @@ def build_cluster_summary(
             "Future Drawing Pipeline": future_drawing,
             "Future Plan Drafting": future_plan_drafting,
             "Future Under Preparation": future_under_preparation,
+            "Future Work Done": future_work_done,
+            "Future Plan Drafting Work Done": future_plan_drafting_work_done,
+            "Future Parent Work Done": future_parent_work_done,
             "Future GAM Awaiting Release": future_gam_awaiting,
             "Suggested Anchor Reserve": reserve,
             "Endgame Risk": endgame_risk,
