@@ -34,3 +34,7 @@ The completed-surveys upload parser now lives in `app.py`, avoiding deployment/c
 
 ## Version 19 To Do / master portfolio import
 The weekly scheduling master-portfolio upload now accepts the Salesforce To Do report layout used in `21.08.2026 - 12.17 Chat.xlsx`, including report title/filter rows above the real table header, grouped Work Type/Status rows, Salesforce Total/Count footer rows, and the `Ground Floor Area (m2)` field name. `Ground Floor Area (m2)` is mapped to the existing canonical `Internal Ground Floor Area (m2)` predictor input. All Version 18.1 scheduling, prediction, notes, routing and export behaviour is otherwise unchanged.
+
+
+### Version 20.1 cache safety
+The Streamlit training functions are cache-busted and the app verifies that the segmented predictor is actually active before scheduling.

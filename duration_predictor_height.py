@@ -29,6 +29,7 @@ SMALL_SEGMENT = "1–8 flats"
 STANDARD_SEGMENT = "9+ flats"
 GARAGE_SEGMENT = "Garage"
 FALLBACK_SEGMENT = "Residential fallback (flats missing)"
+MODEL_VERSION = "20.1-segmented"
 
 
 @dataclass
@@ -58,6 +59,7 @@ class PredictionResult:
 
 
 class DurationPredictor:
+    model_version = MODEL_VERSION
     """
     Version 20 segmented duration model.
 
