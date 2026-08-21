@@ -1,1 +1,4 @@
-Version 19 — To Do Salesforce format support
+Version 20 — segmented survey-duration model
+
+Run with:
+streamlit run app.py

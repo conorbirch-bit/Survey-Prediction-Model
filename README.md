@@ -1,3 +1,15 @@
+
+## Version 20 duration-model change
+
+Duration prediction is now split into independent model families based on Sovereign Flat count:
+
+- **Garage:** 0 flats. Garage history is kept separate from residential history. Height/area are used when enough garage rows exist; otherwise the historical mean garage duration is used.
+- **Small residential:** 1–8 flats inclusive. This family has its own regressions trained only on completed 1–8-flat buildings.
+- **Standard/larger residential:** 9+ flats. This family has its own regressions trained only on completed 9+-flat buildings.
+- **Flat count missing:** the existing all-residential Height + Area fallback is retained because the size family cannot be identified.
+
+The existing rule remains: when Ground Floor Area is unavailable for a residential building with a known flat count, prediction uses that segment's **flats-only** equation. Planning Survey Duration remains identical to Raw Predicted Duration.
+
 # Site Survey Scheduling Agent — Version 19
 
 This version keeps the Version 16 weekly notes and same-campus routing behaviour, with these duration/schedule updates:
