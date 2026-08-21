@@ -45,7 +45,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.5 — endgame-aware scheduling with pre-filled surveyor team")
+st.caption("Version 20.9 — full-portfolio planning with survey/home time windows")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -794,12 +794,16 @@ with tab2:
     st.subheader("Weekly scheduling")
     st.write(
         "Create the selected week's schedules for one or more surveyors. "
-        "The wider portfolio is used for cheap clustering and drawing priority; "
-        "Google Routes is only used for this one selected week."
+        "Every postcode-bearing row in the uploaded portfolio is considered for "
+        "forward-looking clustering/endgame planning, while Google Routes is only "
+        "used for the one selected week."
     )
     st.caption(
-        "Hard scheduling rule: only Work Type Name = Geospatial Asset Mapping "
-        "with Status = Released can be placed into the selected week's schedule."
+        "Hard current-week rule: only Work Type Name = Geospatial Asset Mapping "
+        "with Status = Released, a usable postcode and a duration prediction can be "
+        "placed into the selected week's schedule. Plan Drafting, Work Request, "
+        "Under Preparation and other non-released rows still influence future-cluster "
+        "and orphan-risk planning."
     )
 
     team_file = st.file_uploader(
@@ -840,9 +844,13 @@ with tab2:
                 )
             else:
                 team_predictions = predict_upcoming(team_upcoming)
-                team_routable = team_predictions[
-                    (team_predictions["Prediction Status"] == "Predicted")
-                    & team_predictions["Postcode"].notna()
+
+                # Strategic planning sees the full postcode-bearing portfolio, not
+                # just rows that are already Released/predictable. This means Plan
+                # Drafting, Work Request, Under Preparation and incomplete-data rows
+                # can protect future clusters from becoming endgame orphans.
+                team_portfolio_input = team_predictions[
+                    team_predictions["Postcode"].notna()
                     & (
                         team_predictions["Postcode"]
                         .astype(str)
@@ -851,17 +859,29 @@ with tab2:
                     )
                 ].copy()
 
-                if team_routable.empty:
+                if team_portfolio_input.empty:
                     st.warning(
-                        "There are no portfolio sites with both a duration prediction "
-                        "and a postcode."
+                        "There are no portfolio sites with a usable postcode for "
+                        "clustering/planning."
                     )
                 else:
                     today = datetime.now(LONDON_TZ).date()
                     current_monday = today - timedelta(days=today.weekday())
                     default_team_week = current_monday + timedelta(days=7)
 
-                    t1, t2, t3 = st.columns(3)
+                    def quarter_hour_options(start_hour=6, end_hour=20):
+                        options = []
+                        for hour in range(start_hour, end_hour + 1):
+                            for minute in (0, 15, 30, 45):
+                                if hour == end_hour and minute > 0:
+                                    continue
+                                options.append(time(hour, minute))
+                        return options
+
+                    schedule_time_options = quarter_hour_options()
+                    time_format = lambda t: t.strftime("%H:%M")
+
+                    t1, t2, t3, t4 = st.columns(4)
                     with t1:
                         team_week_start = st.date_input(
                             "Team week commencing",
@@ -869,17 +889,49 @@ with tab2:
                             key="team_week_start",
                         )
                     with t2:
-                        team_start_clock = st.time_input(
-                            "Team leave time",
-                            value=time(7, 50),
-                            key="team_start_clock",
+                        team_first_survey_clock = st.selectbox(
+                            "First survey starts at",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(8, 0)),
+                            format_func=time_format,
+                            key="team_first_survey_clock",
+                            help=(
+                                "Earliest planned survey start. Home departure is "
+                                "back-calculated from Google transit so a long commute "
+                                "does not consume the survey window."
+                            ),
                         )
                     with t3:
-                        team_finish_clock = st.time_input(
-                            "Team latest return",
-                            value=time(16, 0),
-                            key="team_finish_clock",
+                        team_last_survey_clock = st.selectbox(
+                            "Last survey finishes no later than",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(15, 0)),
+                            format_func=time_format,
+                            key="team_last_survey_clock",
+                            help=(
+                                "Hard deadline for the end of the final survey. "
+                                "Travel home happens after this."
+                            ),
                         )
+                    with t4:
+                        team_return_home_clock = st.selectbox(
+                            "Return home no later than",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(16, 0)),
+                            format_func=time_format,
+                            key="team_return_home_clock",
+                            help=(
+                                "Hard home-arrival deadline. The scheduler can finish "
+                                "the final survey earlier when the journey home is long."
+                            ),
+                        )
+
+                    st.caption(
+                        "Efficiency rule: the outbound commute is placed before the first "
+                        "survey-start target instead of reducing survey time. The final "
+                        "survey must satisfy both the survey-finish deadline and the "
+                        "return-home deadline."
+                    )
 
                     st.markdown("#### Surveyor availability")
                     st.caption(
@@ -1092,7 +1144,7 @@ with tab2:
                     st.caption(
                         "Supported in this version: named-surveyor location requests "
                         "for a specific day/date. Notes never override availability, "
-                        "drawing eligibility, return-time limits, buffers, duplicate-"
+                        "drawing eligibility, survey-finish/return-time limits, buffers, duplicate-"
                         "site rules, or the one-week Google horizon. A note may add "
                         "one small area-to-cluster lookup and a trial reroute for the "
                         "affected surveyor, but never routes a future week."
@@ -1119,8 +1171,8 @@ with tab2:
                         len(team_predictions),
                     )
                     status_cols[1].metric(
-                        "Predicted/routable",
-                        len(team_routable),
+                        "Rows considered strategically",
+                        len(team_portfolio_input),
                     )
                     status_cols[2].metric(
                         "Google Routes",
@@ -1141,9 +1193,14 @@ with tab2:
                             st.error(
                                 "Week commencing must be a Monday."
                             )
-                        elif team_finish_clock <= team_start_clock:
+                        elif team_last_survey_clock <= team_first_survey_clock:
                             st.error(
-                                "Latest return must be after the leave time."
+                                "Last survey finish must be after the first survey start."
+                            )
+                        elif team_return_home_clock <= team_last_survey_clock:
+                            st.error(
+                                "Return-home deadline must be after the last-survey "
+                                "finish deadline."
                             )
                         else:
                             active_surveyors = []
@@ -1210,7 +1267,7 @@ with tab2:
                                         "person's shortlist..."
                                     ):
                                         team_portfolio = add_portfolio_fields(
-                                            team_routable,
+                                            team_portfolio_input,
                                             target_week_start=team_week_start,
                                             today=today,
                                         )
@@ -1398,6 +1455,8 @@ with tab2:
                                                     "Cluster",
                                                     "Eligible Released Now",
                                                     "Future Pipeline Sites",
+                                                    "Future Plan Drafting",
+                                                    "Future Under Preparation",
                                                     "Endgame Risk",
                                                     "Suggested Anchor Reserve",
                                                     "Candidate Target This Week",
@@ -1446,10 +1505,17 @@ with tab2:
                                             )
                                         )
 
-                                        allocation_departure = datetime.combine(
-                                            min(all_available_dates),
-                                            team_start_clock,
-                                            tzinfo=LONDON_TZ,
+                                        # The home->cluster allocation matrix is only a
+                                        # cheap comparative signal. Probe shortly before
+                                        # the first-survey target; the detailed scheduler
+                                        # later back-calculates each person's real departure.
+                                        allocation_departure = (
+                                            datetime.combine(
+                                                min(all_available_dates),
+                                                team_first_survey_clock,
+                                                tzinfo=LONDON_TZ,
+                                            )
+                                            - timedelta(minutes=90)
                                         )
 
                                         team_home_cluster_matrix = (
@@ -1564,11 +1630,14 @@ with tab2:
                                                 surveyor_scheduler.build_week(
                                                     sites=surveyor_sites,
                                                     dates=surveyor_dates,
-                                                    start_clock=(
-                                                        team_start_clock
+                                                    first_survey_start_clock=(
+                                                        team_first_survey_clock
+                                                    ),
+                                                    latest_survey_finish_clock=(
+                                                        team_last_survey_clock
                                                     ),
                                                     latest_return_clock=(
-                                                        team_finish_clock
+                                                        team_return_home_clock
                                                     ),
                                                     timezone=LONDON_TZ,
                                                 )
@@ -1736,7 +1805,7 @@ with tab2:
                                                         request.location
                                                     ),
                                                     requested_date=requested_date,
-                                                    start_clock=team_start_clock,
+                                                    start_clock=team_first_survey_clock,
                                                     timezone=LONDON_TZ,
                                                     representatives=(
                                                         request_representatives
@@ -1883,11 +1952,14 @@ with tab2:
                                                             surveyor.available_dates
                                                             or []
                                                         ),
-                                                        start_clock=(
-                                                            team_start_clock
+                                                        first_survey_start_clock=(
+                                                            team_first_survey_clock
+                                                        ),
+                                                        latest_survey_finish_clock=(
+                                                            team_last_survey_clock
                                                         ),
                                                         latest_return_clock=(
-                                                            team_finish_clock
+                                                            team_return_home_clock
                                                         ),
                                                         timezone=LONDON_TZ,
                                                     )
@@ -2166,8 +2238,9 @@ with tab2:
                                         "This looks across the remaining portfolio before "
                                         "Google routing. Released sites can be deliberately "
                                         "left outside this week's shortlist as future "
-                                        "geographic anchors when drawing/unreleased work "
-                                        "remains nearby. Anchors are released again if they "
+                                        "geographic anchors when Plan Drafting, Under "
+                                        "Preparation or other unreleased work remains nearby. "
+                                        "Anchors are released again if they "
                                         "are needed to avoid under-supplying the current week."
                                     )
                                     if team_endgame_plan_df.empty:

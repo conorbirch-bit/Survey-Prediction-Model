@@ -82,3 +82,13 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - Work Order / Primary Service Appointment / Service Appointment ID / Customer Reference / Building Name are joined from the uploaded To Do portfolio.
 - LUNCH and RETURN rows are excluded.
 - Scheduled timestamps use YYYY-MM-DDTHH:MM:00.000+0000 as in the supplied template.
+
+
+## Version 20.9 — Full-portfolio planning + three time windows
+- Strategic/endgame planning now keeps every postcode-bearing portfolio row, including Plan Drafting, Work Request, Geospatial Under Preparation and rows without a duration prediction.
+- Current-week routing remains hard-gated to Geospatial Asset Mapping + Released + a valid duration prediction.
+- New 15-minute dropdowns: First survey starts at; Last survey finishes no later than; Return home no later than.
+- The first home departure is back-calculated from the first-site transit estimate so long commutes happen before the survey window rather than consuming it.
+- Each candidate must satisfy both the last-survey-finish deadline and the return-home deadline.
+- Team cluster allocation gives extra weight to commute efficiency to reduce wasted travel while keeping candidate capacity unchanged.
+- Lunch, notes, endgame anchors, Salesforce Copy format, duration model and all other Version 20.8 behaviour remain unchanged.

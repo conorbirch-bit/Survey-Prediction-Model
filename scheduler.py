@@ -149,6 +149,8 @@ class DailyScheduleResult:
     return_time: datetime
     latest_return: datetime
     unscheduled_count: int
+    first_survey_target: Optional[datetime] = None
+    latest_survey_finish: Optional[datetime] = None
     lunch_start: Optional[datetime] = None
     lunch_end: Optional[datetime] = None
     lunch_location: str = ""
@@ -289,11 +291,16 @@ class WeeklyScheduleResult:
                 if item.cluster and item.cluster not in clusters:
                     clusters.append(item.cluster)
 
+            service_dt = day.first_survey_target or day.start_time
+            first_actual = day.items[0].survey_start if day.items else None
+            last_actual = day.items[-1].survey_end if day.items else None
             rows.append({
-                "Date": day.start_time.strftime("%A %d %B %Y"),
+                "Date": service_dt.strftime("%A %d %B %Y"),
                 "Surveys": len(day.items),
                 "Clusters": " → ".join(clusters),
                 "Leave Harpenden": day.start_time.strftime("%H:%M"),
+                "First Survey": first_actual.strftime("%H:%M") if first_actual else "",
+                "Last Survey Finish": last_actual.strftime("%H:%M") if last_actual else "",
                 "Return Harpenden": day.return_time.strftime("%H:%M"),
                 "Survey Time (Minutes)": day.survey_minutes,
                 "Travel Time (Minutes)": day.travel_minutes,
@@ -305,8 +312,9 @@ class WeeklyScheduleResult:
         frames = []
         for day in self.days:
             df = day.to_dataframe().copy()
-            df.insert(0, "Date", day.start_time.date().isoformat())
-            df.insert(1, "Day", day.start_time.strftime("%A"))
+            service_dt = day.first_survey_target or day.start_time
+            df.insert(0, "Date", service_dt.date().isoformat())
+            df.insert(1, "Day", service_dt.strftime("%A"))
             frames.append(df)
 
         if not frames:
@@ -364,7 +372,8 @@ class DailyTransitScheduler:
     def build_day(
         self,
         sites: List[dict],
-        start_time: datetime,
+        first_survey_start: datetime,
+        latest_survey_finish: datetime,
         latest_return: datetime,
     ) -> DailyScheduleResult:
         remaining = [dict(site) for site in sites]
@@ -373,7 +382,13 @@ class DailyTransitScheduler:
         current_location = self.home_location
         current_postcode = ""
         current_building_name = ""
-        current_time = start_time
+
+        # For the first leg, Google needs a departure time to price/rank transit.
+        # Probe shortly before the requested first-survey start, then back-calculate
+        # the actual home departure for the chosen first site. This stops a long
+        # commute from consuming the user's survey-work window.
+        current_time = first_survey_start - timedelta(minutes=90)
+        home_departure_time = current_time
 
         lunch_taken = False
         lunch_start = None
@@ -381,14 +396,14 @@ class DailyTransitScheduler:
         lunch_location = ""
         lunch_after_sequence = None
         lunch_window_start = datetime.combine(
-            start_time.date(),
+            first_survey_start.date(),
             self.lunch_window_start_clock,
-            tzinfo=start_time.tzinfo,
+            tzinfo=first_survey_start.tzinfo,
         )
         lunch_latest_start = datetime.combine(
-            start_time.date(),
+            first_survey_start.date(),
             self.lunch_latest_start_clock,
-            tzinfo=start_time.tzinfo,
+            tzinfo=first_survey_start.tzinfo,
         )
 
         while remaining:
@@ -526,7 +541,7 @@ class DailyTransitScheduler:
                     try:
                         if hasattr(preferred_date, "date"):
                             preferred_date = preferred_date.date()
-                        current_day = start_time.date()
+                        current_day = first_survey_start.date()
                         if current_day < preferred_date:
                             # Do not consume a request-area site on an earlier day.
                             # If the note trial later fails, the entire trial is
@@ -559,15 +574,68 @@ class DailyTransitScheduler:
             for _, idx, travel_minutes in ranked[:self.max_candidate_checks]:
                 site = remaining[idx]
 
-                buffered_travel_minutes = travel_minutes + self.travel_leeway_minutes
-                arrive = current_time + timedelta(minutes=buffered_travel_minutes)
+                is_first_survey = len(scheduled) == 0
 
-                survey_start = arrive + timedelta(
-                    minutes=self.pre_survey_buffer_minutes
-                )
+                if is_first_survey:
+                    # Back-calculate home departure so the first survey begins at
+                    # the selected target rather than after an arbitrary fixed
+                    # "leave home" time. Use one exact Compute Routes call only for
+                    # the shortlisted candidate being feasibility-tested.
+                    estimated_departure = first_survey_start - timedelta(
+                        minutes=(
+                            travel_minutes
+                            + self.travel_leeway_minutes
+                            + self.pre_survey_buffer_minutes
+                        )
+                    )
+                    try:
+                        outbound_route = self.router.compute_route(
+                            self.home_location,
+                            site["route_location"],
+                            estimated_departure,
+                        )
+                    except Exception:
+                        continue
+
+                    buffered_travel_minutes = (
+                        float(outbound_route.duration_minutes)
+                        + self.travel_leeway_minutes
+                    )
+                    # Re-anchor the displayed/operational home departure using
+                    # the exact route duration we just received so the first
+                    # survey starts at the selected time rather than merely
+                    # "not before" it. This does not add another Google call.
+                    depart_previous = first_survey_start - timedelta(
+                        minutes=(
+                            buffered_travel_minutes
+                            + self.pre_survey_buffer_minutes
+                        )
+                    )
+                    arrive = depart_previous + timedelta(
+                        minutes=buffered_travel_minutes
+                    )
+                    survey_start = first_survey_start
+                else:
+                    buffered_travel_minutes = (
+                        travel_minutes + self.travel_leeway_minutes
+                    )
+                    depart_previous = current_time
+                    arrive = current_time + timedelta(
+                        minutes=buffered_travel_minutes
+                    )
+                    survey_start = arrive + timedelta(
+                        minutes=self.pre_survey_buffer_minutes
+                    )
+
                 survey_end = survey_start + timedelta(
                     minutes=float(site["planning_minutes"])
                 )
+
+                # Independent hard deadline: the final survey itself cannot end
+                # after the user's selected cut-off, regardless of the journey home.
+                if survey_end > latest_survey_finish:
+                    continue
+
                 ready_to_leave = survey_end + timedelta(
                     minutes=self.post_survey_buffer_minutes
                 )
@@ -624,6 +692,7 @@ class DailyTransitScheduler:
                         survey_start,
                         survey_end,
                         ready_to_leave,
+                        depart_previous,
                     )
                     break
 
@@ -652,7 +721,11 @@ class DailyTransitScheduler:
                 survey_start,
                 survey_end,
                 ready_to_leave,
+                depart_previous,
             ) = chosen
+
+            if not scheduled:
+                home_departure_time = depart_previous
 
             scheduled.append(
                 ScheduledSurvey(
@@ -661,7 +734,7 @@ class DailyTransitScheduler:
                     building_name=str(site.get("building_name", "")),
                     postcode=str(site.get("postcode", "")),
                     cluster=postcode_district(site.get("postcode", "")),
-                    depart_previous=current_time,
+                    depart_previous=depart_previous,
                     travel_minutes=travel_minutes,
                     arrive_site=arrive,
                     survey_minutes=float(site["planning_minutes"]),
@@ -710,18 +783,21 @@ class DailyTransitScheduler:
             return_time = current_time + timedelta(minutes=return_minutes)
         else:
             return_minutes = 0.0
-            return_time = start_time
+            return_time = first_survey_start
+            home_departure_time = first_survey_start
 
         return DailyScheduleResult(
             items=scheduled,
             start_location=self.home_location,
-            start_time=start_time,
+            start_time=home_departure_time,
             return_location=self.home_location,
             return_departure=current_time,
             return_travel_minutes=return_minutes,
             return_time=return_time,
             latest_return=latest_return,
             unscheduled_count=len(remaining),
+            first_survey_target=first_survey_start,
+            latest_survey_finish=latest_survey_finish,
             lunch_start=lunch_start,
             lunch_end=lunch_end,
             lunch_location=lunch_location,
@@ -732,7 +808,8 @@ class DailyTransitScheduler:
         self,
         sites: List[dict],
         dates: Sequence,
-        start_clock,
+        first_survey_start_clock,
+        latest_survey_finish_clock,
         latest_return_clock,
         timezone,
     ) -> WeeklyScheduleResult:
@@ -750,12 +827,17 @@ class DailyTransitScheduler:
             if not remaining:
                 break
 
-            start_dt = datetime.combine(
+            first_survey_dt = datetime.combine(
                 day_date,
-                start_clock,
+                first_survey_start_clock,
                 tzinfo=timezone,
             )
-            finish_dt = datetime.combine(
+            latest_survey_finish_dt = datetime.combine(
+                day_date,
+                latest_survey_finish_clock,
+                tzinfo=timezone,
+            )
+            return_deadline_dt = datetime.combine(
                 day_date,
                 latest_return_clock,
                 tzinfo=timezone,
@@ -763,8 +845,9 @@ class DailyTransitScheduler:
 
             day_result = self.build_day(
                 sites=remaining,
-                start_time=start_dt,
-                latest_return=finish_dt,
+                first_survey_start=first_survey_dt,
+                latest_survey_finish=latest_survey_finish_dt,
+                latest_return=return_deadline_dt,
             )
             days.append(day_result)
 

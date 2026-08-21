@@ -75,7 +75,7 @@ You parse optional operational notes for a UK site-survey weekly scheduler.
 
 The scheduler's hard rules can NEVER be overridden: drawing/site eligibility,
 surveyor availability, no duplicate site assignment, fixed travel/survey buffers,
-latest return time, and the one-selected-week Google routing horizon all remain
+latest survey-finish time, latest return-home time, and the one-selected-week Google routing horizon all remain
 absolute.
 
 For this version, the ONLY supported note type is a location preference for a
@@ -173,8 +173,13 @@ Objectives:
 - consider prediction confidence and total available survey hours;
 - use TfL disruption and weather only as risk/context, not as invented routing;
 - avoid selecting isolated clusters when a stronger cluster can fill the week;
-- remember that sites awaiting drawing or release may become useful in later
-  weeks, but only "Eligible This Week" sites can enter the Google shortlist now;
+- treat the full uploaded portfolio as forward-looking evidence. Plan Drafting,
+  Work Request, Geospatial rows in Under Preparation, and other not-yet-released
+  work can all signal where later clusters will form, even when they lack a usable
+  duration prediction today. Only "Eligible This Week" sites may enter Google now;
+- explicitly use "Future Plan Drafting" and "Future Under Preparation" alongside
+  the other future-pipeline fields when deciding whether a current released site
+  should be preserved as a future geographic anchor;
 - plan for the END of the project, not only this week. If a cluster has a future
   pipeline, avoid unnecessarily clearing every released site now and leaving the
   later pipeline isolated. Where practical, use target_sites below

@@ -80,6 +80,8 @@ def _is_future_pipeline_row(row: pd.Series) -> bool:
         return False
     if work_type == "plan drafting":
         return True
+    if sf_status == "under preparation":
+        return True
     if work_type == "geospatial asset mapping":
         return True
     if drawing == "needs drawing":
@@ -412,6 +414,8 @@ def endgame_adjust_cluster_choices(
             "Eligible Released Now": eligible,
             "Future Pipeline Sites": future,
             "Future Drawing Pipeline": int(row.get("Future Drawing Pipeline", 0) or 0),
+            "Future Plan Drafting": int(row.get("Future Plan Drafting", 0) or 0),
+            "Future Under Preparation": int(row.get("Future Under Preparation", 0) or 0),
             "Future GAM Awaiting Release": int(row.get("Future GAM Awaiting Release", 0) or 0),
             "Endgame Risk": str(row.get("Endgame Risk", "Low")),
             "Suggested Anchor Reserve": reserve,
@@ -490,12 +494,19 @@ def add_portfolio_fields(
             and sf_status == "released"
         )
 
-        eligible = bool(date_eligible and released_for_survey)
+        prediction_status = _clean_text(row.get("Prediction Status")).lower()
+        duration_ready = prediction_status == "predicted"
+        eligible = bool(date_eligible and released_for_survey and duration_ready)
 
         if not released_for_survey:
             reason = (
-                "Not released for weekly survey scheduling: requires "
-                "Work Type Name = Geospatial Asset Mapping and Status = Released."
+                "Future-planning only: not currently released for weekly survey "
+                "scheduling. This row still contributes to cluster/endgame planning."
+            )
+        elif not duration_ready:
+            reason = (
+                "Released but no usable duration prediction yet. Included in the "
+                "portfolio strategy, but not routed into the current-week schedule."
             )
 
         earliest_dates.append(earliest)
@@ -599,6 +610,18 @@ def build_cluster_summary(
             .astype(str).str.lower().eq("needs drawing").sum()
         ) if "Normalised Drawing Status" in future_pipeline.columns else 0
         future_gam_awaiting = 0
+        future_plan_drafting = 0
+        future_under_preparation = 0
+        if "Work Type Name" in future_pipeline.columns:
+            future_plan_drafting = int(
+                future_pipeline["Work Type Name"]
+                .astype(str).str.strip().str.lower().eq("plan drafting").sum()
+            )
+        if "Status" in future_pipeline.columns:
+            future_under_preparation = int(
+                future_pipeline["Status"]
+                .astype(str).str.strip().str.lower().eq("under preparation").sum()
+            )
         if "Work Type Name" in future_pipeline.columns and "Status" in future_pipeline.columns:
             future_gam_awaiting = int((
                 future_pipeline["Work Type Name"].astype(str).str.strip().str.lower().eq("geospatial asset mapping")
@@ -640,6 +663,8 @@ def build_cluster_summary(
             ),
             "Future Pipeline Sites": future_count,
             "Future Drawing Pipeline": future_drawing,
+            "Future Plan Drafting": future_plan_drafting,
+            "Future Under Preparation": future_under_preparation,
             "Future GAM Awaiting Release": future_gam_awaiting,
             "Suggested Anchor Reserve": reserve,
             "Endgame Risk": endgame_risk,

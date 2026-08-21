@@ -257,7 +257,17 @@ def allocate_cluster_targets(
                 else 0.0
             )
 
-            score = float(travel) + load_penalty - continuity_bonus
+            # Give commute efficiency slightly more weight than before. This
+            # does not reduce candidate capacity; it simply makes a cluster more
+            # likely to go to the surveyor whose home journey is cheaper, leaving
+            # more of the fixed survey window available for actual jobs.
+            commute_efficiency_penalty = float(travel) * 0.50
+            score = (
+                float(travel)
+                + commute_efficiency_penalty
+                + load_penalty
+                - continuity_bonus
+            )
 
             candidates.append(
                 (
