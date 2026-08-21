@@ -14,3 +14,7 @@ All other Version 16 routing, clustering, weekly-note hard-rule protection, Goog
 
 ## Version 18 completed-file import
 The completed-surveys training upload now accepts both a normal row-1 table and Salesforce-style completed-surveys reports with report title/filter rows above the real header row. The model and scheduling rules are otherwise unchanged from Version 17.
+
+
+## Version 18.1 fix
+The completed-surveys upload parser now lives in `app.py`, avoiding deployment/cache mismatches where an older `DurationPredictor` class did not yet expose `read_training_excel`. Both original and Salesforce report formats remain supported.

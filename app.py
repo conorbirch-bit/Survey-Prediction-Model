@@ -44,7 +44,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 18 — completed-file format update")
+st.caption("Version 18.1 — completed-file import fix")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -76,9 +76,75 @@ def train_from_path(path: str, min_duration: int):
         min_completed_duration=min_duration,
     ).load_excel(path)
 
+def read_completed_training_excel(source, sheet_name=0):
+    """
+    Read either the original row-1 completed-surveys table or a Salesforce
+    report export with title/filter rows above the real headers.
+
+    This parser lives in app.py deliberately so the upload path does not depend
+    on a particular DurationPredictor class version being cached/deployed.
+    """
+    raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
+
+    target_aliases = {
+        "Primary Service Appointment: Actual Duration (Minutes)",
+        "Primary Service Appointment: Actual Duration",
+        "Actual Duration (Minutes)",
+    }
+    header_aliases = {
+        "Building Height",
+        "Building height",
+        "Internal Ground Floor Area (m2)",
+        "Internal Ground Floor Area",
+        "Internal Ground Floor Area (m²)",
+        "Sovereign Flat",
+        "Sovereign Flats",
+        "Sovereign Flat Count",
+        *target_aliases,
+    }
+
+    header_row = None
+    for idx, row in raw.iterrows():
+        values = {str(v).strip() for v in row.tolist() if pd.notna(v)}
+        if values.intersection(target_aliases) and len(values.intersection(header_aliases)) >= 3:
+            header_row = int(idx)
+            break
+
+    if header_row is None or header_row == 0:
+        return pd.read_excel(source, sheet_name=sheet_name)
+
+    df = pd.read_excel(source, sheet_name=sheet_name, header=header_row)
+    df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")
+
+    # Remove Salesforce Total / Sum / Count report footer rows.
+    text_view = df.astype(str).apply(lambda col: col.str.strip().str.lower())
+    footer_mask = text_view.apply(
+        lambda row: row.isin({"total", "sum", "count"}).any(), axis=1
+    )
+    df = df[~footer_mask].copy()
+
+    # Keep actual detail rows, not any remaining report summaries.
+    identity_names = {
+        "Building Name",
+        "Customer Reference Code  ↑",
+        "Customer Reference Code",
+        "Customer Reference",
+        "Work Order Number",
+    }
+    identity_cols = [c for c in df.columns if str(c).strip() in identity_names]
+    if identity_cols:
+        identity_present = pd.Series(False, index=df.index)
+        for col in identity_cols:
+            values = df[col]
+            identity_present |= values.notna() & values.astype(str).str.strip().ne("")
+        df = df[identity_present].copy()
+
+    return df.reset_index(drop=True)
+
+
 @st.cache_resource(show_spinner=False)
 def train_from_bytes(file_bytes: bytes, min_duration: int):
-    df = DurationPredictor.read_training_excel(io.BytesIO(file_bytes))
+    df = read_completed_training_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
     ).fit(df)
