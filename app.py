@@ -44,7 +44,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 17 — prediction-model updates")
+st.caption("Version 18 — completed-file format update")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -56,7 +56,7 @@ with st.sidebar:
         "Completed-surveys training spreadsheet",
         type=["xlsx", "xls"],
         key="training_file",
-        help="If omitted, the bundled Predictive Model.xlsx is used.",
+        help="Supports both normal tables and Salesforce report exports with title/filter rows above the headers. If omitted, the bundled Predictive Model.xlsx is used.",
     )
     min_duration = st.number_input(
         "Minimum completed duration (minutes)",
@@ -78,7 +78,7 @@ def train_from_path(path: str, min_duration: int):
 
 @st.cache_resource(show_spinner=False)
 def train_from_bytes(file_bytes: bytes, min_duration: int):
-    df = pd.read_excel(io.BytesIO(file_bytes))
+    df = DurationPredictor.read_training_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
     ).fit(df)

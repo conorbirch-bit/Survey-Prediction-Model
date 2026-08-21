@@ -1,2 +1,2 @@
-Version 17 — prediction model updates
+Version 18 — prediction model updates
 Run: streamlit run app.py

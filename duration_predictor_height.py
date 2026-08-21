@@ -113,8 +113,99 @@ class DurationPredictor:
 
         return df.rename(columns=rename)
 
+    @classmethod
+    def read_training_excel(cls, source, sheet_name=0) -> pd.DataFrame:
+        """
+        Read either a normal completed-surveys table or a Salesforce report
+        export with title/filter rows above the real column headers.
+
+        The completed-file layout can therefore change from:
+            row 1 = headers
+        to the Salesforce report format where the header row appears later.
+        """
+        raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
+
+        # Match the canonical names and the aliases accepted by
+        # _normalise_columns().  The actual-duration column is the strongest
+        # marker that we have found the completed-survey table rather than a
+        # report title/filter row.
+        header_aliases = {
+            "Building Height",
+            "Building height",
+            "Internal Ground Floor Area (m2)",
+            "Internal Ground Floor Area",
+            "Internal Ground Floor Area (m²)",
+            "Sovereign Flat",
+            "Sovereign Flats",
+            "Sovereign Flat Count",
+            TARGET_COLUMN,
+            "Primary Service Appointment: Actual Duration",
+            "Actual Duration (Minutes)",
+        }
+        target_aliases = {
+            TARGET_COLUMN,
+            "Primary Service Appointment: Actual Duration",
+            "Actual Duration (Minutes)",
+        }
+
+        header_row = None
+        for idx, row in raw.iterrows():
+            values = {
+                str(value).strip()
+                for value in row.tolist()
+                if pd.notna(value)
+            }
+            if values.intersection(target_aliases):
+                # Require at least three recognised modelling/report columns so
+                # an incidental bit of report metadata cannot be mistaken for
+                # the table header.
+                if len(values.intersection(header_aliases)) >= 3:
+                    header_row = int(idx)
+                    break
+
+        if header_row is None or header_row == 0:
+            # Preserve Version 17 behaviour exactly for the original row-1
+            # table format.  Salesforce-only footer cleanup is applied only
+            # when report metadata pushes the real header lower down.
+            return pd.read_excel(source, sheet_name=sheet_name)
+
+        df = pd.read_excel(source, sheet_name=sheet_name, header=header_row)
+        df = df.dropna(axis=1, how="all")
+        df = df.dropna(axis=0, how="all")
+
+        # Salesforce report exports append Total / Count footer rows.  Those can
+        # contain numeric sums in the duration and flat-count columns, so they
+        # must be removed before training or they would look like giant sites.
+        text_view = df.astype(str).apply(lambda col: col.str.strip().str.lower())
+        footer_mask = text_view.apply(
+            lambda row: row.isin({"total", "sum", "count"}).any(),
+            axis=1,
+        )
+        df = df[~footer_mask].copy()
+
+        # Detail rows in the completed report have a building and/or customer
+        # reference.  This also safely removes any remaining summary footer row.
+        identity_cols = [
+            c for c in df.columns
+            if str(c).strip() in {
+                "Building Name",
+                "Customer Reference Code  ↑",
+                "Customer Reference Code",
+                "Customer Reference",
+                "Work Order Number",
+            }
+        ]
+        if identity_cols:
+            identity_present = pd.Series(False, index=df.index)
+            for col in identity_cols:
+                values = df[col]
+                identity_present |= values.notna() & values.astype(str).str.strip().ne("")
+            df = df[identity_present].copy()
+
+        return df.reset_index(drop=True)
+
     def load_excel(self, path: str | Path, sheet_name=0) -> "DurationPredictor":
-        df = pd.read_excel(path, sheet_name=sheet_name)
+        df = self.read_training_excel(path, sheet_name=sheet_name)
         return self.fit(df)
 
     def fit(self, df: pd.DataFrame) -> "DurationPredictor":

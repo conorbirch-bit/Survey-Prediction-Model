@@ -1,4 +1,4 @@
-# Site Survey Scheduling Agent — Version 17
+# Site Survey Scheduling Agent — Version 18
 
 This version keeps the Version 16 weekly notes and same-campus routing behaviour, with these duration/schedule updates:
 
@@ -10,3 +10,7 @@ This version keeps the Version 16 weekly notes and same-campus routing behaviour
 - Schedule tables include Building Height, Sovereign Flat and Internal Ground Floor Area (m2).
 
 All other Version 16 routing, clustering, weekly-note hard-rule protection, Google-cost controls and workbook outputs are retained.
+
+
+## Version 18 completed-file import
+The completed-surveys training upload now accepts both a normal row-1 table and Salesforce-style completed-surveys reports with report title/filter rows above the real header row. The model and scheduling rules are otherwise unchanged from Version 17.
