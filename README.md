@@ -1,4 +1,4 @@
-# Site Survey Scheduling Agent — Version 18
+# Site Survey Scheduling Agent — Version 19
 
 This version keeps the Version 16 weekly notes and same-campus routing behaviour, with these duration/schedule updates:
 
@@ -18,3 +18,7 @@ The completed-surveys training upload now accepts both a normal row-1 table and 
 
 ## Version 18.1 fix
 The completed-surveys upload parser now lives in `app.py`, avoiding deployment/cache mismatches where an older `DurationPredictor` class did not yet expose `read_training_excel`. Both original and Salesforce report formats remain supported.
+
+
+## Version 19 To Do / master portfolio import
+The weekly scheduling master-portfolio upload now accepts the Salesforce To Do report layout used in `21.08.2026 - 12.17 Chat.xlsx`, including report title/filter rows above the real table header, grouped Work Type/Status rows, Salesforce Total/Count footer rows, and the `Ground Floor Area (m2)` field name. `Ground Floor Area (m2)` is mapped to the existing canonical `Internal Ground Floor Area (m2)` predictor input. All Version 18.1 scheduling, prediction, notes, routing and export behaviour is otherwise unchanged.

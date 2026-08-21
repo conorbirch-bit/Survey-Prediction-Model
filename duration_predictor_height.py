@@ -90,6 +90,9 @@ class DurationPredictor:
                 "Internal Ground Floor Area (m2)",
                 "Internal Ground Floor Area",
                 "Internal Ground Floor Area (m²)",
+                "Ground Floor Area (m2)",
+                "Ground Floor Area (m²)",
+                "Ground Floor Area",
             ],
             "Sovereign Flat": [
                 "Sovereign Flat",

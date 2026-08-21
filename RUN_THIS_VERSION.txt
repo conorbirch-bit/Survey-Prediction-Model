@@ -1,2 +1,1 @@
-Version 18 — prediction model updates
-Run: streamlit run app.py
+Version 19 — To Do Salesforce format support
