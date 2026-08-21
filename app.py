@@ -427,19 +427,83 @@ def result_uses_cluster_on_date(result, requested_date, cluster):
     return False
 
 
-def build_salesforce_copy(schedule_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build the compact schedule table used for updating Salesforce.
+SALESFORCE_RESOURCE_MAP = {
+    "conor birch": {
+        "service_resource_id": "0HnR50000005RlxKAE",
+        "resource": "Harpenden",
+    },
+    "rod harrison": {
+        "service_resource_id": "0Hn4L0000000Yy8SAE",
+        "resource": "Rugby",
+    },
+    "toby lawal": {
+        "service_resource_id": "0HnR50000005S6vKAE",
+        "resource": "Chadwell Heath",
+    },
+}
 
-    Only genuine survey rows are included. Operational rows such as LUNCH and
-    RETURN are deliberately excluded.
+
+def _first_portfolio_value(row, candidates):
+    for column in candidates:
+        if column not in row.index:
+            continue
+        value = row.get(column)
+        if value is None:
+            continue
+        try:
+            if pd.isna(value):
+                continue
+        except Exception:
+            pass
+        text_value = str(value).strip()
+        if text_value and text_value.lower() not in {"nan", "none"}:
+            return text_value
+    return ""
+
+
+def _salesforce_iso_datetime(date_value, time_value):
+    parsed_date = pd.to_datetime(date_value, errors="coerce")
+    time_text = str(time_value or "").strip()
+
+    if pd.isna(parsed_date) or not time_text:
+        return ""
+
+    combined = pd.to_datetime(
+        f"{parsed_date.date().isoformat()} {time_text}",
+        errors="coerce",
+    )
+    if pd.isna(combined):
+        return ""
+
+    # Salesforce upload template format supplied by the user.
+    return combined.strftime("%Y-%m-%dT%H:%M:00.000+0000")
+
+
+def build_salesforce_copy(
+    schedule_df: pd.DataFrame,
+    portfolio_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build the exact 10-column Salesforce Field Service upload table.
+
+    Only Conor Birch, Rod Harrison and Toby Lawal are included because these
+    are the surveyors for whom a Salesforce Service Resource ID is currently
+    known. LUNCH / RETURN operational rows are excluded automatically.
+
+    Work-order / appointment identifiers and building fields are joined back
+    to the uploaded To Do portfolio using Customer Reference Code.
     """
     columns = [
+        "Work Order Number",
+        "Primary Service Appointment",
+        "Service Appointment ID",
+        "Service Resource ID",
+        "Resource",
+        "Scheduled Start",
+        "Scheduled End",
+        "Duration (Minutes)",
         "Customer Reference Code",
         "Building Name",
-        "Resource Name: Name",
-        "Planned Start",
-        "Primary Service Appointment: Scheduled Start",
     ]
 
     if schedule_df is None or schedule_df.empty:
@@ -457,43 +521,234 @@ def build_salesforce_copy(schedule_df: pd.DataFrame) -> pd.DataFrame:
     if working.empty:
         return pd.DataFrame(columns=columns)
 
-    def salesforce_datetime(row):
-        date_value = pd.to_datetime(
+    # Only surveyors with a known Salesforce Service Resource ID can be included.
+    working["_surveyor_key"] = (
+        working["Surveyor"].fillna("").astype(str).str.strip().str.lower()
+    )
+    working = working[
+        working["_surveyor_key"].isin(SALESFORCE_RESOURCE_MAP)
+    ].copy()
+
+    if working.empty:
+        return pd.DataFrame(columns=columns)
+
+    # Build a lookup from the uploaded To Do portfolio. normalise_upcoming_columns()
+    # turns Customer Reference Code into Customer Reference but preserves all the
+    # other original Salesforce columns.
+    portfolio_lookup = {}
+    if portfolio_df is not None and not portfolio_df.empty:
+        ref_col = None
+        for candidate in ["Customer Reference", "Customer Reference Code"]:
+            if candidate in portfolio_df.columns:
+                ref_col = candidate
+                break
+
+        if ref_col is not None:
+            for _, prow in portfolio_df.iterrows():
+                ref = str(prow.get(ref_col, "") or "").strip()
+                if ref and ref.lower() not in {"nan", "none"}:
+                    portfolio_lookup[ref] = prow
+
+    rows = []
+    for _, row in working.iterrows():
+        ref = str(row.get("Customer Reference", "") or "").strip()
+        portfolio_row = portfolio_lookup.get(ref)
+
+        if portfolio_row is None:
+            # Keep the exact structure even if a source row cannot be rejoined.
+            portfolio_row = pd.Series(dtype=object)
+
+        resource_info = SALESFORCE_RESOURCE_MAP[row["_surveyor_key"]]
+
+        work_order = _first_portfolio_value(
+            portfolio_row,
+            [
+                "Work Order Number",
+                "Work Order",
+            ],
+        )
+
+        primary_service_appointment = _first_portfolio_value(
+            portfolio_row,
+            [
+                "Primary Service Appointment: Appointment Number",
+                "Primary Service Appointment",
+                "Appointment Number",
+            ],
+        )
+
+        service_appointment_id = _first_portfolio_value(
+            portfolio_row,
+            [
+                "Service Appointment ID",
+                "Primary Service Appointment: Service Appointment ID",
+                "Primary Service Appointment ID",
+                "Primary Service Appointment: ID",
+                "Service Appointment: ID",
+            ],
+        )
+
+        building_name = _first_portfolio_value(
+            portfolio_row,
+            ["Building Name"],
+        ) or str(row.get("Building Name", "") or "").strip()
+
+        scheduled_start = _salesforce_iso_datetime(
             row.get("Date"),
+            row.get("Survey Start"),
+        )
+        scheduled_end = _salesforce_iso_datetime(
+            row.get("Date"),
+            row.get("Survey End"),
+        )
+
+        # The Salesforce template uses whole-minute duration. Derive this from
+        # the scheduled start/end clock values so all three fields agree exactly.
+        duration_minutes = ""
+        start_dt = pd.to_datetime(
+            f"{row.get('Date')} {row.get('Survey Start')}",
             errors="coerce",
         )
-        survey_start = str(row.get("Survey Start", "") or "").strip()
-
-        if pd.isna(date_value) or not survey_start:
-            return ""
-
-        combined = pd.to_datetime(
-            f"{date_value.date().isoformat()} {survey_start}",
+        end_dt = pd.to_datetime(
+            f"{row.get('Date')} {row.get('Survey End')}",
             errors="coerce",
         )
-        if pd.isna(combined):
-            return ""
+        if not pd.isna(start_dt) and not pd.isna(end_dt):
+            duration_minutes = int(
+                round((end_dt - start_dt).total_seconds() / 60.0)
+            )
 
-        # Match the format used by the Salesforce report export.
-        return combined.strftime("%d/%m/%Y, %H:%M")
+        rows.append({
+            "Work Order Number": work_order,
+            "Primary Service Appointment": primary_service_appointment,
+            "Service Appointment ID": service_appointment_id,
+            "Service Resource ID": resource_info["service_resource_id"],
+            "Resource": resource_info["resource"],
+            "Scheduled Start": scheduled_start,
+            "Scheduled End": scheduled_end,
+            "Duration (Minutes)": duration_minutes,
+            "Customer Reference Code": ref,
+            "Building Name": building_name,
+        })
 
-    scheduled_start = working.apply(salesforce_datetime, axis=1)
+    return pd.DataFrame(rows, columns=columns)
 
-    result = pd.DataFrame({
-        "Customer Reference Code": working[
-            "Customer Reference"
-        ].fillna("").astype(str),
-        "Building Name": working[
-            "Building Name"
-        ].fillna("").astype(str),
-        "Resource Name: Name": working[
-            "Surveyor"
-        ].fillna("").astype(str),
-        "Planned Start": scheduled_start,
-        "Primary Service Appointment: Scheduled Start": scheduled_start,
-    })
 
-    return result.reset_index(drop=True)
+def write_salesforce_copy_sheet(writer, salesforce_copy_df: pd.DataFrame):
+    """
+    Write the Salesforce Copy worksheet in the exact visual/table layout of
+    Salesforce Copy Format Chat(2).xlsx.
+    """
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+
+    workbook = writer.book
+
+    if "Salesforce Copy" in workbook.sheetnames:
+        del workbook["Salesforce Copy"]
+
+    ws = workbook.create_sheet("Salesforce Copy")
+
+    dark_blue = "17365D"
+    id_header_blue = "0E2841"
+    yellow = "FFFF00"
+    body_text = "1F2937"
+    header_border_colour = "AAB7C4"
+    body_border_colour = "E5E7EB"
+
+    # Exact template dimensions/layout.
+    for col_idx in range(1, 11):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 26.140625
+
+    ws.row_dimensions[1].height = 20.25
+    ws.row_dimensions[3].height = 30
+
+    ws.merge_cells("A1:J1")
+    title = ws["A1"]
+    title.value = "Salesforce Field Service Upload"
+    title.fill = PatternFill("solid", fgColor=dark_blue)
+    title.font = Font(
+        name="Carlito",
+        size=16,
+        bold=True,
+        color="FFFFFF",
+    )
+    title.alignment = Alignment(vertical="center")
+
+    # The source template highlights C/D because these are Salesforce IDs.
+    for cell_ref in ("C2", "D2"):
+        ws[cell_ref].fill = PatternFill("solid", fgColor=yellow)
+
+    headers = [
+        "Work Order Number",
+        "Primary Service Appointment",
+        "Service Appointment ID",
+        "Service Resource ID",
+        "Resource",
+        "Scheduled Start",
+        "Scheduled End",
+        "Duration (Minutes)",
+        "Customer Reference Code",
+        "Building Name",
+    ]
+
+    thin_header = Side(style="thin", color=header_border_colour)
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=3, column=col_idx, value=header)
+        cell.font = Font(
+            name="Carlito",
+            size=11,
+            bold=True,
+            color="FFFFFF",
+        )
+        cell.fill = PatternFill(
+            "solid",
+            fgColor=(id_header_blue if col_idx in (3, 4) else dark_blue),
+        )
+        cell.alignment = Alignment(
+            vertical="center",
+            wrap_text=True,
+        )
+        cell.border = Border(
+            left=(thin_header if col_idx == 1 else Side()),
+            right=(thin_header if col_idx == 10 else Side()),
+            top=thin_header,
+            bottom=thin_header,
+        )
+
+    thin_body = Side(style="thin", color=body_border_colour)
+
+    for row_offset, values in enumerate(
+        salesforce_copy_df.itertuples(index=False, name=None),
+        start=4,
+    ):
+        first_data_row = row_offset == 4
+
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row=row_offset, column=col_idx, value=value)
+            cell.font = Font(
+                name="Carlito",
+                size=11,
+                color=body_text,
+            )
+            cell.alignment = Alignment(vertical="center")
+
+            # IDs in C/D are highlighted exactly like the supplied template.
+            if col_idx in (3, 4):
+                cell.fill = PatternFill("solid", fgColor=yellow)
+
+            # Salesforce treats everything except Duration as literal text.
+            if col_idx != 8:
+                cell.number_format = "@"
+
+            cell.border = Border(
+                top=(Side() if first_data_row else thin_body),
+                bottom=thin_body,
+            )
+
+    return ws
+
 
 tab1, tab2, tab3 = st.tabs([
     "Predict one building",
@@ -1822,7 +2077,8 @@ with tab2:
                                             )
 
                                         salesforce_copy_df = build_salesforce_copy(
-                                            combined_team_schedule
+                                            combined_team_schedule,
+                                            team_upcoming,
                                         )
 
                                         cluster_matrix_rows = []
@@ -2047,24 +2303,6 @@ with tab2:
                                         f"{total_team_travel} min",
                                     )
 
-                                    st.markdown("#### Salesforce copy")
-                                    st.caption(
-                                        "Scheduled survey rows formatted for Salesforce. "
-                                        "Operational rows such as lunch and return-home "
-                                        "journeys are excluded."
-                                    )
-                                    if salesforce_copy_df.empty:
-                                        st.caption(
-                                            "No scheduled survey rows are available for "
-                                            "the Salesforce copy."
-                                        )
-                                    else:
-                                        st.dataframe(
-                                            salesforce_copy_df,
-                                            use_container_width=True,
-                                            hide_index=True,
-                                        )
-
                                     st.markdown(
                                         "#### Scheduled-building prediction reliability"
                                     )
@@ -2277,10 +2515,9 @@ with tab2:
                                             sheet_name="Full Team Schedule",
                                             index=False,
                                         )
-                                        salesforce_copy_df.to_excel(
+                                        write_salesforce_copy_sheet(
                                             writer,
-                                            sheet_name="Salesforce Copy",
-                                            index=False,
+                                            salesforce_copy_df,
                                         )
                                         team_cluster_summary.to_excel(
                                             writer,

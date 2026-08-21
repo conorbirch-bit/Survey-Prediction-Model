@@ -69,3 +69,16 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - LUNCH and RETURN rows are excluded from the Salesforce copy.
 - Salesforce date/time format is DD/MM/YYYY, HH:MM.
 - All Version 20.6 scheduling, lunch, prediction, endgame, notes, Released-only and routing logic is otherwise unchanged.
+
+
+## Version 20.8 — exact Salesforce upload worksheet
+- Keeps all Version 20.7 scheduling/prediction/endgame/lunch behaviour.
+- Salesforce Copy is workbook-only; it is no longer displayed on the Streamlit page.
+- The worksheet exactly follows the supplied 10-column Salesforce Field Service upload layout.
+- Conor Birch -> Harpenden -> 0HnR50000005RlxKAE.
+- Rod Harrison -> Rugby -> 0Hn4L0000000Yy8SAE.
+- Toby Lawal -> Chadwell Heath -> 0HnR50000005S6vKAE.
+- Harrison Grice, Joe Reynolds and spare surveyors are excluded until Salesforce resource IDs are known.
+- Work Order / Primary Service Appointment / Service Appointment ID / Customer Reference / Building Name are joined from the uploaded To Do portfolio.
+- LUNCH and RETURN rows are excluded.
+- Scheduled timestamps use YYYY-MM-DDTHH:MM:00.000+0000 as in the supplied template.

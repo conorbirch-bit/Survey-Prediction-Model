@@ -1,4 +1,8 @@
-VERSION 20.7 — SALESFORCE COPY RESTORED
-Same scheduling logic as Version 20.6.
-Salesforce Copy is shown on the page and exported as its own worksheet.
-Lunch and return-home rows are NOT included in Salesforce Copy.
+VERSION 20.8 — EXACT SALESFORCE UPLOAD WORKSHEET
+Everything else is unchanged from Version 20.7.
+Salesforce Copy exists ONLY in the downloaded workbook.
+Included resource mappings:
+- Conor Birch / Harpenden / 0HnR50000005RlxKAE
+- Rod Harrison / Rugby / 0Hn4L0000000Yy8SAE
+- Toby Lawal / Chadwell Heath / 0HnR50000005S6vKAE
+Harrison Grice, Joe Reynolds and spare surveyors are excluded from Salesforce Copy.
