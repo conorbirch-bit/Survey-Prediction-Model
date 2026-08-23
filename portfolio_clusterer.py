@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from scheduler_v20_9_1 import postcode_district, same_campus
+from scheduler_v20_9_4 import postcode_district, same_campus
 
 
 READY_WORDS = {
@@ -838,8 +838,7 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
 
     # Endgame anchors are deliberately placed last inside their cluster. If a
     # target asks for fewer than all eligible sites, the most useful future
-    # anchors are therefore the sites left behind. Existing planned-this-week
-    # work still takes precedence over the anchor preference.
+    # anchors are therefore the sites left behind.
     result["_endgame_anchor"] = (
         result.get(
             "Endgame Anchor Candidate",
@@ -847,13 +846,37 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
         ).astype(bool).astype(int)
     )
 
+    # Density-first shortlist selection.
+    #
+    # The strategic cluster is a postcode DISTRICT (e.g. NW3), which can still
+    # cover a fairly large area. Prefer sites that share a full postcode with
+    # other eligible sites in that district so dense micro-clusters — including
+    # Plan Drafting / Under Preparation / Work Done rows — reach Google together.
+    #
+    # Existing Planned Start is deliberately only a weak tie-breaker now. It
+    # must not cause a sparse pre-planned site to displace several nearby jobs.
+    full_postcode = (
+        result.get(
+            "Postcode",
+            pd.Series("", index=result.index),
+        )
+        .fillna("")
+        .astype(str)
+        .str.upper()
+        .str.replace(r"\s+", "", regex=True)
+    )
+    postcode_counts = full_postcode.value_counts()
+    result["_postcode_density"] = full_postcode.map(postcode_counts).fillna(0)
+    result["_postcode_density_sort"] = -result["_postcode_density"]
+
     return result.sort_values(
         [
-            "_planned_in_week",
             "_endgame_anchor",
-            "_planned_distance",
+            "_postcode_density_sort",
             "_confidence_rank",
             "_duration",
+            "_planned_in_week",
+            "_planned_distance",
         ],
         ascending=True,
     )

@@ -9,7 +9,7 @@ import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
-from scheduler_v20_9_1 import DailyTransitScheduler, postcode_district
+from scheduler_v20_9_4 import DailyTransitScheduler, postcode_district
 import inspect
 
 _REQUIRED_BUILD_WEEK_ARGS = {
@@ -22,8 +22,8 @@ _build_week_args = set(
 )
 if not _REQUIRED_BUILD_WEEK_ARGS.issubset(_build_week_args):
     raise RuntimeError(
-        "Version 20.9.1 scheduler mismatch: replace all repository files "
-        "with the files from the Version 20.9.1 package, then reboot the app."
+        "Version 20.9.4 scheduler mismatch: replace all repository files "
+        "with the files from the Version 20.9.4 package, then reboot the app."
     )
 
 from ai_planner import OpenAISchedulePlanner

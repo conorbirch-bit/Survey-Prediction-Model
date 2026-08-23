@@ -1,4 +1,1 @@
-VERSION 20.9.3 — ALL WORK TYPES / STATUSES SCHEDULABLE
-Everything else is unchanged from Version 20.9.2.
-Weekly eligibility no longer requires GAM + Released.
-Plan Drafting, Work Request, Work Done, Under Preparation, Released, etc. can all be scheduled when drawing/date-ready and duration-predictable.
+VERSION 20.9.4 — DENSITY-FIRST ROUTING\nEverything else is unchanged from Version 20.9.3.\nShortlisting now favours dense full-postcode groups over Planned Start.\nDaily routing stays in the current postcode district while feasible local work remains.\n
