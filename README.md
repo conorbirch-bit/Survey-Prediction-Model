@@ -100,3 +100,12 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - `app.py` validates the required `build_week()` arguments at startup.
 - Stale `__pycache__` files are not included in the package.
 \n\n## Version 20.9.2 — Work Done future pipeline\n- No weekly eligibility/routing changes from Version 20.9.1.\n- All Plan Drafting rows remain part of future planning.\n- Main Status = Work Done is explicitly recognised as future pipeline.\n- Parent Work Order: Status = Work Done is now also recognised.\n- Released GAM rows are not double-counted as future pipeline.\n- Cluster/endgame tables expose Future Work Done, Future Plan Drafting Work Done and Future Parent Work Done counts.\n- AI treats Work Done as a stronger near-term pipeline signal, but it still cannot schedule a site until GAM + Released.\n
+
+## Version 20.9.3 — all portfolio rows considered for weekly scheduling
+- Removes the Geospatial Asset Mapping + Released hard gate.
+- Plan Drafting, Work Request, Work Done, Under Preparation, Released and other Work Type/Status combinations can all enter the actual weekly schedule.
+- A row still needs a usable postcode, date/drawing eligibility and a duration prediction before it can be routed.
+- The one-week drawing lead-time rule is unchanged.
+- Rows that are not yet eligible remain in future-cluster/endgame planning.
+- Google is still only run for the selected week.
+- All Version 20.9.2 time-window, lunch, endgame, notes, surveyor, duration and Salesforce-export behaviour is otherwise unchanged.

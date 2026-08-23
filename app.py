@@ -815,12 +815,10 @@ with tab2:
         "used for the one selected week."
     )
     st.caption(
-        "Hard current-week rule: only Work Type Name = Geospatial Asset Mapping "
-        "with Status = Released, a usable postcode and a duration prediction can be "
-        "placed into the selected week's schedule. Plan Drafting, Work Request, "
-        "Work Done, Parent Work Order Work Done, Under Preparation and other "
-        "non-released rows still influence future-cluster "
-        "and orphan-risk planning."
+        "Weekly schedule rule: every Work Type and Status in the uploaded portfolio "
+        "is considered for the actual schedule — including Plan Drafting, Work Request, "
+        "Work Done, Under Preparation and Released. A usable postcode, drawing/date "
+        "eligibility and a duration prediction are still required before Google routing."
     )
 
     team_file = st.file_uploader(
@@ -862,10 +860,10 @@ with tab2:
             else:
                 team_predictions = predict_upcoming(team_upcoming)
 
-                # Strategic planning sees the full postcode-bearing portfolio, not
-                # just rows that are already Released/predictable. This means Plan
-                # Drafting, Work Request, Under Preparation and incomplete-data rows
-                # can protect future clusters from becoming endgame orphans.
+                # Both weekly scheduling and strategic planning see the full
+                # postcode-bearing portfolio. Work Type / Status no longer block
+                # current-week eligibility; drawing/date readiness and a usable
+                # duration prediction are the operational gates.
                 team_portfolio_input = team_predictions[
                     team_predictions["Postcode"].notna()
                     & (
@@ -1470,7 +1468,7 @@ with tab2:
                                             team_endgame_plan_df = pd.DataFrame(
                                                 columns=[
                                                     "Cluster",
-                                                    "Eligible Released Now",
+                                                    "Eligible Now",
                                                     "Future Pipeline Sites",
                                                     "Future Plan Drafting",
                                                     "Future Under Preparation",
@@ -1480,7 +1478,7 @@ with tab2:
                                                     "Endgame Risk",
                                                     "Suggested Anchor Reserve",
                                                     "Candidate Target This Week",
-                                                    "Released Sites Left Outside Shortlist",
+                                                    "Eligible Sites Left Outside Shortlist",
                                                     "Endgame Reason",
                                                 ]
                                             )
@@ -2256,12 +2254,11 @@ with tab2:
                                     st.markdown("#### Endgame / orphan-risk planning")
                                     st.caption(
                                         "This looks across the remaining portfolio before "
-                                        "Google routing. Released sites can be deliberately "
-                                        "left outside this week's shortlist as future "
-                                        "geographic anchors when Plan Drafting, Under "
-                                        "Preparation or other unreleased work remains nearby. "
-                                        "Anchors are released again if they "
-                                        "are needed to avoid under-supplying the current week."
+                                        "Google routing. Any currently eligible site can be "
+                                        "left outside this week's shortlist as a future "
+                                        "geographic anchor when not-yet-eligible work remains "
+                                        "nearby. Anchors are restored if they are needed to "
+                                        "avoid under-supplying the current week."
                                     )
                                     if team_endgame_plan_df.empty:
                                         st.caption(

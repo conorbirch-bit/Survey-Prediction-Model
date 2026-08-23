@@ -173,28 +173,31 @@ Objectives:
 - consider prediction confidence and total available survey hours;
 - use TfL disruption and weather only as risk/context, not as invented routing;
 - avoid selecting isolated clusters when a stronger cluster can fill the week;
-- treat the full uploaded portfolio as forward-looking evidence. Plan Drafting,
-  Work Request, Geospatial rows in Under Preparation, and other not-yet-released
-  work can all signal where later clusters will form, even when they lack a usable
-  duration prediction today. Only "Eligible This Week" sites may enter Google now;
+- every Work Type and Salesforce Status may be part of this week's actual
+  schedule. Plan Drafting, Work Request, Work Done, Under Preparation and Released
+  rows are all treated the same once they appear in "Eligible This Week";
+- "Eligible This Week" is the sole current-work gate supplied to you. Rows are
+  excluded from it only for operational reasons such as drawing/earliest-date hold
+  or no usable duration prediction;
+- the full uploaded portfolio remains forward-looking evidence. Rows that are not
+  currently eligible still signal where later clusters may form;
 - explicitly use "Future Plan Drafting", "Future Under Preparation",
   "Future Work Done", "Future Plan Drafting Work Done" and
   "Future Parent Work Done" alongside the other future-pipeline fields when
-  deciding whether a current released site should be preserved as a future
+  deciding whether a current eligible site should be preserved as a future
   geographic anchor;
-- treat Work Done / Parent Work Done as a particularly useful near-term pipeline
-  signal because that work has progressed further than a simple Work Request.
-  It still cannot enter this week's Google schedule until the GAM row is Released;
+- treat Work Done / Parent Work Done as a useful near-term pipeline signal only
+  when that row is not already eligible this week;
 - plan for the END of the project, not only this week. If a cluster has a future
-  pipeline, avoid unnecessarily clearing every released site now and leaving the
+  pipeline, avoid unnecessarily clearing every eligible site now and leaving the
   later pipeline isolated. Where practical, use target_sites below
-  "Eligible This Week" so a small number of released sites remain as geographic
+  "Eligible This Week" so a small number of eligible sites remain as geographic
   anchors for future work;
 - use "Suggested Anchor Reserve", "Future Pipeline Sites", "Endgame Risk" and
   "Endgame Reason" as explicit rolling-horizon signals. A High/Medium endgame
-  risk means there is value in preserving some current released work for later;
+  risk means there is value in preserving some current eligible work for later;
 - do the reverse when a cluster has little/no future pipeline: if it is efficient
-  this week, clearing it can be sensible because leaving one released site behind
+  this week, clearing it can be sensible because leaving one eligible site behind
   may itself create a future orphan;
 - do NOT preserve anchors at the cost of leaving the current team without enough
   useful work. Current-week feasibility and full use of available survey capacity

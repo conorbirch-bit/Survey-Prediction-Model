@@ -63,41 +63,29 @@ def normalise_drawing_status(value) -> str:
 
 def _is_future_pipeline_row(row: pd.Series) -> bool:
     """
-    Cheap, non-routing signal that a site may become surveyable later.
+    Forward-looking signal for rows that are in the portfolio but cannot enter
+    the selected week's schedule yet.
 
-    The master file is a to-do portfolio, so future planning counts:
-      - all Plan Drafting rows, including Work Request and Work Done;
-      - Geospatial Asset Mapping work that is not yet Released;
-      - Status = Under Preparation;
-      - Status = Work Done where it appears on the main work order;
-      - Parent Work Order: Status = Work Done;
-      - any row explicitly marked Needs Drawing.
+    Because Version 20.9.3 allows every Work Type / Status into the weekly
+    schedule, a row is future pipeline only when it is NOT currently eligible
+    (for example: drawing lead-time hold or no usable duration prediction).
 
-    Released Geospatial rows are current-week candidates, not future pipeline,
-    even if their parent work order is already Work Done.
+    Work Type / Salesforce Status are retained as descriptive near-term signals,
+    but they no longer determine weekly eligibility.
     """
-    work_type = _clean_text(row.get("Work Type Name")).lower()
-    sf_status = _clean_text(row.get("Status")).lower()
-    parent_status = _clean_text(
-        row.get("Parent Work Order: Status")
-    ).lower()
-    drawing = _clean_text(row.get("Normalised Drawing Status")).lower()
+    try:
+        if bool(row.get("Eligible for Selected Week")):
+            return False
+    except Exception:
+        pass
 
-    # Never double-count work that is already a current-week Released GAM site.
-    if work_type == "geospatial asset mapping" and sf_status == "released":
+    postcode = _clean_text(row.get("Postcode"))
+    if not postcode:
         return False
 
-    if work_type == "plan drafting":
-        return True
-    if sf_status in {"under preparation", "work done"}:
-        return True
-    if parent_status == "work done":
-        return True
-    if work_type == "geospatial asset mapping":
-        return True
-    if drawing == "needs drawing":
-        return True
-    return False
+    # Any postcode-bearing portfolio row that is not yet schedulable remains
+    # useful evidence of future geographic workload.
+    return True
 
 
 def _is_work_done_future_row(row: pd.Series) -> bool:
@@ -126,7 +114,7 @@ def _suggest_anchor_reserve(eligible_count: int, future_count: int) -> int:
     """
     Advisory reserve used by the endgame guardrail.
 
-    It intentionally stays small: the aim is to leave enough released work to
+    It intentionally stays small: the aim is to leave enough eligible work to
     act as a future geographic anchor, not to starve the current week. The
     guardrail can release these anchors again when candidate capacity would
     otherwise be lost.
@@ -160,10 +148,10 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
     """
     Add portfolio-wide endgame/orphan-risk signals without paid routing calls.
 
-    Within a postcode district, released sites that best overlap the future
+    Within a postcode district, eligible sites that best overlap the future
     pipeline (same campus first, then same full postcode) are marked as anchor
     candidates. Those rows are sorted later in the candidate order so they are
-    preserved when the selected cluster target is smaller than all released
+    preserved when the selected cluster target is smaller than all eligible
     sites in that district.
     """
     result = result.copy()
@@ -218,7 +206,7 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
             note = (
                 f"{future_count} future pipeline site(s) remain in {cluster}."
                 f"{work_done_note} "
-                f"Suggested released-site anchor reserve: {reserve}."
+                f"Suggested eligible-site anchor reserve: {reserve}."
             )
             result.loc[indices, "Endgame Planning Note"] = note
 
@@ -337,7 +325,7 @@ def endgame_adjust_cluster_choices(
             if target < requested:
                 new_choice["reason"] = (
                     str(choice.get("reason", ""))
-                    + f" Endgame guardrail preserves {requested - target} released anchor site(s) for future {cluster} work where practical."
+                    + f" Endgame guardrail preserves {requested - target} eligible anchor site(s) for future {cluster} work where practical."
                 ).strip()
             adjusted.append(new_choice)
             selected_clusters.add(cluster)
@@ -350,7 +338,7 @@ def endgame_adjust_cluster_choices(
             "Suggested Anchor Reserve": reserve,
             "Original Target": requested,
             "Adjusted Target": target,
-            "Released Anchors Preserved": max(0, eligible - target),
+            "Eligible Anchors Preserved": max(0, eligible - target),
             "Guardrail Action": (
                 "Preserved anchor capacity" if target < requested else "No target reduction"
             ),
@@ -438,7 +426,7 @@ def endgame_adjust_cluster_choices(
                 existing["target_sites"] = used + add
                 existing["reason"] = (
                     str(existing.get("reason", ""))
-                    + f" Released {add} anchor candidate(s) because replacement capacity was insufficient for this week's shortlist."
+                    + f" Restored {add} anchor candidate(s) because replacement capacity was insufficient for this week's shortlist."
                 ).strip()
             else:
                 adjusted.append({
@@ -466,7 +454,7 @@ def endgame_adjust_cluster_choices(
             continue
         audit_rows.append({
             "Cluster": cluster,
-            "Eligible Released Now": eligible,
+            "Eligible Now": eligible,
             "Future Pipeline Sites": future,
             "Future Drawing Pipeline": int(row.get("Future Drawing Pipeline", 0) or 0),
             "Future Plan Drafting": int(row.get("Future Plan Drafting", 0) or 0),
@@ -480,7 +468,7 @@ def endgame_adjust_cluster_choices(
             "Endgame Risk": str(row.get("Endgame Risk", "Low")),
             "Suggested Anchor Reserve": reserve,
             "Candidate Target This Week": final_target,
-            "Released Sites Left Outside Shortlist": max(0, eligible - final_target),
+            "Eligible Sites Left Outside Shortlist": max(0, eligible - final_target),
             "Endgame Reason": str(row.get("Endgame Reason", "")),
         })
 
@@ -500,14 +488,15 @@ def add_portfolio_fields(
     """
     Adds cheap planning metadata without calling Google.
 
-    Drawing rule:
-      - Ready/unknown status: eligible immediately.
+    Drawing / weekly scheduling rule:
+      - Every work type and Salesforce status is considered for the actual
+        selected-week schedule.
+      - Ready/unknown drawing status: eligible immediately.
       - Needs Drawing: eligible from the Monday after the current week, giving
         the drawing team the requested one-week lead time.
       - If an explicit Earliest Survey Date exists, it takes precedence and the
         site is only eligible once that date has been reached.
-      - HARD GATE: the selected-week schedule only accepts rows where
-        Work Type Name = Geospatial Asset Mapping AND Status = Released.
+      - A usable duration prediction is still required before a row can be routed.
     """
     result = df.copy()
 
@@ -543,30 +532,32 @@ def add_portfolio_fields(
 
         date_eligible = target_week_start >= monday_of(earliest)
 
-        # Hard weekly scheduling gate: a site can only enter the selected
-        # week's routing/schedule when Salesforce has explicitly released the
-        # Geospatial Asset Mapping work. Other rows remain in the portfolio so
-        # they can still contribute to drawing priority and future planning.
-        work_type = _clean_text(row.get("Work Type Name")).lower()
-        sf_status = _clean_text(row.get("Status")).lower()
-        released_for_survey = (
-            work_type == "geospatial asset mapping"
-            and sf_status == "released"
-        )
-
+        # Every Work Type / Status in the uploaded To Do portfolio may enter
+        # the actual weekly schedule. The only remaining operational gates are:
+        #   1) drawing / explicit earliest-date readiness; and
+        #   2) a usable duration prediction.
+        #
+        # This deliberately includes Plan Drafting, Work Request, Work Done,
+        # Under Preparation, Released and any other Salesforce status present
+        # in the uploaded portfolio.
         prediction_status = _clean_text(row.get("Prediction Status")).lower()
         duration_ready = prediction_status == "predicted"
-        eligible = bool(date_eligible and released_for_survey and duration_ready)
+        eligible = bool(date_eligible and duration_ready)
 
-        if not released_for_survey:
-            reason = (
-                "Future-planning only: not currently released for weekly survey "
-                "scheduling. This row still contributes to cluster/endgame planning."
-            )
+        if not date_eligible:
+            # Keep the drawing/earliest-date reason already calculated above.
+            pass
         elif not duration_ready:
             reason = (
-                "Released but no usable duration prediction yet. Included in the "
-                "portfolio strategy, but not routed into the current-week schedule."
+                "Not schedulable yet because there is no usable duration "
+                "prediction. The row still contributes to portfolio/endgame planning."
+            )
+        else:
+            work_type_label = _clean_text(row.get("Work Type Name")) or "Unknown work type"
+            status_label = _clean_text(row.get("Status")) or "Unknown status"
+            reason = (
+                f"Eligible for weekly scheduling: {work_type_label} / "
+                f"{status_label}. Work Type and Status do not block scheduling."
             )
 
         earliest_dates.append(earliest)
@@ -730,11 +721,11 @@ def build_cluster_summary(
             endgame_reason = "No known future pipeline in this postcode district; no anchor reserve needed."
         elif reserve <= 0:
             endgame_reason = (
-                f"{future_count} future site(s) remain, but current released volume is too small to reserve an anchor without risking this week's capacity."
+                f"{future_count} future site(s) remain, but current eligible volume is too small to reserve an anchor without risking this week's capacity."
             )
         else:
             endgame_reason = (
-                f"{future_count} future site(s) remain; preserve about {reserve} released anchor site(s) where practical so later work is less likely to become isolated."
+                f"{future_count} future site(s) remain; preserve about {reserve} eligible anchor site(s) where practical so later work is less likely to become isolated."
             )
 
         rows.append({
@@ -846,7 +837,7 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
     ).fillna(9999)
 
     # Endgame anchors are deliberately placed last inside their cluster. If a
-    # target asks for fewer than all released sites, the most useful future
+    # target asks for fewer than all eligible sites, the most useful future
     # anchors are therefore the sites left behind. Existing planned-this-week
     # work still takes precedence over the anchor preference.
     result["_endgame_anchor"] = (

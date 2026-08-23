@@ -1,1 +1,4 @@
-VERSION 20.9.2 — WORK DONE PIPELINE FIX\nEverything else is unchanged from Version 20.9.1.\nFuture planning explicitly includes main Status=Work Done and Parent Work Order: Status=Work Done.\n
+VERSION 20.9.3 — ALL WORK TYPES / STATUSES SCHEDULABLE
+Everything else is unchanged from Version 20.9.2.
+Weekly eligibility no longer requires GAM + Released.
+Plan Drafting, Work Request, Work Done, Under Preparation, Released, etc. can all be scheduled when drawing/date-ready and duration-predictable.
