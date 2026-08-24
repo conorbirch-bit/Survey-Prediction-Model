@@ -118,3 +118,14 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - Work Request rows can enter the weekly schedule under the same operational rules as other statuses.
 - Density-first daily routing is unchanged.
 - Endgame anchor preservation is unchanged: eligible buildings that better support known future same-campus / same-postcode / postcode-district work can still be held for later where practical.
+
+
+## Version 20.9.6 — use every selected working day
+- Everything else is unchanged from Version 20.9.5.
+- The existing Google candidate-cap input is now a minimum rather than a hard proportional weekly limit.
+- Candidate capacity expands automatically from the selected First Survey and Last Survey Finish window plus actual predicted survey durations.
+- This prevents a three-day surveyor from receiving only 24 candidates when those 24 can all be completed in the first two days.
+- Candidate expansion is capped at 25 per selected day to keep Google cost controlled.
+- AI cluster choices are topped up deterministically when they do not supply enough candidates to use all selected days.
+- Density-first routing is unchanged.
+- Endgame preservation remains active: non-anchor alternatives are used before a building reserved for a stronger future cluster is released.

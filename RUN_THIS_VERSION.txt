@@ -1,4 +1,4 @@
-VERSION 20.9.5 — WORK REQUEST STATUS SUPPORT
-Everything else is unchanged from Version 20.9.4.
-Supports both 'Work Request' and 'Work Requested'.
-Endgame/future-cluster anchor preservation remains active.
+VERSION 20.9.6 — FULL SELECTED-TIME UTILISATION
+Everything else is unchanged from Version 20.9.5.
+Candidate pools now scale to the selected survey window and predicted durations.
+Future-cluster/endgame anchors remain protected where alternative current work exists.

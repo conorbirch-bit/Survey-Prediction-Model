@@ -278,11 +278,13 @@ def endgame_adjust_cluster_choices(
     Preserve future anchors without reducing the candidate pool unnecessarily.
 
     1) Start with the strategic choices already produced by AI/deterministic logic.
-    2) Where a selected cluster has future pipeline, reduce its target by the
-       small suggested anchor reserve.
-    3) Replace those removed candidates from non-anchor capacity elsewhere.
-    4) Only if replacement capacity is insufficient, release the lowest-risk
-       anchors so the current week's candidate count is restored.
+    2) Expand toward the time-aware weekly candidate requirement when the AI
+       supplied too few sites to use all selected working days.
+    3) Where a selected cluster has future pipeline, preserve the small suggested
+       anchor reserve.
+    4) Fill remaining capacity from non-anchor sites elsewhere first.
+    5) Only if alternative capacity is insufficient, release the lowest-risk
+       anchors so the selected working time can still be used.
 
     This is deliberately a cheap portfolio operation; it never calls Google.
     """
@@ -295,9 +297,29 @@ def endgame_adjust_cluster_choices(
         if str(r.get("Cluster", "")).strip()
     }
 
+    # Capacity target is the smaller of:
+    #   - the time-aware Google candidate allowance; and
+    #   - all sites currently eligible this week.
+    #
+    # Previously this used only the number of sites the AI happened to request.
+    # If the AI selected 24 candidates for a three-day surveyor, all 24 could be
+    # consumed on days 1-2 and day 3 would be left blank. We now fill unused
+    # candidate capacity deterministically while still preserving endgame
+    # anchors wherever non-anchor alternatives exist.
+    total_eligible_capacity = int(
+        pd.to_numeric(
+            cluster_summary.get(
+                "Eligible This Week",
+                pd.Series(dtype=float),
+            ),
+            errors="coerce",
+        )
+        .fillna(0)
+        .sum()
+    )
     original_total = min(
         int(max_sites_for_google),
-        sum(max(0, int(c.get("target_sites", 0) or 0)) for c in cluster_choices),
+        total_eligible_capacity,
     )
     if original_total <= 0:
         return list(cluster_choices), pd.DataFrame()
