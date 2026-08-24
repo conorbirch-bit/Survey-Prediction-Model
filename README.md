@@ -129,3 +129,8 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - AI cluster choices are topped up deterministically when they do not supply enough candidates to use all selected days.
 - Density-first routing is unchanged.
 - Endgame preservation remains active: non-anchor alternatives are used before a building reserved for a stronger future cluster is released.
+
+
+## Version 20.9.6.1 — math import fix
+- No business logic changes from Version 20.9.6.
+- Adds the missing `import math` required by the time-aware candidate-cap calculation.
