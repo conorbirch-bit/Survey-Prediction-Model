@@ -110,3 +110,11 @@ The weekly surveyor table is pre-filled with Conor Birch (Harpenden Station), Ro
 - Google is still only run for the selected week.
 - All Version 20.9.2 time-window, lunch, endgame, notes, surveyor, duration and Salesforce-export behaviour is otherwise unchanged.
 \n\n## Version 20.9.4 — density-first shortlist and day routing\n- No eligibility, prediction, time-window, lunch, notes, endgame, surveyor or Salesforce changes from Version 20.9.3.\n- Inside a selected postcode district, full-postcode density now outranks an existing Planned Start when deciding which sites reach the Google shortlist.\n- All eligible Work Types/Statuses are treated equally; Plan Drafting can therefore strengthen a dense micro-cluster rather than being pushed out by sparse pre-planned rows.\n- Once a survey day enters a postcode district, feasible remaining jobs in that district are tried before a different-district jump.\n- Exact same-postcode jobs are preferred again within the district.\n- Up to two out-of-district fallback candidates remain available so the day can continue if the local jobs genuinely cannot fit the hard rules.\n
+
+## Version 20.9.5 — Work Request status support
+- Everything else is unchanged from Version 20.9.4.
+- Explicitly recognises Salesforce Status = Work Request.
+- Also accepts the spelling Work Requested and normalises it to Work Request.
+- Work Request rows can enter the weekly schedule under the same operational rules as other statuses.
+- Density-first daily routing is unchanged.
+- Endgame anchor preservation is unchanged: eligible buildings that better support known future same-campus / same-postcode / postcode-district work can still be held for later where practical.

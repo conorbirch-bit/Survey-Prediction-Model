@@ -567,6 +567,22 @@ def add_portfolio_fields(
     result["Calculated Earliest Survey Date"] = earliest_dates
     result["Eligible for Selected Week"] = eligibility
     result["Eligibility Reason"] = reasons
+
+    # Informational only: all statuses remain schedulable under the normal
+    # operational gates. This flag makes Work Request rows easy to audit.
+    if "Status" in result.columns:
+        _status_key = (
+            result["Status"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+        result["Work Request Status"] = _status_key.isin(
+            ["work request", "work requested"]
+        )
+    else:
+        result["Work Request Status"] = False
     if "Work Type Name" in result.columns and "Status" in result.columns:
         result["Released for Weekly Scheduling"] = (
             result["Work Type Name"].astype(str).str.strip().str.lower().eq("geospatial asset mapping")

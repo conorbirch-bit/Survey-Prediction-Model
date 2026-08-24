@@ -1,1 +1,4 @@
-VERSION 20.9.4 — DENSITY-FIRST ROUTING\nEverything else is unchanged from Version 20.9.3.\nShortlisting now favours dense full-postcode groups over Planned Start.\nDaily routing stays in the current postcode district while feasible local work remains.\n
+VERSION 20.9.5 — WORK REQUEST STATUS SUPPORT
+Everything else is unchanged from Version 20.9.4.
+Supports both 'Work Request' and 'Work Requested'.
+Endgame/future-cluster anchor preservation remains active.

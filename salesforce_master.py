@@ -33,6 +33,26 @@ def _cell_text(value) -> str:
     return str(value).strip()
 
 
+def normalise_salesforce_status(value) -> str:
+    """
+    Normalise Salesforce status spelling variants without changing the
+    scheduling rules.
+
+    The current report uses "Work Request". Some exports/users may call the same
+    state "Work Requested", so both are standardised to "Work Request".
+    """
+    text = _cell_text(value)
+    if not text:
+        return ""
+
+    key = re.sub(r"\s+", " ", text).strip().lower()
+    aliases = {
+        "work request": "Work Request",
+        "work requested": "Work Request",
+    }
+    return aliases.get(key, text)
+
+
 def find_header_row(raw: pd.DataFrame) -> int:
     """
     Detect either a normal row-1 header or a Salesforce report header that
@@ -101,6 +121,10 @@ def _forward_fill_grouped_salesforce_fields(df: pd.DataFrame) -> pd.DataFrame:
         if col in result.columns:
             result[col] = result[col].replace(r"^\s*$", pd.NA, regex=True).ffill()
 
+    # Explicitly support both "Work Request" and "Work Requested".
+    if "Status" in result.columns:
+        result["Status"] = result["Status"].apply(normalise_salesforce_status)
+
     return result
 
 
@@ -136,7 +160,7 @@ def derive_drawing_status(df: pd.DataFrame) -> pd.DataFrame:
 
     needs_drawing = (
         work_type.eq("plan drafting")
-        & status.eq("work request")
+        & status.isin(["work request", "work requested"])
         & missing_status
     )
     survey_ready = (
