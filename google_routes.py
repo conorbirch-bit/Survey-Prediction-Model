@@ -58,6 +58,35 @@ class GoogleTransitRouter:
         self.transit_preference = transit_preference
         self.timeout_seconds = timeout_seconds
 
+        # Reporting only. These counters do not affect routing behaviour.
+        self._usage_stats = {
+            "compute_route_http_requests": 0,
+            "matrix_http_requests": 0,
+            "matrix_destination_elements": 0,
+        }
+        self._unique_matrix_destinations = set()
+
+    def reset_usage_stats(self) -> None:
+        """Reset reporting counters without changing router behaviour."""
+        self._usage_stats = {
+            "compute_route_http_requests": 0,
+            "matrix_http_requests": 0,
+            "matrix_destination_elements": 0,
+        }
+        self._unique_matrix_destinations = set()
+
+    def get_usage_stats(self) -> dict:
+        """Return a copy of the Google API usage counters."""
+        result = dict(self._usage_stats)
+        result["unique_matrix_destinations"] = len(
+            self._unique_matrix_destinations
+        )
+        result["total_google_http_requests"] = (
+            result["compute_route_http_requests"]
+            + result["matrix_http_requests"]
+        )
+        return result
+
     @staticmethod
     def _rfc3339(dt: datetime) -> str:
         if dt.tzinfo is None:
@@ -110,6 +139,9 @@ class GoogleTransitRouter:
             "X-Goog-Api-Key": self.api_key,
             "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
         }
+
+        # Count the actual HTTP request attempt. Reporting only.
+        self._usage_stats["compute_route_http_requests"] += 1
 
         response = requests.post(
             self.COMPUTE_ROUTES_URL,
@@ -185,6 +217,14 @@ class GoogleTransitRouter:
                     "originIndex,destinationIndex,status,condition,duration"
                 ),
             }
+
+            # Count the actual matrix request and billed destination
+            # elements sent in this batch. Reporting only.
+            self._usage_stats["matrix_http_requests"] += 1
+            self._usage_stats["matrix_destination_elements"] += len(batch)
+            self._unique_matrix_destinations.update(
+                str(destination) for destination in batch
+            )
 
             response = requests.post(
                 self.MATRIX_URL,

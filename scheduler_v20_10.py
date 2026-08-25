@@ -161,6 +161,7 @@ class DailyScheduleResult:
     lunch_end: Optional[datetime] = None
     lunch_location: str = ""
     lunch_after_sequence: Optional[int] = None
+    routing_stats: Optional[dict] = None
 
     @property
     def survey_minutes(self) -> float:
@@ -289,6 +290,43 @@ class WeeklyScheduleResult:
     def total_travel_minutes(self) -> int:
         return sum(day.travel_minutes for day in self.days)
 
+    @property
+    def routing_stats(self) -> dict:
+        """Aggregate reporting-only routing counters across the final week."""
+        keys = {
+            "candidate_evaluations",
+            "google_matrix_logical_calls",
+            "google_matrix_destinations",
+            "same_postcode_bypasses",
+            "coordinate_radius_bypasses",
+            "legacy_campus_bypasses",
+            "collapsed_nearby_destinations",
+        }
+        totals = {key: 0 for key in keys}
+        for day in self.days:
+            for key, value in (day.routing_stats or {}).items():
+                if key in totals:
+                    totals[key] += int(value or 0)
+        totals["local_bypasses"] = (
+            totals["same_postcode_bypasses"]
+            + totals["coordinate_radius_bypasses"]
+            + totals["legacy_campus_bypasses"]
+        )
+        totals["routing_calculations_avoided"] = (
+            totals["local_bypasses"]
+            + totals["collapsed_nearby_destinations"]
+        )
+        denominator = (
+            totals["google_matrix_destinations"]
+            + totals["routing_calculations_avoided"]
+        )
+        totals["site_to_site_avoidance_pct"] = (
+            100.0 * totals["routing_calculations_avoided"] / denominator
+            if denominator
+            else 0.0
+        )
+        return totals
+
     def summary_dataframe(self) -> pd.DataFrame:
         rows = []
         for day in self.days:
@@ -386,6 +424,17 @@ class DailyTransitScheduler:
         remaining = [dict(site) for site in sites]
         scheduled: List[ScheduledSurvey] = []
 
+        # Reporting only. Counts the routing work the existing algorithm performs.
+        routing_stats = {
+            "candidate_evaluations": 0,
+            "google_matrix_logical_calls": 0,
+            "google_matrix_destinations": 0,
+            "same_postcode_bypasses": 0,
+            "coordinate_radius_bypasses": 0,
+            "legacy_campus_bypasses": 0,
+            "collapsed_nearby_destinations": 0,
+        }
+
         current_location = self.home_location
         current_postcode = ""
         current_building_name = ""
@@ -446,6 +495,7 @@ class DailyTransitScheduler:
             # External destinations are also collapsed when they are physically
             # close to one another. Google therefore sees one representative for
             # a micro-area instead of many nearly identical nearby buildings.
+            routing_stats["candidate_evaluations"] += len(remaining)
             travel_by_index = {}
             external_indices = []
 
@@ -459,11 +509,14 @@ class DailyTransitScheduler:
             for idx, site in enumerate(remaining):
                 bypass = False
                 distance = None
+                bypass_reason = ""
                 if scheduled:
-                    bypass, distance, _ = should_bypass_google_between_sites(
-                        current_site,
-                        site,
-                        radius_km=NO_GOOGLE_RADIUS_KM,
+                    bypass, distance, bypass_reason = (
+                        should_bypass_google_between_sites(
+                            current_site,
+                            site,
+                            radius_km=NO_GOOGLE_RADIUS_KM,
+                        )
                     )
                     if not bypass and current_postcode:
                         try:
@@ -473,10 +526,19 @@ class DailyTransitScheduler:
                                 site.get("building_name", ""),
                                 site.get("postcode", ""),
                             )
+                            if bypass:
+                                bypass_reason = "legacy same-campus rule"
                         except Exception:
                             bypass = False
 
                 if bypass:
+                    if bypass_reason == "same full postcode":
+                        routing_stats["same_postcode_bypasses"] += 1
+                    elif bypass_reason == "legacy same-campus rule":
+                        routing_stats["legacy_campus_bypasses"] += 1
+                    else:
+                        routing_stats["coordinate_radius_bypasses"] += 1
+
                     travel_by_index[idx] = estimate_local_transfer_minutes(
                         distance,
                         minimum_minutes=float(self.same_postcode_transfer_minutes),
@@ -519,10 +581,22 @@ class DailyTransitScheduler:
                     })
 
             if proximity_groups:
+                # Every extra member of a proximity group is one destination
+                # calculation that the coordinate/postcode logic avoided.
+                routing_stats["collapsed_nearby_destinations"] += sum(
+                    max(0, len(group["indices"]) - 1)
+                    for group in proximity_groups
+                )
+
                 google_destinations = [
                     group["route_location"]
                     for group in proximity_groups
                 ]
+                routing_stats["google_matrix_logical_calls"] += 1
+                routing_stats["google_matrix_destinations"] += len(
+                    google_destinations
+                )
+
                 google_matrix = self.router.one_to_many(
                     current_location,
                     google_destinations,
@@ -904,6 +978,7 @@ class DailyTransitScheduler:
             lunch_end=lunch_end,
             lunch_location=lunch_location,
             lunch_after_sequence=lunch_after_sequence,
+            routing_stats=routing_stats,
         )
 
     def build_week(

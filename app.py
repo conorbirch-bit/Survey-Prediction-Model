@@ -66,7 +66,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.10 — coordinate-based geographic clustering")
+st.caption("Version 20.10.1 — coordinate clustering + Google usage reporting")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -2404,6 +2404,134 @@ with tab2:
                                         f"{len(team_representatives)} selected cluster "
                                         "representatives, followed by each person's "
                                         "own capped shortlist."
+                                    )
+
+                                    # Reporting only: show the actual Google usage
+                                    # plus the site-to-site calculations avoided by
+                                    # coordinate/postcode proximity rules.
+                                    google_usage = (
+                                        team_router.get_usage_stats()
+                                        if hasattr(
+                                            team_router,
+                                            "get_usage_stats",
+                                        )
+                                        else {}
+                                    )
+
+                                    schedule_routing_stats = {
+                                        "google_matrix_destinations": 0,
+                                        "same_postcode_bypasses": 0,
+                                        "coordinate_radius_bypasses": 0,
+                                        "legacy_campus_bypasses": 0,
+                                        "collapsed_nearby_destinations": 0,
+                                        "routing_calculations_avoided": 0,
+                                    }
+                                    for _result in team_results.values():
+                                        if _result is None:
+                                            continue
+                                        _stats = getattr(
+                                            _result,
+                                            "routing_stats",
+                                            {},
+                                        ) or {}
+                                        for _key in schedule_routing_stats:
+                                            schedule_routing_stats[_key] += int(
+                                                _stats.get(_key, 0) or 0
+                                            )
+
+                                    _avoided = int(
+                                        schedule_routing_stats[
+                                            "routing_calculations_avoided"
+                                        ]
+                                    )
+                                    _site_matrix_sent = int(
+                                        schedule_routing_stats[
+                                            "google_matrix_destinations"
+                                        ]
+                                    )
+                                    _site_matrix_total = (
+                                        _site_matrix_sent + _avoided
+                                    )
+                                    _avoidance_pct = (
+                                        100.0
+                                        * _avoided
+                                        / _site_matrix_total
+                                        if _site_matrix_total
+                                        else 0.0
+                                    )
+
+                                    st.markdown("#### Google routing usage")
+                                    gu1, gu2, gu3, gu4 = st.columns(4)
+                                    gu1.metric(
+                                        "Unique Google matrix destinations",
+                                        int(
+                                            google_usage.get(
+                                                "unique_matrix_destinations",
+                                                0,
+                                            )
+                                        ),
+                                        help=(
+                                            "Unique destination strings actually "
+                                            "sent to Google's Route Matrix during "
+                                            "this planning run. This includes the "
+                                            "small home-to-cluster comparison as "
+                                            "well as site-routing destinations."
+                                        ),
+                                    )
+                                    gu2.metric(
+                                        "Google matrix calculations",
+                                        int(
+                                            google_usage.get(
+                                                "matrix_destination_elements",
+                                                0,
+                                            )
+                                        ),
+                                        help=(
+                                            "Total destination elements actually "
+                                            "sent to Google Route Matrix. The same "
+                                            "site can appear more than once as the "
+                                            "route is re-evaluated through the day."
+                                        ),
+                                    )
+                                    gu3.metric(
+                                        "Google API requests",
+                                        int(
+                                            google_usage.get(
+                                                "total_google_http_requests",
+                                                0,
+                                            )
+                                        ),
+                                        help=(
+                                            "Actual Compute Routes + Compute Route "
+                                            "Matrix HTTP requests made in this run."
+                                        ),
+                                    )
+                                    gu4.metric(
+                                        "Local routing avoided",
+                                        _avoided,
+                                        delta=f"{_avoidance_pct:.0f}% site-to-site",
+                                        help=(
+                                            "Site-to-site destination calculations "
+                                            "avoided by same-postcode, coordinate "
+                                            "proximity and nearby-destination "
+                                            "collapse rules."
+                                        ),
+                                    )
+
+                                    st.caption(
+                                        "Site-to-site savings breakdown: "
+                                        f"{schedule_routing_stats['coordinate_radius_bypasses']} "
+                                        f"within {NO_GOOGLE_RADIUS_KM:.2f} km, "
+                                        f"{schedule_routing_stats['same_postcode_bypasses']} "
+                                        "same-full-postcode bypasses, "
+                                        f"{schedule_routing_stats['legacy_campus_bypasses']} "
+                                        "legacy same-campus bypasses, and "
+                                        f"{schedule_routing_stats['collapsed_nearby_destinations']} "
+                                        "nearby destinations collapsed before Google. "
+                                        "The Google API figures also include home-to-cluster "
+                                        "comparison and first-site/return-home feasibility "
+                                        "routing, so they intentionally measure actual API "
+                                        "usage rather than only final scheduled buildings."
                                     )
 
                                     st.markdown("#### Team cluster strategy")
