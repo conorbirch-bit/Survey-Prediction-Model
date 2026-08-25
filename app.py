@@ -10,7 +10,11 @@ import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
-from scheduler_v20_9_4 import DailyTransitScheduler, postcode_district
+from scheduler_v20_10 import DailyTransitScheduler, postcode_district
+from coordinate_clustering import (
+    GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM,
+    NO_GOOGLE_RADIUS_KM,
+)
 import inspect
 
 _REQUIRED_BUILD_WEEK_ARGS = {
@@ -23,8 +27,8 @@ _build_week_args = set(
 )
 if not _REQUIRED_BUILD_WEEK_ARGS.issubset(_build_week_args):
     raise RuntimeError(
-        "Version 20.9.4 scheduler mismatch: replace all repository files "
-        "with the files from the Version 20.9.4 package, then reboot the app."
+        "Version 20.10 scheduler mismatch: replace scheduler_v20_10.py and "
+        "the other Version 20.10 changed files, then reboot the app."
     )
 
 from ai_planner import OpenAISchedulePlanner
@@ -62,7 +66,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.9.1 — full-portfolio planning with protected survey/home windows")
+st.caption("Version 20.10 — coordinate-based geographic clustering")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -393,6 +397,12 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "building_name": building_name or postcode,
             "postcode": postcode,
             "postcode_district": postcode_district(postcode),
+            "planning_cluster": str(
+                site_row.get("Planning Cluster", "")
+                or postcode_district(postcode)
+            ),
+            "latitude": optional_number(site_row.get("Latitude Clean", site_row.get("Latitude"))),
+            "longitude": optional_number(site_row.get("Longitude Clean", site_row.get("Longitude"))),
             "route_location": route_location,
             "planning_minutes": float(
                 site_row["Planning Duration (Minutes)"]
@@ -1079,16 +1089,17 @@ with tab2:
                         )
                     with team_settings[2]:
                         team_same_postcode = st.number_input(
-                            "Same-campus transfer (min)",
+                            "Minimum close-site transfer (min)",
                             min_value=0,
                             max_value=30,
                             value=5,
                             step=1,
                             key="team_same_postcode",
                             help=(
-                                "Used instead of Google when two consecutive "
-                                "buildings have the same full postcode and similar "
-                                "building/address names."
+                                f"Minimum transfer used when buildings share the exact "
+                                f"full postcode or are within {NO_GOOGLE_RADIUS_KM:.2f} km "
+                                "using Salesforce Latitude/Longitude. Those local site-to-site "
+                                "moves bypass Google."
                             ),
                         )
                     with team_settings[3]:
@@ -1295,6 +1306,21 @@ with tab2:
                                             ] == True
                                         ].copy()
 
+                                        coordinate_count = int(
+                                            team_portfolio.get(
+                                                "Coordinate Available",
+                                                pd.Series(False, index=team_portfolio.index),
+                                            ).astype(bool).sum()
+                                        )
+                                        st.caption(
+                                            f"Coordinate clustering active for {coordinate_count:,} of "
+                                            f"{len(team_portfolio):,} portfolio sites. Strategic clusters "
+                                            f"use a {GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM:.1f} km maximum "
+                                            f"diameter; site-to-site Google routing is bypassed within "
+                                            f"{NO_GOOGLE_RADIUS_KM:.2f} km. Rows without coordinates fall "
+                                            "back to postcode-district clustering."
+                                        )
+
                                         if team_eligible.empty:
                                             raise ValueError(
                                                 "No sites are eligible for the "
@@ -1356,7 +1382,7 @@ with tab2:
                                         #   - selected first/last survey times;
                                         #   - the lower-quartile real prediction duration;
                                         #   - existing pre/post buffers;
-                                        #   - the same-campus transfer assumption;
+                                        #   - the close-site transfer assumption;
                                         #   - a 50% choice reserve so Google has enough
                                         #     alternatives after feasibility/endgame rules.
                                         window_start_dt = datetime.combine(

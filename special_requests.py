@@ -25,13 +25,13 @@ def all_cluster_representatives(
     portfolio: pd.DataFrame,
     target_week_start,
 ) -> List[dict]:
-    """One representative eligible site per postcode district."""
+    """One representative eligible site per geographic planning cluster."""
     eligible = portfolio[
         portfolio["Eligible for Selected Week"] == True
     ].copy()
 
     reps = []
-    for cluster, group in eligible.groupby("Postcode Cluster"):
+    for cluster, group in eligible.groupby("Planning Cluster"):
         cluster = str(cluster or "").strip()
         if not cluster:
             continue
@@ -64,7 +64,7 @@ def choose_nearby_cluster(
 ) -> Tuple[Optional[dict], Optional[float], List[dict]]:
     """
     Use Google only inside the selected week to measure the request anchor
-    against one representative per eligible postcode cluster.
+    against one representative per eligible geographic planning cluster.
     """
     if not representatives:
         return None, None, []
@@ -134,7 +134,7 @@ def build_trial_dataframe(
     ].copy()
 
     target = eligible[
-        eligible["Postcode Cluster"].astype(str) == str(target_cluster)
+        eligible["Planning Cluster"].astype(str) == str(target_cluster)
     ].copy()
 
     if "Customer Reference" in target.columns and excluded_refs:

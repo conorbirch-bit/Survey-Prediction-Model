@@ -151,9 +151,9 @@ Return JSON only:
         """
         Strategic portfolio filter.
 
-        This runs BEFORE Google Routes. It receives postcode-cluster summaries,
-        not thousands of individual route candidates, and chooses which clusters
-        are worth precise transit routing for the requested week.
+        This runs BEFORE Google Routes. It receives coordinate-based geographic
+        cluster summaries, not thousands of individual route candidates, and
+        chooses which clusters are worth precise transit routing for the week.
         """
 
         instructions = """
@@ -162,12 +162,14 @@ You are the strategic portfolio-filter layer for UK site-survey scheduling.
 You are NOT a routing engine. Do not estimate or invent journey times. Google
 Routes will only be called AFTER your cluster shortlist.
 
-You are given cheap postcode-district summaries across a potentially very large
-portfolio. Choose a small set of clusters that are genuinely worth considering
-for the requested survey week.
+You are given cheap geographic-cluster summaries across a potentially very large
+portfolio. Where Salesforce Latitude/Longitude are available, these clusters are
+built from real straight-line proximity rather than postcode text. Rows without
+coordinates fall back to postcode-district grouping. Choose a small set of clusters
+that are genuinely worth considering for the requested survey week.
 
 Objectives:
-- create geographically coherent survey days;
+- create geographically coherent survey days using the supplied coordinate clusters;
 - prefer clusters with enough eligible survey work to sustain useful days;
 - respect existing planned work where it creates sensible continuity;
 - consider prediction confidence and total available survey hours;
@@ -205,7 +207,8 @@ Objectives:
   candidate capacity is insufficient;
 - avoid repeatedly deferring the same area without a concrete future-cluster
   benefit;
-- keep Google cost low by not selecting unnecessary clusters.
+- keep Google cost low by not selecting unnecessary clusters;
+- use the local-density fields in the summary as evidence of clusters where nearby buildings can be handled with fewer Google calls.
 
 The total target_sites across selected clusters should normally be close to,
 but never exceed, max_sites_for_google. Select enough candidates that the
@@ -226,7 +229,7 @@ Priority is 0-100. Return JSON only:
 {
   "selected_clusters": [
     {
-      "cluster": "NW9",
+      "cluster": "GEO-NW9-51.590_-0.284",
       "priority": 92,
       "target_sites": 18,
       "decision": "consider_this_week",
@@ -235,7 +238,7 @@ Priority is 0-100. Return JSON only:
   ],
   "deferred_clusters": [
     {
-      "cluster": "SW9",
+      "cluster": "GEO-SW9-51.468_-0.116",
       "reason": "brief reason"
     }
   ],
@@ -332,7 +335,7 @@ formal report and do not overstate certainty.
 
 Explain:
 - the overall strategy of the week;
-- why particular geographic/postcode clusters were grouped together;
+- why particular coordinate-based geographic clusters were grouped together;
 - why some sites were left for later if future clustering made that sensible;
 - where the week has more or less slack;
 - any material TfL disruption or weather considerations;
@@ -382,6 +385,9 @@ Do not use JSON. Return normal prose only.
                 "building_name": site.get("building_name", ""),
                 "postcode": site.get("postcode", ""),
                 "postcode_district": site.get("postcode_district", ""),
+                "planning_cluster": site.get("planning_cluster", ""),
+                "latitude": site.get("latitude"),
+                "longitude": site.get("longitude"),
                 "planning_minutes": site.get("planning_minutes"),
                 "prediction_confidence": site.get("confidence", ""),
                 "existing_planned_start": site.get("planned_start", ""),
@@ -397,7 +403,7 @@ You are NOT a routing engine. Never invent travel times. Google Routes will
 calculate and validate all actual public-transport journeys after your output.
 
 Your job is to rank candidate sites for the requested working week. Consider:
-- keeping geographically coherent postcode-district clusters together;
+- keeping the supplied coordinate-based geographic clusters together;
 - whether a site becomes more valuable to defer because several nearby sites
   appear in a future week;
 - the site's existing planned date, where present;

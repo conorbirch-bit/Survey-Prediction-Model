@@ -33,7 +33,7 @@ def representative_sites(
     target_week_start,
 ) -> List[dict]:
     """
-    Pick one real site to represent each selected postcode district.
+    Pick one real site to represent each selected geographic planning cluster.
 
     Google is used only for these tiny home -> cluster-representative comparisons
     before the more detailed per-surveyor routing begins.
@@ -46,7 +46,7 @@ def representative_sites(
     for choice in cluster_choices:
         cluster = str(choice.get("cluster", "")).strip()
         group = eligible[
-            eligible["Postcode Cluster"].astype(str) == cluster
+            eligible["Planning Cluster"].astype(str) == cluster
         ].copy()
         if group.empty:
             continue
@@ -323,7 +323,7 @@ def build_team_shortlists(
     ].copy()
 
     by_cluster = {}
-    for cluster, group in eligible.groupby("Postcode Cluster"):
+    for cluster, group in eligible.groupby("Planning Cluster"):
         by_cluster[str(cluster)] = _site_sort_frame(
             group.copy(),
             target_week_start,

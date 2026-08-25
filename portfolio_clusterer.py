@@ -6,7 +6,13 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from scheduler_v20_9_4 import postcode_district, same_campus
+from scheduler_v20_10 import same_campus
+from coordinate_clustering import (
+    FUTURE_ANCHOR_STRONG_RADIUS_KM,
+    FUTURE_ANCHOR_SUPPORT_RADIUS_KM,
+    assign_coordinate_planning_clusters,
+    haversine_km,
+)
 
 
 READY_WORDS = {
@@ -148,11 +154,12 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
     """
     Add portfolio-wide endgame/orphan-risk signals without paid routing calls.
 
-    Within a postcode district, eligible sites that best overlap the future
-    pipeline (same campus first, then same full postcode) are marked as anchor
-    candidates. Those rows are sorted later in the candidate order so they are
-    preserved when the selected cluster target is smaller than all eligible
-    sites in that district.
+    Within each coordinate-based planning cluster, eligible sites that best
+    overlap the future pipeline are marked as anchor candidates. Real distance
+    is the primary signal; same-campus / same-postcode remain fallbacks where
+    coordinates are unavailable. Those rows are sorted later in the candidate
+    order so they are preserved when the selected cluster target is smaller
+    than all eligible sites in that geographic area.
     """
     result = result.copy()
     result["Future Pipeline Candidate"] = result.apply(_is_future_pipeline_row, axis=1)
@@ -166,11 +173,13 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
     result["Endgame Risk"] = "Low"
     result["Future Same Postcode Sites"] = 0
     result["Future Same Campus Sites"] = 0
+    result["Future Sites Within No-Google Radius"] = 0
+    result["Future Sites Within Anchor Radius"] = 0
     result["Endgame Anchor Score"] = 0.0
     result["Endgame Anchor Candidate"] = False
     result["Endgame Planning Note"] = "No future pipeline detected in this cluster."
 
-    for cluster, group in result.groupby("Postcode Cluster", dropna=False):
+    for cluster, group in result.groupby("Planning Cluster", dropna=False):
         indices = list(group.index)
         if not str(cluster or "").strip():
             continue
@@ -229,6 +238,22 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
             future_names = future_by_postcode.get(pc, [])
             same_postcode_count = len(future_names)
             same_campus_count = 0
+            strong_nearby_count = 0
+            support_nearby_count = 0
+
+            for future_idx, future_row in future.iterrows():
+                distance = haversine_km(
+                    row.get("Latitude Clean", row.get("Latitude")),
+                    row.get("Longitude Clean", row.get("Longitude")),
+                    future_row.get("Latitude Clean", future_row.get("Latitude")),
+                    future_row.get("Longitude Clean", future_row.get("Longitude")),
+                )
+                if distance is not None:
+                    if distance <= FUTURE_ANCHOR_STRONG_RADIUS_KM:
+                        strong_nearby_count += 1
+                    if distance <= FUTURE_ANCHOR_SUPPORT_RADIUS_KM:
+                        support_nearby_count += 1
+
             for future_name in future_names:
                 try:
                     if same_campus(name, pc, future_name, pc):
@@ -236,34 +261,61 @@ def _annotate_endgame_fields(result: pd.DataFrame) -> pd.DataFrame:
                 except Exception:
                     pass
 
-            # Same-campus support is strongest, then exact postcode support;
-            # cluster-level pipeline provides a small baseline score.
+            # Coordinate proximity is now the main future-anchor signal. The
+            # older postcode/name tests remain useful fallbacks for missing coords.
             score = (
-                same_campus_count * 100.0
-                + same_postcode_count * 20.0
+                strong_nearby_count * 120.0
+                + support_nearby_count * 35.0
+                + same_campus_count * 20.0
+                + same_postcode_count * 10.0
                 + future_count
             )
-            scored.append((score, same_campus_count, same_postcode_count, idx))
+            scored.append((
+                score,
+                strong_nearby_count,
+                support_nearby_count,
+                same_campus_count,
+                same_postcode_count,
+                idx,
+            ))
 
-        scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
-        anchor_indices = [item[3] for item in scored[:reserve]]
+        scored.sort(key=lambda x: (x[0], x[1], x[2], x[3], x[4]), reverse=True)
+        anchor_indices = [item[5] for item in scored[:reserve]]
 
-        for score, same_campus_count, same_postcode_count, idx in scored:
+        for (
+            score,
+            strong_nearby_count,
+            support_nearby_count,
+            same_campus_count,
+            same_postcode_count,
+            idx,
+        ) in scored:
             result.at[idx, "Future Same Postcode Sites"] = same_postcode_count
             result.at[idx, "Future Same Campus Sites"] = same_campus_count
+            result.at[idx, "Future Sites Within No-Google Radius"] = strong_nearby_count
+            result.at[idx, "Future Sites Within Anchor Radius"] = support_nearby_count
             result.at[idx, "Endgame Anchor Score"] = round(score, 1)
 
         if anchor_indices:
             result.loc[anchor_indices, "Endgame Anchor Candidate"] = True
             for idx in anchor_indices:
-                support = int(result.at[idx, "Future Same Campus Sites"] or 0)
+                strong = int(result.at[idx, "Future Sites Within No-Google Radius"] or 0)
+                support = int(result.at[idx, "Future Sites Within Anchor Radius"] or 0)
                 same_pc = int(result.at[idx, "Future Same Postcode Sites"] or 0)
-                if support:
-                    reason = f"Preserve if practical: supports {support} future same-campus site(s)."
+                if strong:
+                    reason = (
+                        f"Preserve if practical: supports {strong} future site(s) "
+                        f"within {FUTURE_ANCHOR_STRONG_RADIUS_KM:.2f} km."
+                    )
+                elif support:
+                    reason = (
+                        f"Preserve if practical: supports {support} future site(s) "
+                        f"within {FUTURE_ANCHOR_SUPPORT_RADIUS_KM:.2f} km."
+                    )
                 elif same_pc:
                     reason = f"Preserve if practical: supports {same_pc} future site(s) at the same postcode."
                 else:
-                    reason = "Preserve if practical as a geographic anchor for future work in this postcode district."
+                    reason = "Preserve if practical as a geographic anchor for future work in this coordinate cluster."
                 result.at[idx, "Endgame Planning Note"] = reason
 
     return result
@@ -612,7 +664,11 @@ def add_portfolio_fields(
         )
     else:
         result["Released for Weekly Scheduling"] = False
-    result["Postcode Cluster"] = result["Postcode"].apply(postcode_district)
+    # Build strategic clusters from Salesforce Latitude / Longitude. Rows that
+    # do not have usable coordinates retain the original postcode-district
+    # behaviour as a fallback. ``Postcode Cluster`` remains available as a
+    # reference field; ``Planning Cluster`` drives scheduling from here onward.
+    result = assign_coordinate_planning_clusters(result)
     result = _annotate_endgame_fields(result)
 
     return result
@@ -634,7 +690,8 @@ def build_cluster_summary(
     target_week_start: date,
 ) -> pd.DataFrame:
     """
-    Summarise the whole portfolio by postcode district. No paid routing calls.
+    Summarise the whole portfolio by coordinate-based planning cluster.
+    No paid routing calls.
     """
     rows = []
     week_end = target_week_start + timedelta(days=6)
@@ -651,7 +708,7 @@ def build_cluster_summary(
     working = portfolio.copy()
     working["_planned_date"] = planned_dates
 
-    for cluster, group in working.groupby("Postcode Cluster", dropna=False):
+    for cluster, group in working.groupby("Planning Cluster", dropna=False):
         cluster = str(cluster or "").strip()
         if not cluster:
             continue
@@ -756,7 +813,7 @@ def build_cluster_summary(
         reserve = _suggest_anchor_reserve(len(eligible), future_count)
         endgame_risk = _endgame_risk(len(eligible), future_count, reserve)
         if future_count <= 0:
-            endgame_reason = "No known future pipeline in this postcode district; no anchor reserve needed."
+            endgame_reason = "No known future pipeline in this geographic cluster; no anchor reserve needed."
         elif reserve <= 0:
             endgame_reason = (
                 f"{future_count} future site(s) remain, but current eligible volume is too small to reserve an anchor without risking this week's capacity."
@@ -797,6 +854,42 @@ def build_cluster_summary(
             "Suggested Anchor Reserve": reserve,
             "Endgame Risk": endgame_risk,
             "Endgame Reason": endgame_reason,
+            "Coordinate Sites": int(
+                group.get(
+                    "Coordinate Available",
+                    pd.Series(False, index=group.index),
+                ).astype(bool).sum()
+            ),
+            "Average Nearby Sites <= No-Google Radius": round(
+                float(pd.to_numeric(
+                    group.get(
+                        "Nearby Portfolio Sites <= No-Google Radius",
+                        pd.Series(0, index=group.index),
+                    ),
+                    errors="coerce",
+                ).fillna(0).mean()),
+                1,
+            ),
+            "Average Nearby Sites <= Anchor Radius": round(
+                float(pd.to_numeric(
+                    group.get(
+                        "Nearby Portfolio Sites <= Anchor Radius",
+                        pd.Series(0, index=group.index),
+                    ),
+                    errors="coerce",
+                ).fillna(0).mean()),
+                1,
+            ),
+            "Cluster Centre Latitude": (
+                round(float(pd.to_numeric(group.get("Cluster Centre Latitude"), errors="coerce").dropna().mean()), 5)
+                if "Cluster Centre Latitude" in group.columns and pd.to_numeric(group["Cluster Centre Latitude"], errors="coerce").notna().any()
+                else None
+            ),
+            "Cluster Centre Longitude": (
+                round(float(pd.to_numeric(group.get("Cluster Centre Longitude"), errors="coerce").dropna().mean()), 5)
+                if "Cluster Centre Longitude" in group.columns and pd.to_numeric(group["Cluster Centre Longitude"], errors="coerce").notna().any()
+                else None
+            ),
             "Sample Buildings": " | ".join(sample_buildings),
         })
 
@@ -884,15 +977,26 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
         ).astype(bool).astype(int)
     )
 
-    # Density-first shortlist selection.
-    #
-    # The strategic cluster is a postcode DISTRICT (e.g. NW3), which can still
-    # cover a fairly large area. Prefer sites that share a full postcode with
-    # other eligible sites in that district so dense micro-clusters — including
-    # Plan Drafting / Under Preparation / Work Done rows — reach Google together.
-    #
-    # Existing Planned Start is deliberately only a weak tie-breaker now. It
-    # must not cause a sparse pre-planned site to displace several nearby jobs.
+    # Density-first shortlist selection using real coordinates when available.
+    # Plan Drafting / Work Request / Under Preparation / Released all contribute
+    # to the same local-density signals before Google is called.
+    result["_micro_density_sort"] = -pd.to_numeric(
+        result.get(
+            "Nearby Portfolio Sites <= No-Google Radius",
+            pd.Series(0, index=result.index),
+        ),
+        errors="coerce",
+    ).fillna(0)
+    result["_near_density_sort"] = -pd.to_numeric(
+        result.get(
+            "Nearby Portfolio Sites <= Anchor Radius",
+            pd.Series(0, index=result.index),
+        ),
+        errors="coerce",
+    ).fillna(0)
+
+    # Exact postcode density remains a useful fallback/tie-breaker when a row has
+    # missing coordinates.
     full_postcode = (
         result.get(
             "Postcode",
@@ -910,6 +1014,8 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
     return result.sort_values(
         [
             "_endgame_anchor",
+            "_micro_density_sort",
+            "_near_density_sort",
             "_postcode_density_sort",
             "_confidence_rank",
             "_duration",
@@ -953,7 +1059,7 @@ def shortlist_sites(
             continue
 
         group = eligible[
-            eligible["Postcode Cluster"].astype(str) == cluster
+            eligible["Planning Cluster"].astype(str) == cluster
         ].copy()
         group = group[~group.index.isin(selected_indices)]
         if group.empty:
@@ -985,7 +1091,7 @@ def shortlist_sites(
         remaining = eligible[~eligible.index.isin(selected_indices)].copy()
         if not remaining.empty:
             counts = (
-                remaining.groupby("Postcode Cluster")
+                remaining.groupby("Planning Cluster")
                 .size()
                 .sort_values(ascending=False)
             )
@@ -993,7 +1099,7 @@ def shortlist_sites(
                 if remaining_capacity <= 0:
                     break
                 group = remaining[
-                    remaining["Postcode Cluster"] == cluster
+                    remaining["Planning Cluster"] == cluster
                 ]
                 ranked = _site_sort_frame(
                     group, target_week_start
@@ -1093,7 +1199,7 @@ def build_drawing_priority_queue(
 
     rows = []
     for idx, row in needs.iterrows():
-        cluster = str(row.get("Postcode Cluster", "")).strip()
+        cluster = str(row.get("Planning Cluster", "")).strip()
         selected = selected_map.get(cluster)
         summary = summary_map.get(cluster, {})
 
@@ -1148,7 +1254,7 @@ def build_drawing_priority_queue(
             "_selected_priority_sort",
             "_future_score_sort",
             "_planned_sort",
-            "Postcode Cluster",
+            "Planning Cluster",
             "Customer Reference"
             if "Customer Reference" in ranked.columns
             else "Building Name",
