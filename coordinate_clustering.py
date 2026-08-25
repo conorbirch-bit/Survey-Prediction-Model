@@ -36,7 +36,7 @@ GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM = 2.5
 # If two buildings are within this straight-line distance, the site-to-site move
 # does not need its own Google Route Matrix destination. A cheap local walking
 # estimate is used instead. Exact same full postcodes also use this shortcut.
-NO_GOOGLE_RADIUS_KM = 0.50
+NO_GOOGLE_RADIUS_KM = 0.40
 
 # Very close sites are treated as campus-like for the local transfer estimate.
 SAME_CAMPUS_RADIUS_KM = 0.10
