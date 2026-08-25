@@ -66,7 +66,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.10.1 — coordinate clustering + Google usage reporting")
+st.caption("Version 20.10.2 — Salesforce upload includes Harrison + Joe")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -467,6 +467,14 @@ SALESFORCE_RESOURCE_MAP = {
         "service_resource_id": "0HnR50000005S6vKAE",
         "resource": "Chadwell Heath",
     },
+    "harrison grice": {
+        "service_resource_id": "",
+        "resource": "",
+    },
+    "joe reynolds": {
+        "service_resource_id": "",
+        "resource": "",
+    },
 }
 
 
@@ -513,8 +521,9 @@ def build_salesforce_copy(
     """
     Build the exact 10-column Salesforce Field Service upload table.
 
-    Only Conor Birch, Rod Harrison and Toby Lawal are included because these
-    are the surveyors for whom a Salesforce Service Resource ID is currently
+    Conor Birch, Rod Harrison, Toby Lawal, Harrison Grice and Joe Reynolds
+    are included. Harrison Grice and Joe Reynolds currently export with blank
+    Service Resource ID and Resource fields until those Salesforce values are
     known. LUNCH / RETURN operational rows are excluded automatically.
 
     Work-order / appointment identifiers and building fields are joined back
@@ -548,7 +557,9 @@ def build_salesforce_copy(
     if working.empty:
         return pd.DataFrame(columns=columns)
 
-    # Only surveyors with a known Salesforce Service Resource ID can be included.
+    # Only surveyors explicitly configured for the Salesforce upload are included.
+    # Harrison Grice and Joe Reynolds are intentionally configured with blank
+    # Resource / Service Resource ID values until those Salesforce details are known.
     working["_surveyor_key"] = (
         working["Surveyor"].fillna("").astype(str).str.strip().str.lower()
     )
