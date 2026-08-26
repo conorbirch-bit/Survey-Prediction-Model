@@ -66,7 +66,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.10.2 — Salesforce upload includes Harrison + Joe")
+st.caption("Version 20.10.3 — Harrison + Joe Salesforce IDs added")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -468,11 +468,11 @@ SALESFORCE_RESOURCE_MAP = {
         "resource": "Chadwell Heath",
     },
     "harrison grice": {
-        "service_resource_id": "",
+        "service_resource_id": "0HnR50000005UiDKAU",
         "resource": "",
     },
     "joe reynolds": {
-        "service_resource_id": "",
+        "service_resource_id": "0HnR50000005UjpKAE",
         "resource": "",
     },
 }
