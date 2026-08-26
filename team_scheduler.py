@@ -7,6 +7,46 @@ from typing import Dict, List, Sequence, Tuple
 import pandas as pd
 
 from portfolio_clusterer import _site_sort_frame
+from coordinate_clustering import haversine_km
+
+
+# ============================================================================
+# SURVEYOR HOME-FIT RULES
+# ============================================================================
+#
+# These are the station coordinates supplied for the five regular surveyors.
+# They are used only as a cheap geographic sanity check during cluster
+# allocation. Google remains the public-transport source of truth.
+#
+# No extra Google requests are introduced by this logic.
+SURVEYOR_HOME_COORDINATES = {
+    "conor birch": (51.81489, -0.35194),       # Harpenden Train Station
+    "harrison grice": (51.441346, 0.366643),  # Gravesend Station
+    "joe reynolds": (51.742, -0.491),          # Hemel Hempstead
+    "rod harrison": (52.379, -1.250),          # Rugby
+    "toby lawal": (51.567956, 0.129558),       # Chadwell Heath
+}
+
+# If an available surveyor is more than this many Google-transit minutes worse
+# than the best available surveyor for a cluster, workload balancing cannot
+# steal the cluster from the better-positioned surveyor.
+HOME_FIT_TRAVEL_BAND_MINUTES = 30.0
+
+# Geographic sanity check. A surveyor more than this many straight-line km
+# farther from the cluster centre than the nearest available surveyor is not
+# allowed to win purely because of workload balancing while a natural-fit
+# surveyor still has capacity.
+HOME_FIT_DISTANCE_BAND_KM = 25.0
+
+
+def _normalise_name(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _surveyor_home_coordinates(surveyor: "SurveyorConfig"):
+    return SURVEYOR_HOME_COORDINATES.get(
+        _normalise_name(surveyor.name)
+    )
 
 
 @dataclass
@@ -59,11 +99,22 @@ def representative_sites(
             f"{building}, {postcode}" if building else postcode
         )
 
+        centre_latitude = row.get(
+            "Cluster Centre Latitude",
+            row.get("Latitude Clean", row.get("Latitude")),
+        )
+        centre_longitude = row.get(
+            "Cluster Centre Longitude",
+            row.get("Longitude Clean", row.get("Longitude")),
+        )
+
         reps.append({
             "cluster": cluster,
             "route_location": route_location,
             "building_name": building or postcode,
             "postcode": postcode,
+            "latitude": centre_latitude,
+            "longitude": centre_longitude,
             "priority": int(choice.get("priority", 50)),
             "target_sites": int(choice.get("target_sites", 1)),
             "reason": str(choice.get("reason", "")),
@@ -87,6 +138,26 @@ def home_to_cluster_matrix(
 
     destinations = [r["route_location"] for r in representatives]
     result = {}
+
+    # Cheap geographic metadata for the allocator. These calculations happen
+    # locally and do not create any Google API usage.
+    for surveyor in surveyors:
+        home_coordinates = _surveyor_home_coordinates(surveyor)
+        if home_coordinates is None:
+            continue
+
+        home_latitude, home_longitude = home_coordinates
+        for rep in representatives:
+            distance_km = haversine_km(
+                home_latitude,
+                home_longitude,
+                rep.get("latitude"),
+                rep.get("longitude"),
+            )
+            if distance_km is not None:
+                result[
+                    ("__home_distance_km__", surveyor.name, rep["cluster"])
+                ] = float(distance_km)
 
     for surveyor in surveyors:
         surveyor_departure = departure_time
@@ -139,12 +210,15 @@ def allocate_cluster_targets(
     """
     Split selected cluster capacity across the active team.
 
-    The assignment score combines:
+    The assignment uses:
     - actual Google home -> cluster representative transit time;
+    - supplied surveyor station coordinates as a cheap geographic sanity check;
     - workload balancing;
     - a small bonus for keeping a surveyor in a cluster already allocated to them.
 
-    A large cluster can therefore be shared by multiple surveyors when needed.
+    Clear home-fit advantages are protected before workload balancing. A large
+    cluster can still be shared, and a more distant surveyor can still be used
+    after the naturally placed surveyors run out of capacity.
     """
     if not surveyors:
         return []
@@ -213,6 +287,14 @@ def allocate_cluster_targets(
                 # do not force the allocation to this surveyor.
                 continue
 
+            home_distance_km = travel_matrix.get(
+                (
+                    "__home_distance_km__",
+                    surveyor.name,
+                    cluster,
+                )
+            )
+
             chunk = min(requested_chunk, capacity_left)
             projected_minutes = (
                 assigned_minutes[surveyor.name]
@@ -276,14 +358,61 @@ def allocate_cluster_targets(
                     chunk,
                     float(travel),
                     projected_minutes,
+                    (
+                        float(home_distance_km)
+                        if home_distance_km is not None
+                        else None
+                    ),
                 )
             )
 
         if not candidates:
             continue
 
+        # Home-fit protection comes BEFORE workload balancing.
+        #
+        # If one or more available surveyors are clearly well positioned for
+        # this cluster, only that natural-fit group competes for the chunk.
+        # Workload balancing still operates normally inside the group.
+        #
+        # If those natural-fit surveyors later run out of capacity they are no
+        # longer present in `candidates`, so the cluster can still fall back to
+        # another available surveyor rather than being left unscheduled.
+        best_google_travel = min(candidate[3] for candidate in candidates)
+        geo_distances = [
+            candidate[5]
+            for candidate in candidates
+            if candidate[5] is not None
+        ]
+        best_geo_distance = (
+            min(geo_distances)
+            if geo_distances
+            else None
+        )
+
+        natural_fit_candidates = []
+        for candidate in candidates:
+            google_fit = (
+                candidate[3]
+                <= best_google_travel
+                + float(HOME_FIT_TRAVEL_BAND_MINUTES)
+            )
+            geo_distance = candidate[5]
+            geographic_fit = (
+                best_geo_distance is None
+                or geo_distance is None
+                or geo_distance
+                <= best_geo_distance
+                + float(HOME_FIT_DISTANCE_BAND_KM)
+            )
+            if google_fit and geographic_fit:
+                natural_fit_candidates.append(candidate)
+
+        if natural_fit_candidates:
+            candidates = natural_fit_candidates
+
         candidates.sort(key=lambda x: x[0])
-        _, chosen, chunk, travel, _ = candidates[0]
+        _, chosen, chunk, travel, _, _ = candidates[0]
 
         estimated_minutes = chunk * avg_minutes
         allocations.append(
