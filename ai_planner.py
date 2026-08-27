@@ -169,6 +169,24 @@ coordinates fall back to postcode-district grouping. Choose a small set of clust
 that are genuinely worth considering for the requested survey week.
 
 Objectives:
+- HARD CONSTRAINTS ALWAYS COME FIRST. Never recommend an optimisation that depends
+  on violating working-time, availability, access, eligibility, lunch, predicted
+  duration, return-home or other feasibility constraints enforced downstream;
+- PRIMARY OPTIMISATION OBJECTIVE: maximise productive survey time and completed
+  survey work across every available surveyor/day. Prefer cluster selections that
+  allow the deterministic scheduler to use as much of the available working
+  window as practical for surveying rather than leaving avoidable idle capacity;
+- SECONDARY OPTIMISATION OBJECTIVE: minimise the travel required to achieve that
+  survey output. Prefer dense, geographically coherent work, short transitions
+  between clusters and continuous geographic progression. Avoid unnecessary
+  backtracking, repeated area re-entry and long jumps when closer usable work can
+  sustain the available survey capacity;
+- when comparing otherwise sensible strategies, prefer the one with a higher
+  survey-time-to-travel-time ratio, provided it does not materially reduce the
+  amount of useful survey work that can be completed;
+- do not minimise travel by under-filling the week. A schedule with very little
+  travel but substantial unused survey capacity is not efficient when additional
+  feasible work exists;
 - create geographically coherent survey days using the supplied coordinate clusters;
 - prefer clusters with enough eligible survey work to sustain useful days;
 - respect existing planned work where it creates sensible continuity;

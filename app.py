@@ -1487,16 +1487,19 @@ with tab2:
                                         # Extra candidate choice is deliberate: some
                                         # candidates will fail return-home feasibility,
                                         # be held as endgame anchors, or be inferior to
-                                        # denser alternatives. Cap at 25 candidates/day
-                                        # to retain the existing cost-control philosophy.
-                                        time_aware_candidates_per_day = min(
-                                            25,
-                                            max(
-                                                8,
-                                                math.ceil(
-                                                    estimated_jobs_per_day
-                                                    * 1.50
-                                                ),
+                                        # denser alternatives.
+                                        #
+                                        # Do NOT hard-cap candidate buildings per day.
+                                        # Google cost is now controlled later by the
+                                        # coordinate/local-routing layer, which collapses
+                                        # nearby buildings before Google. A hard site cap
+                                        # can otherwise exhaust the shortlist before all
+                                        # selected working days have been filled.
+                                        time_aware_candidates_per_day = max(
+                                            8,
+                                            math.ceil(
+                                                estimated_jobs_per_day
+                                                * 1.50
                                             ),
                                         )
                                         time_aware_full_week_cap = (
