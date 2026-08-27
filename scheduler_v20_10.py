@@ -21,6 +21,17 @@ from coordinate_clustering import (
 # SAME-ROAD TEAM TRAVEL LEEWAY RULE
 # ============================================================================
 SAME_ROAD_COORDINATE_FALLBACK_KM = 0.20
+
+# Google-specific routing guardrail.
+#
+# There is deliberately NO cap on surveyable/candidate sites. The whole
+# eligible shortlist may remain available. At each routing decision, however,
+# coordinates are used to pre-rank disconnected local groups and only this
+# small number of representatives is sent to Google for precise TRANSIT
+# validation.
+GOOGLE_GROUPS_PER_DECISION = 8
+GOOGLE_FALLBACK_GROUPS_PER_DECISION = 2
+
 _ROAD_SUFFIX_CANONICAL = {
     "road":"road", "rd":"road", "street":"street", "st":"street",
     "avenue":"avenue", "ave":"avenue", "lane":"lane", "ln":"lane",
@@ -772,6 +783,207 @@ def _remaining_cluster_proximity_km(
     return result
 
 
+
+def _select_google_groups_for_decision(
+    proximity_groups: Sequence[dict],
+    sites: List[dict],
+    current_site: Optional[dict],
+    current_planning_cluster: str,
+    remaining_cluster_proximity: Dict[str, float],
+    route_site_rank: Dict[int, int],
+    max_groups: int = GOOGLE_GROUPS_PER_DECISION,
+    fallback_groups: int = GOOGLE_FALLBACK_GROUPS_PER_DECISION,
+) -> List[dict]:
+    """
+    Choose the small set of disconnected local-group representatives that
+    actually need Google TRANSIT validation for this scheduling decision.
+
+    This is a Google-workload limit, NOT a site/candidate limit. Groups omitted
+    from this particular Google call stay in `remaining` and are reconsidered
+    on later iterations.
+
+    Priority:
+      1) finish the current strategic cluster;
+      2) then prefer the geographically nearest next strategic cluster;
+      3) reserve a couple of fallback groups so one infeasible cluster cannot
+         prematurely end the day;
+      4) before the first survey, preserve existing shortlist/priority order.
+    """
+    groups = list(proximity_groups)
+    if not groups:
+        return []
+
+    max_groups = max(1, int(max_groups))
+    fallback_groups = max(
+        0,
+        min(int(fallback_groups), max_groups - 1),
+    )
+
+    def group_cluster(group):
+        idx = int(group["representative_idx"])
+        return _planning_cluster_key(sites[idx])
+
+    def representative_distance(group):
+        if current_site is None:
+            return float("inf")
+        idx = int(group["representative_idx"])
+        representative = sites[idx]
+        distance = haversine_km(
+            current_site.get("latitude"),
+            current_site.get("longitude"),
+            representative.get("latitude"),
+            representative.get("longitude"),
+        )
+        return (
+            float(distance)
+            if distance is not None
+            else float("inf")
+        )
+
+    def group_route_rank(group):
+        idx = int(group["representative_idx"])
+        return int(route_site_rank.get(idx, 10**6))
+
+    # First survey: no home coordinates are stored in this scheduler, so retain
+    # strategic shortlist order but avoid sending the whole shortlist to Google.
+    if current_site is None:
+        cluster_order = []
+        by_cluster = {}
+
+        for position, group in enumerate(groups):
+            cluster = group_cluster(group)
+            if cluster not in by_cluster:
+                by_cluster[cluster] = []
+                cluster_order.append(cluster)
+            by_cluster[cluster].append((position, group))
+
+        if len(cluster_order) <= 1:
+            return groups[:max_groups]
+
+        primary_budget = max_groups - fallback_groups
+        selected = [
+            group
+            for _, group in by_cluster[cluster_order[0]][:primary_budget]
+        ]
+
+        fallbacks = []
+        for cluster in cluster_order[1:]:
+            fallbacks.extend(by_cluster[cluster])
+        fallbacks.sort(key=lambda item: item[0])
+
+        selected.extend(
+            group
+            for _, group in fallbacks[
+                : max_groups - len(selected)
+            ]
+        )
+        return selected[:max_groups]
+
+    current_groups = []
+    other_groups = []
+
+    for position, group in enumerate(groups):
+        cluster = group_cluster(group)
+        item = (
+            group_route_rank(group),
+            representative_distance(group),
+            position,
+            group,
+        )
+
+        if (
+            current_planning_cluster
+            and cluster == current_planning_cluster
+        ):
+            current_groups.append(item)
+        else:
+            other_groups.append(item)
+
+    current_groups.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            item[2],
+        )
+    )
+
+    other_groups.sort(
+        key=lambda item: (
+            remaining_cluster_proximity.get(
+                group_cluster(item[3]),
+                float("inf"),
+            ),
+            item[1],
+            item[0],
+            item[2],
+        )
+    )
+
+    # While the current cluster still has Google-required groups, keep most
+    # Google slots there and reserve only a small fallback allowance.
+    if current_groups:
+        local_budget = max_groups - fallback_groups
+        selected = [
+            item[3]
+            for item in current_groups[:local_budget]
+        ]
+        selected.extend(
+            item[3]
+            for item in other_groups[
+                : max_groups - len(selected)
+            ]
+        )
+        return selected[:max_groups]
+
+    # Current cluster exhausted: concentrate on the nearest next cluster while
+    # keeping a couple of next-nearest fallbacks.
+    by_cluster = {}
+    cluster_order = []
+
+    for item in other_groups:
+        group = item[3]
+        cluster = group_cluster(group)
+        if cluster not in by_cluster:
+            by_cluster[cluster] = []
+            cluster_order.append(cluster)
+        by_cluster[cluster].append(item)
+
+    if not cluster_order:
+        return []
+
+    primary_cluster = cluster_order[0]
+    primary_budget = max_groups - fallback_groups
+    selected = [
+        item[3]
+        for item in by_cluster[primary_cluster][:primary_budget]
+    ]
+
+    fallbacks = []
+    for cluster in cluster_order[1:]:
+        fallbacks.extend(by_cluster[cluster])
+
+    fallbacks.sort(
+        key=lambda item: (
+            remaining_cluster_proximity.get(
+                group_cluster(item[3]),
+                float("inf"),
+            ),
+            item[1],
+            item[0],
+            item[2],
+        )
+    )
+
+    selected.extend(
+        item[3]
+        for item in fallbacks[
+            : max_groups - len(selected)
+        ]
+    )
+
+    return selected[:max_groups]
+
+
 def postcode_district(postcode: str) -> str:
     text = str(postcode or "").strip().upper()
     if not text:
@@ -1445,27 +1657,44 @@ class DailyTransitScheduler:
                     "route_location": remaining[representative_idx]["route_location"],
                 })
 
+            # All candidate sites stay available, but only the most relevant
+            # disconnected local groups enter Google on this iteration.
+            google_groups = _select_google_groups_for_decision(
+                proximity_groups=proximity_groups,
+                sites=remaining,
+                current_site=(current_site if scheduled else None),
+                current_planning_cluster=current_planning_cluster,
+                remaining_cluster_proximity=(
+                    remaining_cluster_proximity
+                ),
+                route_site_rank=route_site_rank,
+                max_groups=GOOGLE_GROUPS_PER_DECISION,
+                fallback_groups=(
+                    GOOGLE_FALLBACK_GROUPS_PER_DECISION
+                ),
+            )
+
             google_representative_indices = {
                 group["representative_idx"]
-                for group in proximity_groups
+                for group in google_groups
             }
             google_group_member_indices = {
                 idx
-                for group in proximity_groups
+                for group in google_groups
                 for idx in group["indices"]
             }
 
-            if proximity_groups:
-                # Every extra member of a proximity group is one destination
-                # calculation that the coordinate/postcode logic avoided.
+            if google_groups:
+                # Count collapse savings only for groups that actually reached
+                # this Google decision.
                 routing_stats["collapsed_nearby_destinations"] += sum(
                     max(0, len(group["indices"]) - 1)
-                    for group in proximity_groups
+                    for group in google_groups
                 )
 
                 google_destinations = [
                     group["route_location"]
-                    for group in proximity_groups
+                    for group in google_groups
                 ]
                 routing_stats["google_matrix_logical_calls"] += 1
                 routing_stats["google_matrix_destinations"] += len(
@@ -1479,7 +1708,7 @@ class DailyTransitScheduler:
                 )
 
                 for group, minutes in zip(
-                    proximity_groups,
+                    google_groups,
                     google_matrix,
                 ):
                     for idx in group["indices"]:
