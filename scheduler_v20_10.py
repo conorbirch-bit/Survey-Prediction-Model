@@ -225,6 +225,509 @@ def _same_confident_road(site_a: dict, site_b: dict) -> bool:
         and road_a == road_b
     )
 
+
+# ============================================================================
+# DAILY ROUTE-SEQUENCING OPTIMISATION
+# ============================================================================
+#
+# This layer does NOT change the strategic Planning Cluster, eligibility, or
+# surveyor/day allocation. It only supplies a preferred visit order within the
+# daily candidate set already handed to this scheduler.
+#
+# Sequencing micro-clusters may be connected by:
+#   - the existing coordinate no-Google radius;
+#   - a confidently matching road name; or
+#   - a stricter version of the existing same-campus/development check.
+#
+# These are sequencing signals only. The existing Google-bypass rules remain
+# the authority on whether a journey is actually sent to Google.
+
+
+def _site_coordinate(site: dict):
+    try:
+        latitude = float(site.get("latitude"))
+        longitude = float(site.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+
+    if not (
+        math.isfinite(latitude)
+        and math.isfinite(longitude)
+        and -90.0 <= latitude <= 90.0
+        and -180.0 <= longitude <= 180.0
+    ):
+        return None
+
+    return (latitude, longitude)
+
+
+def _sequencing_components_for_indices(
+    sites: List[dict],
+    indices: Sequence[int],
+    radius_km: float = NO_GOOGLE_RADIUS_KM,
+) -> List[List[int]]:
+    """
+    Build sequencing-only local micro-clusters inside the existing strategic
+    Planning Cluster.
+
+    The coordinate relation is a graph relation rather than a representative
+    radius relation. Therefore A-B-C-D remains one local group when each
+    successive link is <= radius, even if A-D is farther than radius.
+    """
+    indices = list(indices)
+    if not indices:
+        return []
+
+    adjacency = {idx: set() for idx in indices}
+
+    for position, idx_a in enumerate(indices):
+        site_a = sites[idx_a]
+        cluster_a = _planning_cluster_key(site_a)
+
+        for idx_b in indices[position + 1:]:
+            site_b = sites[idx_b]
+
+            # Never merge sequencing groups across a strategic cluster boundary.
+            if cluster_a != _planning_cluster_key(site_b):
+                continue
+
+            linked = (
+                _coordinate_edge_distance_km(
+                    site_a,
+                    site_b,
+                    radius_km=radius_km,
+                )
+                is not None
+            )
+
+            # A confidently matching road is a sequencing micro-cluster signal,
+            # even when the two ends of the road are farther apart than radius.
+            if not linked:
+                linked = _same_confident_road(site_a, site_b)
+
+            # Preserve estate/development continuity, but use a deliberately
+            # stricter threshold than the old generic campus fallback so vague
+            # name similarity cannot join separate areas.
+            if not linked:
+                try:
+                    linked = same_campus(
+                        site_a.get("building_name", ""),
+                        site_a.get("postcode", ""),
+                        site_b.get("building_name", ""),
+                        site_b.get("postcode", ""),
+                        similarity_threshold=0.80,
+                    )
+                except Exception:
+                    linked = False
+
+            if linked:
+                adjacency[idx_a].add(idx_b)
+                adjacency[idx_b].add(idx_a)
+
+    components = []
+    unseen = set(indices)
+
+    while unseen:
+        start = min(unseen)
+        unseen.remove(start)
+        stack = [start]
+        component = []
+
+        while stack:
+            node = stack.pop()
+            component.append(node)
+
+            for neighbour in sorted(adjacency[node], reverse=True):
+                if neighbour in unseen:
+                    unseen.remove(neighbour)
+                    stack.append(neighbour)
+
+        components.append(sorted(component))
+
+    components.sort(key=lambda values: values[0])
+    return components
+
+
+def _site_identity_for_sequence(site: dict) -> str:
+    reference = str(site.get("customer_reference", "") or "").strip()
+    if reference:
+        return reference
+
+    return (
+        str(site.get("building_name", "") or "").strip()
+        + "|"
+        + str(site.get("postcode", "") or "").strip()
+    )
+
+
+def _assign_stable_sequence_component_keys(
+    sites: List[dict],
+    radius_km: float = NO_GOOGLE_RADIUS_KM,
+) -> None:
+    """
+    Attach stable sequencing-only micro-cluster keys.
+
+    The key is calculated once before the day starts so a chain group does not
+    change identity when its bridge buildings are completed and removed.
+    """
+    components = _sequencing_components_for_indices(
+        sites,
+        range(len(sites)),
+        radius_km=radius_km,
+    )
+
+    for component in components:
+        identities = tuple(
+            sorted(
+                _site_identity_for_sequence(sites[idx])
+                for idx in component
+            )
+        )
+        strategic_cluster = (
+            _planning_cluster_key(sites[component[0]])
+            if component
+            else ""
+        )
+        key = (strategic_cluster, identities)
+
+        for idx in component:
+            sites[idx]["_sequence_component_key"] = key
+
+
+def _component_centroid(
+    sites: List[dict],
+    component: Sequence[int],
+):
+    coordinates = [
+        _site_coordinate(sites[idx])
+        for idx in component
+    ]
+    coordinates = [
+        coordinate
+        for coordinate in coordinates
+        if coordinate is not None
+    ]
+
+    if not coordinates:
+        return None
+
+    return (
+        sum(value[0] for value in coordinates) / len(coordinates),
+        sum(value[1] for value in coordinates) / len(coordinates),
+    )
+
+
+def _coordinate_distance_between_points(point_a, point_b):
+    if point_a is None or point_b is None:
+        return None
+
+    return haversine_km(
+        point_a[0],
+        point_a[1],
+        point_b[0],
+        point_b[1],
+    )
+
+
+def _open_route_distance(
+    order,
+    point_by_id,
+    start_point=None,
+) -> float:
+    """Straight-line length of an open route with an optional fixed start."""
+    if not order:
+        return 0.0
+
+    total = 0.0
+    previous = start_point
+
+    for node in order:
+        point = point_by_id.get(node)
+
+        # Missing-coordinate sites retain their existing routing fallback rather
+        # than being assigned a fabricated geographic position.
+        if point is None:
+            previous = None
+            continue
+
+        if previous is not None:
+            distance = _coordinate_distance_between_points(
+                previous,
+                point,
+            )
+            if distance is not None:
+                total += float(distance)
+
+        previous = point
+
+    return total
+
+
+def _two_opt_open_route(
+    order,
+    point_by_id,
+    start_point=None,
+):
+    """
+    Lightweight 2-opt improvement pass.
+
+    The nearest-neighbour route is the seed. Reversals are accepted only when
+    they reduce total coordinate distance, so the pass removes obvious
+    crossovers/backtracking without introducing any Google calls.
+    """
+    best = list(order)
+
+    if len(best) < 3:
+        return best
+
+    best_distance = _open_route_distance(
+        best,
+        point_by_id,
+        start_point=start_point,
+    )
+
+    improved = True
+    passes = 0
+    max_passes = max(2, min(6, len(best)))
+
+    while improved and passes < max_passes:
+        improved = False
+        passes += 1
+
+        for i in range(len(best) - 1):
+            for j in range(i + 1, len(best)):
+                candidate = (
+                    best[:i]
+                    + list(reversed(best[i:j + 1]))
+                    + best[j + 1:]
+                )
+                candidate_distance = _open_route_distance(
+                    candidate,
+                    point_by_id,
+                    start_point=start_point,
+                )
+
+                if candidate_distance + 1e-9 < best_distance:
+                    best = candidate
+                    best_distance = candidate_distance
+                    improved = True
+                    break
+
+            if improved:
+                break
+
+    return best
+
+
+def _nearest_neighbour_order(
+    node_ids,
+    point_by_id,
+    start_point=None,
+):
+    """Deterministic coordinate nearest-neighbour seed."""
+    remaining = list(node_ids)
+    ordered = []
+    current = start_point
+
+    while remaining:
+        def key(node):
+            point = point_by_id.get(node)
+            distance = _coordinate_distance_between_points(
+                current,
+                point,
+            )
+
+            if distance is None:
+                return (1, float("inf"), str(node))
+
+            return (0, float(distance), str(node))
+
+        chosen = min(remaining, key=key)
+        remaining.remove(chosen)
+        ordered.append(chosen)
+
+        chosen_point = point_by_id.get(chosen)
+        if chosen_point is not None:
+            current = chosen_point
+
+    return ordered
+
+
+def _optimised_component_order(
+    sites: List[dict],
+    components: Sequence[Sequence[int]],
+    start_site: Optional[dict] = None,
+):
+    """
+    Determine a continuous sweep through disconnected micro-clusters using
+    nearest-neighbour followed by 2-opt.
+    """
+    component_ids = list(range(len(components)))
+    point_by_id = {
+        component_id: _component_centroid(
+            sites,
+            component,
+        )
+        for component_id, component in enumerate(components)
+    }
+    start_point = _site_coordinate(start_site or {})
+
+    seed = _nearest_neighbour_order(
+        component_ids,
+        point_by_id,
+        start_point=start_point,
+    )
+
+    return _two_opt_open_route(
+        seed,
+        point_by_id,
+        start_point=start_point,
+    )
+
+
+def _optimised_site_order_within_component(
+    sites: List[dict],
+    component: Sequence[int],
+    start_site: Optional[dict] = None,
+):
+    """
+    Determine the preferred order inside one micro-cluster.
+
+    Same-road continuity is a strong seed preference, then coordinate distance
+    determines the nearest next building. A 2-opt pass removes residual
+    backtracking.
+    """
+    point_by_id = {
+        idx: _site_coordinate(sites[idx])
+        for idx in component
+    }
+    start_point = _site_coordinate(start_site or {})
+
+    remaining = list(component)
+    seed = []
+    current_site = start_site
+    current_point = start_point
+
+    while remaining:
+        def key(idx):
+            candidate = sites[idx]
+            candidate_point = point_by_id.get(idx)
+            distance = _coordinate_distance_between_points(
+                current_point,
+                candidate_point,
+            )
+            same_road = (
+                current_site is not None
+                and _same_confident_road(
+                    current_site,
+                    candidate,
+                )
+            )
+
+            return (
+                0 if same_road else 1,
+                0 if distance is not None else 1,
+                float(distance)
+                if distance is not None
+                else float("inf"),
+                idx,
+            )
+
+        chosen = min(remaining, key=key)
+        remaining.remove(chosen)
+        seed.append(chosen)
+
+        current_site = sites[chosen]
+        chosen_point = point_by_id.get(chosen)
+        if chosen_point is not None:
+            current_point = chosen_point
+
+    return _two_opt_open_route(
+        seed,
+        point_by_id,
+        start_point=start_point,
+    )
+
+
+def _daily_route_sequence_ranks(
+    sites: List[dict],
+    current_site: Optional[dict] = None,
+):
+    """
+    Build the separate Stage-2 route sequence for the current strategic cluster.
+
+    Only ordering ranks are returned. No site is added, removed, made eligible
+    or moved to another strategic cluster/day by this function.
+    """
+    if not sites:
+        return {}, {}, {}
+
+    current_cluster = _planning_cluster_key(
+        current_site or {}
+    )
+
+    # After the first survey, optimise only the strategic cluster currently
+    # being worked. Other strategic clusters retain the existing Google logic.
+    if current_cluster:
+        indices = [
+            idx
+            for idx, site in enumerate(sites)
+            if _planning_cluster_key(site) == current_cluster
+        ]
+    else:
+        indices = list(range(len(sites)))
+
+    if not indices:
+        return {}, {}, {}
+
+    # Use stable micro-cluster keys assigned before the day starts.
+    grouped = {}
+    for idx in indices:
+        key = sites[idx].get("_sequence_component_key")
+        if key is None:
+            key = ("dynamic", idx)
+        grouped.setdefault(key, []).append(idx)
+
+    components = list(grouped.values())
+    components.sort(key=lambda values: min(values))
+
+    if not components:
+        return {}, {}, {}
+
+    component_order = _optimised_component_order(
+        sites,
+        components,
+        start_site=current_site,
+    )
+
+    site_rank = {}
+    component_rank = {}
+    component_id_by_index = {}
+    running_rank = 0
+    previous_site = current_site
+
+    for rank, component_id in enumerate(component_order):
+        component = components[component_id]
+        ordered_sites = _optimised_site_order_within_component(
+            sites,
+            component,
+            start_site=previous_site,
+        )
+
+        for idx in ordered_sites:
+            component_rank[idx] = rank
+            component_id_by_index[idx] = component_id
+            site_rank[idx] = running_rank
+            running_rank += 1
+            previous_site = sites[idx]
+
+    return (
+        site_rank,
+        component_rank,
+        component_id_by_index,
+    )
+
+
 def postcode_district(postcode: str) -> str:
     text = str(postcode or "").strip().upper()
     if not text:
@@ -587,6 +1090,11 @@ class DailyTransitScheduler:
     Planning Cluster, successive local coordinate links form connected groups,
     which are traversed nearest-next before leaving for another local group.
 
+    A separate Stage-2 coordinate sequencing layer orders candidates already
+    supplied to the day by micro-cluster, nearest-neighbour and a lightweight
+    2-opt improvement pass, with a strong penalty for leaving and later
+    re-entering a local area.
+
     Google remains the final public-transport authority for meaningful journeys,
     first-site travel and return-home feasibility. Hard time/lunch rules are
     unchanged.
@@ -687,6 +1195,15 @@ class DailyTransitScheduler:
         latest_return: datetime,
     ) -> DailyScheduleResult:
         remaining = [dict(site) for site in sites]
+
+        # Stage 2 route-sequencing metadata only. This does not change Stage 1
+        # cluster membership, eligibility, or the candidate sites supplied to
+        # the day.
+        _assign_stable_sequence_component_keys(
+            remaining,
+            radius_km=NO_GOOGLE_RADIUS_KM,
+        )
+
         scheduled: List[ScheduledSurvey] = []
 
         # Reporting only. Counts the routing work the existing algorithm performs.
@@ -706,6 +1223,12 @@ class DailyTransitScheduler:
         current_latitude = None
         current_longitude = None
         current_planning_cluster = ""
+        current_sequence_component_key = None
+
+        # Route-sequencing state. A completed/left micro-cluster is remembered
+        # so A -> B -> A receives a strong re-entry penalty.
+        last_sequence_component_key = None
+        closed_sequence_component_keys = set()
 
         # For the first leg, Google needs a departure time to price/rank transit.
         # Probe shortly before the requested first-survey start, then back-calculate
@@ -770,6 +1293,7 @@ class DailyTransitScheduler:
                 "latitude": current_latitude,
                 "longitude": current_longitude,
                 "planning_cluster": current_planning_cluster,
+                "_sequence_component_key": current_sequence_component_key,
             }
 
             connected_path_km = (
@@ -782,6 +1306,29 @@ class DailyTransitScheduler:
                 if scheduled
                 else {}
             )
+
+            # Separate Stage-2 route-order optimisation. The first site retains
+            # the existing Google-based behaviour; once inside a strategic
+            # cluster, the already-supplied candidates are given a local
+            # coordinate sequence before the normal feasibility checks.
+            if scheduled:
+                (
+                    route_site_rank,
+                    route_component_rank,
+                    route_component_id,
+                ) = _daily_route_sequence_ranks(
+                    remaining,
+                    current_site=current_site,
+                )
+            else:
+                route_site_rank = {}
+                route_component_rank = {}
+                route_component_id = {}
+
+            current_component_keys = {
+                idx: site.get("_sequence_component_key")
+                for idx, site in enumerate(remaining)
+            }
 
             for idx, site in enumerate(remaining):
                 bypass = False
@@ -896,6 +1443,29 @@ class DailyTransitScheduler:
                 # group nearest-next and favour a continuous same-road sequence.
                 cluster_tier = 0
                 local_group_tier = 1
+
+                route_component_order = (
+                    route_component_rank.get(idx, 10**6)
+                    if scheduled
+                    else 10**6
+                )
+                route_site_order = (
+                    route_site_rank.get(idx, 10**6)
+                    if scheduled
+                    else 10**6
+                )
+
+                component_key = current_component_keys.get(idx)
+                reentry_tier = (
+                    1
+                    if (
+                        component_key is not None
+                        and component_key
+                        in closed_sequence_component_keys
+                    )
+                    else 0
+                )
+
                 same_road_tier = 1
                 local_distance_sort = float("inf")
                 postcode_tier = 0
@@ -1009,6 +1579,9 @@ class DailyTransitScheduler:
                     (
                         cluster_tier,
                         local_group_tier,
+                        reentry_tier,
+                        route_component_order,
+                        route_site_order,
                         same_road_tier,
                         local_distance_sort,
                         postcode_tier,
@@ -1031,7 +1604,16 @@ class DailyTransitScheduler:
             # transit time happens to be a few minutes shorter.
             ranked.sort(
                 key=lambda x: (
-                    x[0], x[1], x[2], x[3], x[4], x[5], x[6]
+                    x[0],  # existing strategic cluster
+                    x[1],  # finish connected local group first
+                    x[2],  # strongly penalise A -> B -> A re-entry
+                    x[3],  # optimised micro-cluster order
+                    x[4],  # optimised site order within micro-cluster
+                    x[5],  # same-road continuity
+                    x[6],  # nearest-next coordinate distance
+                    x[7],  # same full postcode
+                    x[8],  # Google representative before group members
+                    x[9],  # existing Google/AI/special-request score
                 )
             )
 
@@ -1059,7 +1641,18 @@ class DailyTransitScheduler:
             lunch_blocked_candidate = False
 
             for (
-                _, _, _, _, _, _, _, idx, travel_minutes
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                idx,
+                travel_minutes,
             ) in candidate_pool:
                 site = remaining[idx]
 
@@ -1252,6 +1845,23 @@ class DailyTransitScheduler:
                 or postcode_district(site.get("postcode", ""))
             )
             current_time = ready_to_leave
+
+            chosen_component_key = current_component_keys.get(idx)
+
+            if (
+                last_sequence_component_key is not None
+                and chosen_component_key is not None
+                and chosen_component_key
+                != last_sequence_component_key
+            ):
+                closed_sequence_component_keys.add(
+                    last_sequence_component_key
+                )
+
+            if chosen_component_key is not None:
+                last_sequence_component_key = chosen_component_key
+                current_sequence_component_key = chosen_component_key
+
             remaining.pop(idx)
 
         # If the final survey finishes during the lunch window, take the break
