@@ -623,10 +623,60 @@ class DailyTransitScheduler:
         normalise = lambda x: re.sub(r"\s+", "", str(x or "").upper())
         return bool(normalise(a)) and normalise(a) == normalise(b)
 
-    def _site_to_site_leeway_minutes(self, current_site: dict, next_site: dict) -> float:
-        """Apply the same-road / <=200 m exception only to site-to-site travel."""
-        if should_remove_team_travel_leeway(current_site, next_site):
+    def _site_to_site_leeway_minutes(
+        self,
+        current_site: dict,
+        next_site: dict,
+    ) -> float:
+        """
+        Return Team Travel Leeway for direct site-to-site travel only.
+
+        Rules:
+          - same confidently identified road -> 0 minutes
+          - <= 0.20 km -> 0 minutes
+          - >0.20 to 0.50 km -> 2 minutes
+          - >0.50 to 1.00 km -> 3 minutes
+          - >1.00 to 2.00 km -> 5 minutes
+          - >2.00 km -> existing UI Team Travel Leeway
+          - missing coordinates -> existing UI Team Travel Leeway
+
+        This changes only the additional leeway. It does not change Google
+        journey times, local-transfer estimates, the no-Google threshold,
+        clustering, ordering, home-to-first-site or return-home behaviour.
+        """
+        current_road = infer_road_name_from_building_name(
+            current_site.get("building_name", "")
+        )
+        next_road = infer_road_name_from_building_name(
+            next_site.get("building_name", "")
+        )
+
+        if (
+            current_road is not None
+            and next_road is not None
+            and current_road == next_road
+        ):
             return 0.0
+
+        distance_km = haversine_km(
+            current_site.get("latitude"),
+            current_site.get("longitude"),
+            next_site.get("latitude"),
+            next_site.get("longitude"),
+        )
+
+        if distance_km is None:
+            return float(self.travel_leeway_minutes)
+
+        if distance_km <= 0.20:
+            return 0.0
+        if distance_km <= 0.50:
+            return 2.0
+        if distance_km <= 1.00:
+            return 3.0
+        if distance_km <= 2.00:
+            return 5.0
+
         return float(self.travel_leeway_minutes)
 
     def build_day(
