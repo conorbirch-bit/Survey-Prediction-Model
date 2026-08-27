@@ -1072,19 +1072,10 @@ with tab2:
 
                     team_settings = st.columns(4)
                     with team_settings[0]:
-                        team_max_candidates = st.number_input(
-                            "Max Google candidates per full 5-day surveyor",
-                            min_value=15,
-                            max_value=100,
-                            value=40,
-                            step=5,
-                            help=(
-                                "This is the minimum five-day candidate cap. The app "
-                                "automatically raises it when the selected survey window "
-                                "and predicted durations show that more jobs could fit, "
-                                "so selected working days are not left unused. The whole "
-                                "portfolio is still never sent to Google."
-                            ),
+                        st.caption(
+                            "Candidate sites: no hard site-count cap. "
+                            "The selected working-time constraints determine "
+                            "how much work can actually be scheduled."
                         )
                     with team_settings[1]:
                         team_transit_choice = st.selectbox(
@@ -1378,157 +1369,46 @@ with tab2:
                                                 )
                                             )
 
-                                        # Time-aware candidate capacity.
+                                        # No artificial site-count candidate cap.
                                         #
-                                        # The old logic scaled a fixed 40-site five-day
-                                        # cap by availability (e.g. 3 days -> 24 sites).
-                                        # That can under-fill later selected days when
-                                        # surveys are short/dense: all 24 candidates may
-                                        # be completed in the first two days.
+                                        # Every site that is genuinely eligible for the
+                                        # selected week may remain available to the team
+                                        # planning layers. The detailed schedulers still
+                                        # enforce First Survey Start, Last Survey Finish,
+                                        # Return Home, lunch, availability, predicted
+                                        # durations and all other hard feasibility rules.
                                         #
-                                        # Keep the user's existing cap as a MINIMUM, but
-                                        # automatically expand it using:
-                                        #   - selected first/last survey times;
-                                        #   - the lower-quartile real prediction duration;
-                                        #   - existing pre/post buffers;
-                                        #   - the close-site transfer assumption;
-                                        #   - a 50% choice reserve so Google has enough
-                                        #     alternatives after feasibility/endgame rules.
-                                        window_start_dt = datetime.combine(
-                                            team_week_start,
-                                            team_first_survey_clock,
-                                        )
-                                        window_end_dt = datetime.combine(
-                                            team_week_start,
-                                            team_last_survey_clock,
-                                        )
-                                        survey_window_minutes = max(
-                                            60.0,
+                                        # Google cost continues to be controlled later by
+                                        # coordinate clustering, local-routing bypasses and
+                                        # destination collapsing rather than by discarding
+                                        # otherwise usable survey candidates up front.
+                                        eligible_site_count = int(
                                             (
-                                                window_end_dt
-                                                - window_start_dt
-                                            ).total_seconds()
-                                            / 60.0,
-                                        )
-
-                                        # Lunch is a protected 30-minute break whenever
-                                        # the selected survey window spans the lunch period.
-                                        lunch_overlap = (
-                                            team_first_survey_clock
-                                            <= time(13, 0)
-                                            and team_last_survey_clock
-                                            >= time(11, 45)
-                                        )
-                                        usable_survey_window_minutes = max(
-                                            60.0,
-                                            survey_window_minutes
-                                            - (30.0 if lunch_overlap else 0.0),
-                                        )
-
-                                        eligible_duration_values = pd.to_numeric(
-                                            team_portfolio.loc[
                                                 team_portfolio[
                                                     "Eligible for Selected Week"
                                                 ]
-                                                == True,
-                                                "Planning Duration (Minutes)",
-                                            ],
-                                            errors="coerce",
-                                        )
-                                        eligible_duration_values = (
-                                            eligible_duration_values[
-                                                eligible_duration_values > 0
-                                            ]
-                                            .dropna()
+                                                == True
+                                            ).sum()
                                         )
 
-                                        if len(eligible_duration_values) >= 4:
-                                            reference_survey_minutes = float(
-                                                eligible_duration_values.quantile(
-                                                    0.25
-                                                )
-                                            )
-                                        elif len(eligible_duration_values) > 0:
-                                            reference_survey_minutes = float(
-                                                eligible_duration_values.median()
-                                            )
-                                        else:
-                                            reference_survey_minutes = 30.0
-
-                                        # Do not let one exceptionally tiny prediction
-                                        # explode Google cost.
-                                        reference_survey_minutes = max(
-                                            10.0,
-                                            reference_survey_minutes,
-                                        )
-                                        assumed_local_transfer_minutes = max(
-                                            3.0,
-                                            min(
-                                                10.0,
-                                                float(team_same_postcode),
-                                            ),
-                                        )
-                                        estimated_cycle_minutes = max(
-                                            15.0,
-                                            reference_survey_minutes
-                                            + float(team_pre_buffer)
-                                            + float(team_post_buffer)
-                                            + assumed_local_transfer_minutes,
-                                        )
-
-                                        estimated_jobs_per_day = max(
+                                        # The strategic layer cannot select more sites
+                                        # than actually exist in the eligible portfolio.
+                                        # This is an availability bound, not an artificial
+                                        # candidate cap.
+                                        total_team_candidate_cap = max(
                                             1,
-                                            math.ceil(
-                                                usable_survey_window_minutes
-                                                / estimated_cycle_minutes
-                                            ),
+                                            eligible_site_count,
                                         )
 
-                                        # Extra candidate choice is deliberate: some
-                                        # candidates will fail return-home feasibility,
-                                        # be held as endgame anchors, or be inferior to
-                                        # denser alternatives.
-                                        #
-                                        # Do NOT hard-cap candidate buildings per day.
-                                        # Google cost is now controlled later by the
-                                        # coordinate/local-routing layer, which collapses
-                                        # nearby buildings before Google. A hard site cap
-                                        # can otherwise exhaust the shortlist before all
-                                        # selected working days have been filled.
-                                        time_aware_candidates_per_day = max(
-                                            8,
-                                            math.ceil(
-                                                estimated_jobs_per_day
-                                                * 1.50
-                                            ),
-                                        )
-                                        time_aware_full_week_cap = (
-                                            time_aware_candidates_per_day * 5
-                                        )
-                                        effective_full_week_candidate_cap = max(
-                                            int(team_max_candidates),
-                                            int(time_aware_full_week_cap),
-                                        )
-
-                                        effective_candidate_caps = {
-                                            surveyor.name: max(
-                                                1,
-                                                round(
-                                                    effective_full_week_candidate_cap
-                                                    * min(
-                                                        5,
-                                                        len(
-                                                            surveyor.available_dates
-                                                            or []
-                                                        ),
-                                                    )
-                                                    / 5
-                                                ),
-                                            )
-                                            for surveyor in active_surveyors
-                                        }
-                                        total_team_candidate_cap = sum(
-                                            effective_candidate_caps.values()
+                                        # team_scheduler historically scales this legacy
+                                        # parameter by available_days / 5. Supplying five
+                                        # times the whole eligible pool makes that old
+                                        # site-count ceiling non-binding even for a
+                                        # one-day surveyor. Detailed time feasibility is
+                                        # therefore the real scheduling limit.
+                                        unbounded_full_week_candidate_capacity = max(
+                                            5,
+                                            eligible_site_count * 5,
                                         )
 
                                         team_planner = None
@@ -1728,7 +1608,7 @@ with tab2:
                                                     team_home_cluster_matrix
                                                 ),
                                                 max_sites_per_surveyor=int(
-                                                    effective_full_week_candidate_cap
+                                                    unbounded_full_week_candidate_capacity
                                                 ),
                                             )
                                         )
@@ -1749,7 +1629,7 @@ with tab2:
                                                     team_week_start
                                                 ),
                                                 max_sites_per_surveyor=int(
-                                                    effective_full_week_candidate_cap
+                                                    unbounded_full_week_candidate_capacity
                                                 ),
                                             )
                                         )
@@ -2044,11 +1924,9 @@ with tab2:
                                                     )
                                                 )
 
-                                                cap = int(
-                                                    effective_candidate_caps.get(
-                                                        surveyor.name,
-                                                        team_max_candidates,
-                                                    )
+                                                cap = max(
+                                                    1,
+                                                    int(eligible_site_count),
                                                 )
                                                 day_count = max(
                                                     1,
@@ -2260,11 +2138,6 @@ with tab2:
                                                             or []
                                                         )
                                                     ),
-                                                    "Google Candidate Cap": (
-                                                        effective_candidate_caps.get(
-                                                            surveyor.name, 0
-                                                        )
-                                                    ),
                                                     "Surveys": 0,
                                                     "Survey Minutes": 0,
                                                     "Travel Minutes": 0,
@@ -2282,11 +2155,6 @@ with tab2:
                                                     for d in (
                                                         surveyor.available_dates
                                                         or []
-                                                    )
-                                                ),
-                                                "Google Candidate Cap": (
-                                                    effective_candidate_caps.get(
-                                                        surveyor.name, 0
                                                     )
                                                 ),
                                                 "Surveys": (
