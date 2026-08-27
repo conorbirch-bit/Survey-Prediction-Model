@@ -65,6 +65,166 @@ def should_remove_team_travel_leeway(current_site: dict, next_site: dict, fallba
     distance_km=haversine_km(current_site.get("latitude"),current_site.get("longitude"),next_site.get("latitude"),next_site.get("longitude"))
     return distance_km is not None and distance_km <= float(fallback_radius_km)
 
+
+# ============================================================================
+# LOCAL PROXIMITY GRAPH ORDERING
+# ============================================================================
+# The strategic Planning Cluster is unchanged. Within it, sites connected by
+# successive <= NO_GOOGLE_RADIUS_KM coordinate hops form one local group.
+
+
+def _planning_cluster_key(site: dict) -> str:
+    return str(
+        site.get("planning_cluster", "")
+        or postcode_district(site.get("postcode", ""))
+    )
+
+
+def _coordinate_edge_distance_km(
+    site_a: dict,
+    site_b: dict,
+    radius_km: float = NO_GOOGLE_RADIUS_KM,
+):
+    distance = haversine_km(
+        site_a.get("latitude"), site_a.get("longitude"),
+        site_b.get("latitude"), site_b.get("longitude"),
+    )
+    if distance is None or distance > float(radius_km):
+        return None
+    return float(distance)
+
+
+def _connected_components_for_indices(
+    sites: List[dict],
+    indices: Sequence[int],
+    radius_km: float = NO_GOOGLE_RADIUS_KM,
+) -> List[List[int]]:
+    """Connected local groups inside the existing strategic cluster."""
+    indices = list(indices)
+    adjacency = {idx: set() for idx in indices}
+
+    for pos, idx_a in enumerate(indices):
+        cluster_a = _planning_cluster_key(sites[idx_a])
+        for idx_b in indices[pos + 1:]:
+            if cluster_a != _planning_cluster_key(sites[idx_b]):
+                continue
+
+            linked = (
+                _coordinate_edge_distance_km(
+                    sites[idx_a], sites[idx_b], radius_km
+                )
+                is not None
+            )
+
+            # Preserve the old exact-postcode / legacy-campus collapse signals.
+            if not linked:
+                linked = bool(
+                    should_bypass_google_between_sites(
+                        sites[idx_a], sites[idx_b], radius_km=radius_km
+                    )[0]
+                )
+            if not linked:
+                try:
+                    linked = same_campus(
+                        sites[idx_a].get("building_name", ""),
+                        sites[idx_a].get("postcode", ""),
+                        sites[idx_b].get("building_name", ""),
+                        sites[idx_b].get("postcode", ""),
+                    )
+                except Exception:
+                    linked = False
+
+            if linked:
+                adjacency[idx_a].add(idx_b)
+                adjacency[idx_b].add(idx_a)
+
+    components = []
+    unseen = set(indices)
+    while unseen:
+        start = min(unseen)
+        unseen.remove(start)
+        stack = [start]
+        component = []
+        while stack:
+            node = stack.pop()
+            component.append(node)
+            for neighbour in sorted(adjacency[node], reverse=True):
+                if neighbour in unseen:
+                    unseen.remove(neighbour)
+                    stack.append(neighbour)
+        components.append(sorted(component))
+
+    components.sort(key=lambda values: values[0])
+    return components
+
+
+def _coordinate_shortest_paths_from_current(
+    current_site: dict,
+    sites: List[dict],
+    candidate_indices: Sequence[int],
+    radius_km: float = NO_GOOGLE_RADIUS_KM,
+) -> Dict[int, float]:
+    """Shortest chained local distance from current site to connected sites."""
+    current_cluster = _planning_cluster_key(current_site)
+    if not current_cluster:
+        return {}
+
+    eligible = [
+        idx
+        for idx in candidate_indices
+        if _planning_cluster_key(sites[idx]) == current_cluster
+    ]
+    nodes = [-1] + eligible
+    node_site = {-1: current_site}
+    node_site.update({idx: sites[idx] for idx in eligible})
+    adjacency = {node: [] for node in nodes}
+
+    for pos, node_a in enumerate(nodes):
+        for node_b in nodes[pos + 1:]:
+            edge = _coordinate_edge_distance_km(
+                node_site[node_a], node_site[node_b], radius_km
+            )
+            if edge is not None:
+                adjacency[node_a].append((node_b, edge))
+                adjacency[node_b].append((node_a, edge))
+
+    distances = {-1: 0.0}
+    visited = set()
+    while True:
+        choices = [
+            (distance, node)
+            for node, distance in distances.items()
+            if node not in visited
+        ]
+        if not choices:
+            break
+        distance, node = min(choices)
+        visited.add(node)
+        for neighbour, edge in adjacency[node]:
+            candidate_distance = distance + edge
+            if candidate_distance < distances.get(neighbour, float("inf")):
+                distances[neighbour] = candidate_distance
+
+    return {
+        idx: float(distance)
+        for idx, distance in distances.items()
+        if idx >= 0
+    }
+
+
+def _same_confident_road(site_a: dict, site_b: dict) -> bool:
+    road_a = infer_road_name_from_building_name(
+        site_a.get("building_name", "")
+    )
+    road_b = infer_road_name_from_building_name(
+        site_b.get("building_name", "")
+    )
+    return (
+        road_a is not None
+        and road_b is not None
+        and road_a == road_b
+    )
+
 def postcode_district(postcode: str) -> str:
     text = str(postcode or "").strip().upper()
     if not text:
@@ -420,12 +580,12 @@ class DailyTransitScheduler:
     """
     Greedy, time-dependent public-transport scheduler.
 
-    Latitude/Longitude now provide the cheap geographic layer before Google.
+    Latitude/Longitude provide the cheap geographic layer before Google.
     Buildings within the configured no-Google radius, or with the same full
     postcode, bypass Google for their site-to-site move and use a conservative
-    local walking/transfer estimate instead. Nearby remaining destinations are
-    also collapsed before the Route Matrix call so Google does not price the same
-    micro-area repeatedly.
+    local walking/transfer estimate instead. Inside each existing strategic
+    Planning Cluster, successive local coordinate links form connected groups,
+    which are traversed nearest-next before leaving for another local group.
 
     Google remains the final public-transport authority for meaningful journeys,
     first-site travel and return-home feasibility. Hard time/lunch rules are
@@ -559,7 +719,19 @@ class DailyTransitScheduler:
                 "postcode": current_postcode,
                 "latitude": current_latitude,
                 "longitude": current_longitude,
+                "planning_cluster": current_planning_cluster,
             }
+
+            connected_path_km = (
+                _coordinate_shortest_paths_from_current(
+                    current_site,
+                    remaining,
+                    range(len(remaining)),
+                    radius_km=NO_GOOGLE_RADIUS_KM,
+                )
+                if scheduled
+                else {}
+            )
 
             for idx, site in enumerate(remaining):
                 bypass = False
@@ -598,42 +770,40 @@ class DailyTransitScheduler:
                         distance,
                         minimum_minutes=float(self.same_postcode_transfer_minutes),
                     )
+                elif idx in connected_path_km:
+                    # Reachable through a chain of <=radius local coordinate hops.
+                    routing_stats["collapsed_nearby_destinations"] += 1
+                    travel_by_index[idx] = estimate_local_transfer_minutes(
+                        connected_path_km[idx],
+                        minimum_minutes=float(self.same_postcode_transfer_minutes),
+                    )
                 else:
                     external_indices.append(idx)
 
+            # Google now sees one representative per CONNECTED local component
+            # rather than one representative-radius pocket.
             proximity_groups = []
-            for idx in external_indices:
-                site = remaining[idx]
-                placed = False
+            for component in _connected_components_for_indices(
+                remaining,
+                external_indices,
+                radius_km=NO_GOOGLE_RADIUS_KM,
+            ):
+                representative_idx = component[0]
+                proximity_groups.append({
+                    "indices": component,
+                    "representative_idx": representative_idx,
+                    "route_location": remaining[representative_idx]["route_location"],
+                })
 
-                for group in proximity_groups:
-                    representative = remaining[group["indices"][0]]
-                    bypass, _, _ = should_bypass_google_between_sites(
-                        representative,
-                        site,
-                        radius_km=NO_GOOGLE_RADIUS_KM,
-                    )
-                    if not bypass:
-                        try:
-                            bypass = same_campus(
-                                representative.get("building_name", ""),
-                                representative.get("postcode", ""),
-                                site.get("building_name", ""),
-                                site.get("postcode", ""),
-                            )
-                        except Exception:
-                            bypass = False
-
-                    if bypass:
-                        group["indices"].append(idx)
-                        placed = True
-                        break
-
-                if not placed:
-                    proximity_groups.append({
-                        "indices": [idx],
-                        "route_location": site["route_location"],
-                    })
+            google_representative_indices = {
+                group["representative_idx"]
+                for group in proximity_groups
+            }
+            google_group_member_indices = {
+                idx
+                for group in proximity_groups
+                for idx in group["indices"]
+            }
 
             if proximity_groups:
                 # Every extra member of a proximity group is one destination
@@ -672,11 +842,15 @@ class DailyTransitScheduler:
                 if minutes is None:
                     continue
 
-                # Density-first day routing now follows the coordinate-based
-                # Planning Cluster rather than the postcode district. A postcode
-                # is only a fallback when coordinates were unavailable.
+                # Strategic cluster first; inside it, finish the connected local
+                # group nearest-next and favour a continuous same-road sequence.
                 cluster_tier = 0
+                local_group_tier = 1
+                same_road_tier = 1
+                local_distance_sort = float("inf")
                 postcode_tier = 0
+                google_representative_tier = 0
+
                 if scheduled:
                     next_cluster = str(
                         site.get("planning_cluster", "")
@@ -691,10 +865,43 @@ class DailyTransitScheduler:
                     postcode_tier = (
                         0
                         if self._same_postcode(
-                            current_postcode,
-                            site.get("postcode", ""),
+                            current_postcode, site.get("postcode", "")
                         )
                         else 1
+                    )
+
+                    if idx in connected_path_km:
+                        local_group_tier = 0
+                        direct_distance = haversine_km(
+                            current_latitude,
+                            current_longitude,
+                            site.get("latitude"),
+                            site.get("longitude"),
+                        )
+                        local_distance_sort = (
+                            float(direct_distance)
+                            if direct_distance is not None
+                            else float(connected_path_km[idx])
+                        )
+                        if _same_confident_road(current_site, site):
+                            same_road_tier = 0
+                    else:
+                        direct_bypass, direct_distance, _ = (
+                            should_bypass_google_between_sites(
+                                current_site,
+                                site,
+                                radius_km=NO_GOOGLE_RADIUS_KM,
+                            )
+                        )
+                        if direct_bypass:
+                            local_group_tier = 0
+                            if direct_distance is not None:
+                                local_distance_sort = float(direct_distance)
+                            if _same_confident_road(current_site, site):
+                                same_road_tier = 0
+                elif idx in google_group_member_indices:
+                    google_representative_tier = (
+                        0 if idx in google_representative_indices else 1
                     )
 
                 # AI priority is advisory: Google transit remains dominant.
@@ -751,7 +958,11 @@ class DailyTransitScheduler:
                 ranked.append(
                     (
                         cluster_tier,
+                        local_group_tier,
+                        same_road_tier,
+                        local_distance_sort,
                         postcode_tier,
+                        google_representative_tier,
                         score,
                         idx,
                         float(minutes),
@@ -768,7 +979,11 @@ class DailyTransitScheduler:
             # impossible local job cannot prematurely end the day, while a
             # distant hop cannot beat feasible nearby work merely because its
             # transit time happens to be a few minutes shorter.
-            ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+            ranked.sort(
+                key=lambda x: (
+                    x[0], x[1], x[2], x[3], x[4], x[5], x[6]
+                )
+            )
 
             if scheduled:
                 same_cluster = [r for r in ranked if r[0] == 0]
@@ -793,7 +1008,9 @@ class DailyTransitScheduler:
             chosen = None
             lunch_blocked_candidate = False
 
-            for _, _, _, idx, travel_minutes in candidate_pool:
+            for (
+                _, _, _, _, _, _, _, idx, travel_minutes
+            ) in candidate_pool:
                 site = remaining[idx]
 
                 is_first_survey = len(scheduled) == 0
