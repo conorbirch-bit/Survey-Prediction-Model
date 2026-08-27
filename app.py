@@ -66,7 +66,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.10.3 — Harrison + Joe Salesforce IDs added")
+st.caption("Version 20.11 — split small-building models + same-road leeway")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -93,7 +93,7 @@ with st.sidebar:
     )
 
 @st.cache_resource(show_spinner=False)
-def train_from_path_v20_2(path: str, min_duration: int):
+def train_from_path_v20_11(path: str, min_duration: int):
     return DurationPredictor(
         min_completed_duration=min_duration,
     ).load_excel(path)
@@ -165,7 +165,7 @@ def read_completed_training_excel(source, sheet_name=0):
 
 
 @st.cache_resource(show_spinner=False)
-def train_from_bytes_v20_2(file_bytes: bytes, min_duration: int):
+def train_from_bytes_v20_11(file_bytes: bytes, min_duration: int):
     df = read_completed_training_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
@@ -173,11 +173,11 @@ def train_from_bytes_v20_2(file_bytes: bytes, min_duration: int):
 
 try:
     if training_file is not None:
-        predictor = train_from_bytes_v20_2(
+        predictor = train_from_bytes_v20_11(
             training_file.getvalue(), min_duration
         )
     else:
-        predictor = train_from_path_v20_2(
+        predictor = train_from_path_v20_11(
             str(DEFAULT_FILE), min_duration
         )
 except Exception as exc:
@@ -185,15 +185,15 @@ except Exception as exc:
     st.stop()
 
 # Fail loudly rather than silently reusing an older cached/unsegmented predictor.
-if getattr(predictor, "model_version", None) != "20.2-segmented-1-6":
+if getattr(predictor, "model_version", None) != "20.11-segmented-1-3-4-6":
     st.error(
-        "Old duration predictor detected. Replace all repository files with "
-        "Version 20.2 and reboot the Streamlit app."
+        "Old duration predictor detected. Replace duration_predictor_height.py "
+        "and app.py with the Version 20.11 files, then reboot the Streamlit app."
     )
     st.stop()
 
 with st.sidebar:
-    st.success("Active model: v20.2 segmented (Garage / 1–6 flats / 7+ flats)")
+    st.success("Active model: v20.11 segmented (Garage / 1–3 flats / 4–6 flats / 7+ flats)")
 
 
 def optional_number(value):
@@ -469,11 +469,11 @@ SALESFORCE_RESOURCE_MAP = {
     },
     "harrison grice": {
         "service_resource_id": "0HnR50000005UiDKAU",
-        "resource": "",
+        "resource": "Gravesend",
     },
     "joe reynolds": {
         "service_resource_id": "0HnR50000005UjpKAE",
-        "resource": "",
+        "resource": "Hemel Hempstead",
     },
 }
 
@@ -522,9 +522,7 @@ def build_salesforce_copy(
     Build the exact 10-column Salesforce Field Service upload table.
 
     Conor Birch, Rod Harrison, Toby Lawal, Harrison Grice and Joe Reynolds
-    are included. Harrison Grice and Joe Reynolds currently export with blank
-    Service Resource ID and Resource fields until those Salesforce values are
-    known. LUNCH / RETURN operational rows are excluded automatically.
+    are included. LUNCH / RETURN operational rows are excluded automatically.
 
     Work-order / appointment identifiers and building fields are joined back
     to the uploaded To Do portfolio using Customer Reference Code.
@@ -558,8 +556,8 @@ def build_salesforce_copy(
         return pd.DataFrame(columns=columns)
 
     # Only surveyors explicitly configured for the Salesforce upload are included.
-    # Harrison Grice and Joe Reynolds are intentionally configured with blank
-    # Resource / Service Resource ID values until those Salesforce details are known.
+    # Harrison Grice and Joe Reynolds use their known Service Resource IDs and
+    # requested Salesforce Resource labels.
     working["_surveyor_key"] = (
         working["Surveyor"].fillna("").astype(str).str.strip().str.lower()
     )
@@ -2751,11 +2749,18 @@ with tab2:
                                         reliability_df[
                                             "MAE as % of Prediction"
                                         ] = (100 * mae / pred).round(1)
-                                        reliability_df[
-                                            "Prediction - MAE (Minutes)"
-                                        ] = (pred - mae).clip(
-                                            lower=float(min_duration)
-                                        ).round(1)
+                                        flats_for_floor = pd.to_numeric(
+                                            reliability_df.get(
+                                                "Sovereign Flat",
+                                                pd.Series(index=reliability_df.index, dtype=float),
+                                            ), errors="coerce"
+                                        )
+                                        reliability_floor = pd.Series(float(min_duration), index=reliability_df.index)
+                                        reliability_floor.loc[flats_for_floor.between(1, 3)] = 0.1
+                                        reliability_floor.loc[flats_for_floor.between(4, 6)] = 3.0
+                                        reliability_df["Prediction - MAE (Minutes)"] = (
+                                            (pred - mae).where((pred - mae) >= reliability_floor, reliability_floor).round(1)
+                                        )
                                         reliability_df[
                                             "Prediction + MAE (Minutes)"
                                         ] = (pred + mae).round(1)

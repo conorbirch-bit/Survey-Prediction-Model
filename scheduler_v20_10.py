@@ -12,9 +12,58 @@ import pandas as pd
 from coordinate_clustering import (
     NO_GOOGLE_RADIUS_KM,
     estimate_local_transfer_minutes,
+    haversine_km,
     should_bypass_google_between_sites,
 )
 
+
+# ============================================================================
+# SAME-ROAD TEAM TRAVEL LEEWAY RULE
+# ============================================================================
+SAME_ROAD_COORDINATE_FALLBACK_KM = 0.20
+_ROAD_SUFFIX_CANONICAL = {
+    "road":"road", "rd":"road", "street":"street", "st":"street",
+    "avenue":"avenue", "ave":"avenue", "lane":"lane", "ln":"lane",
+    "way":"way", "close":"close", "crescent":"crescent", "cres":"crescent",
+    "drive":"drive", "dr":"drive", "gardens":"gardens", "garden":"gardens",
+    "grove":"grove", "hill":"hill", "park":"park", "place":"place", "pl":"place",
+    "square":"square", "terrace":"terrace", "walk":"walk", "row":"row",
+    "mews":"mews", "parade":"parade", "rise":"rise", "vale":"vale", "view":"view",
+    "boulevard":"boulevard", "approach":"approach", "green":"green", "common":"common",
+    "broadway":"broadway", "circus":"circus", "causeway":"causeway", "bank":"bank",
+    "quay":"quay", "wharf":"wharf", "yard":"yard",
+}
+_UK_POSTCODE_AT_END_RE = re.compile(r"\b(?:GIR\s?0AA|(?:[A-Z]{1,2}\d[A-Z\d]?)\s?\d[A-Z]{2})\s*$", re.IGNORECASE)
+_ROAD_PHRASE_RE = re.compile(
+    r"\b([A-Za-z][A-Za-z'&.\-]*(?:\s+[A-Za-z][A-Za-z'&.\-]*){0,5})\s+(" +
+    "|".join(sorted((re.escape(v) for v in _ROAD_SUFFIX_CANONICAL), key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+def _normalise_road_text(value: str) -> str:
+    value=str(value or "").lower().replace("&"," and ")
+    value=re.sub(r"[^a-z0-9'\s-]+"," ",value)
+    return re.sub(r"\s+"," ",value).strip()
+def infer_road_name_from_building_name(building_name: str):
+    raw=str(building_name or "").strip()
+    if not raw: return None
+    parts=[part.strip() for part in re.split(r"[|,]",raw) if part and part.strip()]
+    for part in reversed(parts):
+        candidate=_UK_POSTCODE_AT_END_RE.sub("",part).strip()
+        candidate=re.sub(r"^\s*(?:[A-Z](?:-[A-Z])?\s*)?(?:\d+[A-Z]?(?:\s*[-/]\s*\d+[A-Z]?)?\s*)+","",candidate,flags=re.IGNORECASE).strip()
+        matches=list(_ROAD_PHRASE_RE.finditer(candidate))
+        if not matches: continue
+        m=matches[-1]; root=_normalise_road_text(m.group(1)); suffix=_ROAD_SUFFIX_CANONICAL.get(m.group(2).lower())
+        if not root or not suffix: continue
+        if root in {"block","house","court","building","community","estate"}: continue
+        return f"{root} {suffix}"
+    return None
+def should_remove_team_travel_leeway(current_site: dict, next_site: dict, fallback_radius_km: float=SAME_ROAD_COORDINATE_FALLBACK_KM) -> bool:
+    current_road=infer_road_name_from_building_name(current_site.get("building_name",""))
+    next_road=infer_road_name_from_building_name(next_site.get("building_name",""))
+    if current_road is not None and next_road is not None:
+        return current_road == next_road
+    distance_km=haversine_km(current_site.get("latitude"),current_site.get("longitude"),next_site.get("latitude"),next_site.get("longitude"))
+    return distance_km is not None and distance_km <= float(fallback_radius_km)
 
 def postcode_district(postcode: str) -> str:
     text = str(postcode or "").strip().upper()
@@ -414,6 +463,12 @@ class DailyTransitScheduler:
         normalise = lambda x: re.sub(r"\s+", "", str(x or "").upper())
         return bool(normalise(a)) and normalise(a) == normalise(b)
 
+    def _site_to_site_leeway_minutes(self, current_site: dict, next_site: dict) -> float:
+        """Apply the same-road / <=200 m exception only to site-to-site travel."""
+        if should_remove_team_travel_leeway(current_site, next_site):
+            return 0.0
+        return float(self.travel_leeway_minutes)
+
     def build_day(
         self,
         sites: List[dict],
@@ -783,9 +838,10 @@ class DailyTransitScheduler:
                     )
                     survey_start = first_survey_start
                 else:
-                    buffered_travel_minutes = (
-                        travel_minutes + self.travel_leeway_minutes
+                    site_to_site_leeway = self._site_to_site_leeway_minutes(
+                        current_site, site
                     )
+                    buffered_travel_minutes = travel_minutes + site_to_site_leeway
                     depart_previous = current_time
                     arrive = current_time + timedelta(
                         minutes=buffered_travel_minutes

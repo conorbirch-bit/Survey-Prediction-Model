@@ -25,11 +25,12 @@ TARGET_COLUMN = "Primary Service Appointment: Actual Duration (Minutes)"
 REFERENCE_COLUMN = "Customer Reference Code  ↑"
 BUILDING_COLUMN = "Building Name"
 
-SMALL_SEGMENT = "1–6 flats"
+MICRO_SEGMENT = "1–3 flats"
+SMALL_SEGMENT = "4–6 flats"
 STANDARD_SEGMENT = "7+ flats"
 GARAGE_SEGMENT = "Garage"
 FALLBACK_SEGMENT = "Residential fallback (flats missing)"
-MODEL_VERSION = "20.2-segmented-1-6"
+MODEL_VERSION = "20.11-segmented-1-3-4-6"
 
 
 @dataclass
@@ -61,14 +62,15 @@ class PredictionResult:
 class DurationPredictor:
     model_version = MODEL_VERSION
     """
-    Version 20.2 segmented duration model.
+    Version 20.11 segmented duration model.
 
-    Known flat counts select one of three independent model families:
+    Known flat counts select one of four independent model families:
       - 0 flats       -> Garage model
-      - 1 to 6 flats  -> Small-building model
+      - 1 to 3 flats  -> Micro-residential model
+      - 4 to 6 flats  -> Small-residential model
       - 7+ flats      -> Standard/larger-building model
 
-    The 1–6 and 7+ residential families each train their own Ridge regressions
+    The 1–3, 4–6 and 7+ residential families each train their own Ridge regressions
     for all viable combinations of Building Height, Ground Floor Area and
     Sovereign Flats. The existing Version 17 fallback rule is preserved:
     whenever Ground Floor Area is missing, a residential prediction uses
@@ -99,16 +101,18 @@ class DurationPredictor:
 
         # Global residential models are retained only for buildings whose flat
         # count is missing, because those buildings cannot be assigned to the
-        # 1–6 or 7+ family.
+        # 1–3, 4–6 or 7+ family.
         self.models: Dict[Tuple[str, ...], Pipeline] = {}
         self.stats: Dict[Tuple[str, ...], ModelStats] = {}
 
         self.segment_models: Dict[str, Dict[Tuple[str, ...], Pipeline]] = {
+            MICRO_SEGMENT: {},
             SMALL_SEGMENT: {},
             STANDARD_SEGMENT: {},
             GARAGE_SEGMENT: {},
         }
         self.segment_stats: Dict[str, Dict[Tuple[str, ...], ModelStats]] = {
+            MICRO_SEGMENT: {},
             SMALL_SEGMENT: {},
             STANDARD_SEGMENT: {},
             GARAGE_SEGMENT: {},
@@ -288,10 +292,9 @@ class DurationPredictor:
         for col in required:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        df = df[
-            df[TARGET_COLUMN].notna()
-            & (df[TARGET_COLUMN] >= self.min_completed_duration)
-        ].copy()
+        # Keep raw completed rows here. Short-duration filtering is applied
+        # separately to each model family below.
+        df = df[df[TARGET_COLUMN].notna()].copy()
 
         # A few row-1 Excel exports contain a final numeric totals row. If the
         # file contains identity columns, require at least one identity value so
@@ -315,31 +318,33 @@ class DurationPredictor:
                 )
             df = df[identity_present].copy()
 
-        self.training_data = df
-
         flats_col = FEATURE_COLUMNS["flats"]
         all_keys = list(FEATURE_COLUMNS.keys())
+        duration_col = TARGET_COLUMN
 
-        residential = df[df[flats_col].isna() | (df[flats_col] > 0)].copy()
-        small = df[(df[flats_col] >= 1) & (df[flats_col] <= 6)].copy()
-        standard = df[df[flats_col] >= 7].copy()
-        garages = df[df[flats_col] == 0].copy()
+        # Requested segment-specific short-duration rules.
+        micro = df[(df[flats_col] >= 1) & (df[flats_col] <= 3) & (df[duration_col] > 0)].copy()
+        small = df[(df[flats_col] >= 4) & (df[flats_col] <= 6) & (df[duration_col] >= 3)].copy()
+
+        # Existing rules remain unchanged for 7+, garages and missing-flat fallback.
+        standard = df[(df[flats_col] >= 7) & (df[duration_col] >= self.min_completed_duration)].copy()
+        garages = df[(df[flats_col] == 0) & (df[duration_col] >= self.min_completed_duration)].copy()
+        residential = df[(df[flats_col].isna() | (df[flats_col] > 0)) & (df[duration_col] >= self.min_completed_duration)].copy()
+
+        accepted_mask = (
+            ((df[flats_col] >= 1) & (df[flats_col] <= 3) & (df[duration_col] > 0))
+            | ((df[flats_col] >= 4) & (df[flats_col] <= 6) & (df[duration_col] >= 3))
+            | ((df[flats_col] >= 7) & (df[duration_col] >= self.min_completed_duration))
+            | ((df[flats_col] == 0) & (df[duration_col] >= self.min_completed_duration))
+            | (df[flats_col].isna() & (df[duration_col] >= self.min_completed_duration))
+        )
+        self.training_data = df[accepted_mask].copy()
 
         # Original all-residential family: used only when flat count is missing.
-        self.models, self.stats = self._fit_models_for_subset(
-            residential, all_keys, min_rows_mode="residential"
-        )
-
-        self.segment_models[SMALL_SEGMENT], self.segment_stats[SMALL_SEGMENT] = (
-            self._fit_models_for_subset(
-                small, all_keys, min_rows_mode="residential"
-            )
-        )
-        self.segment_models[STANDARD_SEGMENT], self.segment_stats[STANDARD_SEGMENT] = (
-            self._fit_models_for_subset(
-                standard, all_keys, min_rows_mode="residential"
-            )
-        )
+        self.models, self.stats = self._fit_models_for_subset(residential, all_keys, min_rows_mode="residential")
+        self.segment_models[MICRO_SEGMENT], self.segment_stats[MICRO_SEGMENT] = self._fit_models_for_subset(micro, all_keys, min_rows_mode="residential")
+        self.segment_models[SMALL_SEGMENT], self.segment_stats[SMALL_SEGMENT] = self._fit_models_for_subset(small, all_keys, min_rows_mode="residential")
+        self.segment_models[STANDARD_SEGMENT], self.segment_stats[STANDARD_SEGMENT] = self._fit_models_for_subset(standard, all_keys, min_rows_mode="residential")
 
         # Garages have their own family. Flat count is deliberately excluded
         # because it is always zero and therefore contains no within-garage
@@ -380,6 +385,7 @@ class DurationPredictor:
         # At least one usable family must exist.
         if (
             not self.models
+            and not self.segment_models[MICRO_SEGMENT]
             and not self.segment_models[SMALL_SEGMENT]
             and not self.segment_models[STANDARD_SEGMENT]
             and self.garage_mean_minutes is None
@@ -507,18 +513,25 @@ class DurationPredictor:
                     "No completed garage surveys are available to train the garage model."
                 )
 
-        # Small residential: 1–6 flats inclusive.
-        elif flats_value is not None and 1 <= flats_value < 7:
+        # Micro residential: 1–3 flats inclusive.
+        elif flats_value is not None and 1 <= flats_value <= 3:
+            segment = MICRO_SEGMENT
+            features = self._choose_residential_segment_model(segment, values)
+            model = self.segment_models[segment][features]
+            x = np.array([[values[k] for k in features]], dtype=float)
+            raw = float(model.predict(x)[0])
+            stat = self.segment_stats[segment][features]
+            model_label = f"{segment} | " + " + ".join(self.pretty_feature(k) for k in features)
+
+        # Small residential: 4–6 flats inclusive.
+        elif flats_value is not None and 4 <= flats_value < 7:
             segment = SMALL_SEGMENT
             features = self._choose_residential_segment_model(segment, values)
             model = self.segment_models[segment][features]
             x = np.array([[values[k] for k in features]], dtype=float)
             raw = float(model.predict(x)[0])
             stat = self.segment_stats[segment][features]
-            model_label = (
-                f"{segment} | "
-                + " + ".join(self.pretty_feature(k) for k in features)
-            )
+            model_label = f"{segment} | " + " + ".join(self.pretty_feature(k) for k in features)
 
         # Larger residential: 7 flats and above.
         elif flats_value is not None and flats_value >= 7:
@@ -546,7 +559,15 @@ class DurationPredictor:
                 + " + ".join(self.pretty_feature(k) for k in features)
             )
 
-        predicted = round(max(self.min_completed_duration, raw), 1)
+        # New small-building families use floors consistent with their accepted training data.
+        # Existing 7+ / garage / fallback floors are unchanged.
+        if segment == MICRO_SEGMENT:
+            prediction_floor = 0.1
+        elif segment == SMALL_SEGMENT:
+            prediction_floor = 3.0
+        else:
+            prediction_floor = float(self.min_completed_duration)
+        predicted = round(max(prediction_floor, raw), 1)
         planning = predicted
 
         return PredictionResult(
@@ -619,7 +640,7 @@ class DurationPredictor:
                 FALLBACK_SEGMENT, self.models, self.stats
             )
         )
-        for family in (SMALL_SEGMENT, STANDARD_SEGMENT, GARAGE_SEGMENT):
+        for family in (MICRO_SEGMENT, SMALL_SEGMENT, STANDARD_SEGMENT, GARAGE_SEGMENT):
             rows.extend(
                 self._summary_rows_for_family(
                     family,
