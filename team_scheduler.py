@@ -38,6 +38,11 @@ HOME_FIT_TRAVEL_BAND_MINUTES = 30.0
 # surveyor still has capacity.
 HOME_FIT_DISTANCE_BAND_KM = 25.0
 
+# Whole-week post-allocation repair threshold. The repair reuses only the
+# home->cluster Google matrix already calculated above, so it creates no new
+# Google calls.
+TEAM_ALLOCATION_SWAP_MIN_SAVING_MINUTES = 20.0
+
 
 def _normalise_name(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
@@ -200,6 +205,353 @@ def _cluster_average_minutes(
     return value
 
 
+
+def _travel_minutes_for_allocation(
+    travel_matrix: Dict[Tuple[str, str], float],
+    surveyor_name: str,
+    cluster: str,
+):
+    value = travel_matrix.get((surveyor_name, cluster))
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _home_distance_for_allocation(
+    travel_matrix: Dict[Tuple[str, str], float],
+    surveyor_name: str,
+    cluster: str,
+):
+    value = travel_matrix.get(
+        ("__home_distance_km__", surveyor_name, cluster)
+    )
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _copy_allocation_with_surveyor(
+    allocation: ClusterAllocation,
+    surveyor_name: str,
+    travel_matrix: Dict[Tuple[str, str], float],
+) -> ClusterAllocation:
+    travel = _travel_minutes_for_allocation(
+        travel_matrix,
+        surveyor_name,
+        allocation.cluster,
+    )
+    if travel is None:
+        travel = float(allocation.home_to_cluster_minutes)
+
+    return ClusterAllocation(
+        surveyor_name=surveyor_name,
+        cluster=allocation.cluster,
+        target_sites=int(allocation.target_sites),
+        home_to_cluster_minutes=round(float(travel), 1),
+        cluster_priority=int(allocation.cluster_priority),
+        cluster_reason=str(allocation.cluster_reason),
+        estimated_candidate_minutes=float(
+            allocation.estimated_candidate_minutes
+        ),
+    )
+
+
+def _repair_team_allocations(
+    allocations: Sequence[ClusterAllocation],
+    surveyors: Sequence[SurveyorConfig],
+    travel_matrix: Dict[Tuple[str, str], float],
+    capacities: Dict[str, int],
+) -> List[ClusterAllocation]:
+    """
+    Repair the initial greedy weekly allocation using the existing Google
+    home->cluster matrix.
+
+    This addresses cases where an early allocation fills the naturally placed
+    surveyor and later forces a geographically poor cluster onto somebody else.
+
+    The repair can:
+      - move a clearly misallocated chunk when the better surveyor has spare
+        capacity; or
+      - swap two chunks when doing so materially reduces total home->cluster
+        commute and remains within both surveyor capacities.
+
+    No additional Google calls are made.
+    """
+    working = [
+        ClusterAllocation(**asdict(allocation))
+        for allocation in allocations
+    ]
+    if not working:
+        return working
+
+    surveyor_names = [surveyor.name for surveyor in surveyors]
+    loads = {name: 0 for name in surveyor_names}
+    for allocation in working:
+        loads.setdefault(allocation.surveyor_name, 0)
+        loads[allocation.surveyor_name] += int(allocation.target_sites)
+
+    def clear_home_fit_improvement(
+        current_name: str,
+        alternative_name: str,
+        cluster: str,
+    ) -> bool:
+        current_travel = _travel_minutes_for_allocation(
+            travel_matrix,
+            current_name,
+            cluster,
+        )
+        alternative_travel = _travel_minutes_for_allocation(
+            travel_matrix,
+            alternative_name,
+            cluster,
+        )
+        if current_travel is None or alternative_travel is None:
+            return False
+
+        travel_improvement = current_travel - alternative_travel
+
+        current_distance = _home_distance_for_allocation(
+            travel_matrix,
+            current_name,
+            cluster,
+        )
+        alternative_distance = _home_distance_for_allocation(
+            travel_matrix,
+            alternative_name,
+            cluster,
+        )
+        distance_improvement = (
+            current_distance - alternative_distance
+            if (
+                current_distance is not None
+                and alternative_distance is not None
+            )
+            else None
+        )
+
+        return (
+            travel_improvement
+            >= float(HOME_FIT_TRAVEL_BAND_MINUTES)
+            or (
+                distance_improvement is not None
+                and distance_improvement
+                >= float(HOME_FIT_DISTANCE_BAND_KM)
+            )
+        )
+
+    for _ in range(max(2, min(12, len(working) * 2))):
+        improved = False
+
+        # A) Move a clearly poor allocation if the better surveyor has capacity.
+        for idx, allocation in enumerate(list(working)):
+            current_name = allocation.surveyor_name
+            chunk = int(allocation.target_sites)
+
+            alternatives = []
+            current_travel = _travel_minutes_for_allocation(
+                travel_matrix,
+                current_name,
+                allocation.cluster,
+            )
+            if current_travel is None:
+                continue
+
+            for alternative_name in surveyor_names:
+                if alternative_name == current_name:
+                    continue
+                if (
+                    loads.get(alternative_name, 0) + chunk
+                    > capacities.get(alternative_name, 0)
+                ):
+                    continue
+
+                alternative_travel = _travel_minutes_for_allocation(
+                    travel_matrix,
+                    alternative_name,
+                    allocation.cluster,
+                )
+                if alternative_travel is None:
+                    continue
+
+                if not clear_home_fit_improvement(
+                    current_name,
+                    alternative_name,
+                    allocation.cluster,
+                ):
+                    continue
+
+                alternatives.append(
+                    (
+                        current_travel - alternative_travel,
+                        alternative_travel,
+                        alternative_name,
+                    )
+                )
+
+            if not alternatives:
+                continue
+
+            alternatives.sort(
+                key=lambda item: (-item[0], item[1], item[2])
+            )
+            saving, _, chosen_name = alternatives[0]
+            if saving <= 0:
+                continue
+
+            loads[current_name] -= chunk
+            loads[chosen_name] = loads.get(chosen_name, 0) + chunk
+            working[idx] = _copy_allocation_with_surveyor(
+                allocation,
+                chosen_name,
+                travel_matrix,
+            )
+            improved = True
+
+        # B) Swap chunks if both better-positioned surveyors are already full.
+        best_swap = None
+
+        for i in range(len(working)):
+            allocation_a = working[i]
+            surveyor_a = allocation_a.surveyor_name
+            chunk_a = int(allocation_a.target_sites)
+
+            for j in range(i + 1, len(working)):
+                allocation_b = working[j]
+                surveyor_b = allocation_b.surveyor_name
+                chunk_b = int(allocation_b.target_sites)
+
+                if surveyor_a == surveyor_b:
+                    continue
+                if allocation_a.cluster == allocation_b.cluster:
+                    continue
+
+                a_current = _travel_minutes_for_allocation(
+                    travel_matrix,
+                    surveyor_a,
+                    allocation_a.cluster,
+                )
+                b_current = _travel_minutes_for_allocation(
+                    travel_matrix,
+                    surveyor_b,
+                    allocation_b.cluster,
+                )
+                a_swapped = _travel_minutes_for_allocation(
+                    travel_matrix,
+                    surveyor_b,
+                    allocation_a.cluster,
+                )
+                b_swapped = _travel_minutes_for_allocation(
+                    travel_matrix,
+                    surveyor_a,
+                    allocation_b.cluster,
+                )
+
+                if any(
+                    value is None
+                    for value in (
+                        a_current,
+                        b_current,
+                        a_swapped,
+                        b_swapped,
+                    )
+                ):
+                    continue
+
+                new_load_a = (
+                    loads.get(surveyor_a, 0)
+                    - chunk_a
+                    + chunk_b
+                )
+                new_load_b = (
+                    loads.get(surveyor_b, 0)
+                    - chunk_b
+                    + chunk_a
+                )
+                if (
+                    new_load_a > capacities.get(surveyor_a, 0)
+                    or new_load_b > capacities.get(surveyor_b, 0)
+                ):
+                    continue
+
+                current_total = a_current + b_current
+                swapped_total = a_swapped + b_swapped
+                saving = current_total - swapped_total
+
+                if (
+                    saving
+                    < float(
+                        TEAM_ALLOCATION_SWAP_MIN_SAVING_MINUTES
+                    )
+                ):
+                    continue
+
+                if not (
+                    clear_home_fit_improvement(
+                        surveyor_a,
+                        surveyor_b,
+                        allocation_a.cluster,
+                    )
+                    or clear_home_fit_improvement(
+                        surveyor_b,
+                        surveyor_a,
+                        allocation_b.cluster,
+                    )
+                ):
+                    continue
+
+                candidate = (
+                    saving,
+                    i,
+                    j,
+                    surveyor_a,
+                    surveyor_b,
+                    new_load_a,
+                    new_load_b,
+                )
+                if best_swap is None or candidate[0] > best_swap[0]:
+                    best_swap = candidate
+
+        if best_swap is not None:
+            (
+                _,
+                i,
+                j,
+                surveyor_a,
+                surveyor_b,
+                new_load_a,
+                new_load_b,
+            ) = best_swap
+
+            allocation_a = working[i]
+            allocation_b = working[j]
+
+            working[i] = _copy_allocation_with_surveyor(
+                allocation_a,
+                surveyor_b,
+                travel_matrix,
+            )
+            working[j] = _copy_allocation_with_surveyor(
+                allocation_b,
+                surveyor_a,
+                travel_matrix,
+            )
+
+            loads[surveyor_a] = new_load_a
+            loads[surveyor_b] = new_load_b
+            improved = True
+
+        if not improved:
+            break
+
+    return working
+
+
 def allocate_cluster_targets(
     cluster_choices: Sequence[dict],
     cluster_summary: pd.DataFrame,
@@ -217,8 +569,9 @@ def allocate_cluster_targets(
     - a small bonus for keeping a surveyor in a cluster already allocated to them.
 
     Clear home-fit advantages are protected before workload balancing. A large
-    cluster can still be shared, and a more distant surveyor can still be used
-    after the naturally placed surveyors run out of capacity.
+    cluster can still be shared. After the initial assignment, a whole-week
+    repair pass reuses the same home->cluster Google matrix to move or swap
+    clearly inefficient allocations before detailed scheduling begins.
     """
     if not surveyors:
         return []
@@ -433,7 +786,12 @@ def allocate_cluster_targets(
         assigned_minutes[chosen.name] += estimated_minutes
         clusters_by_surveyor[chosen.name].add(cluster)
 
-    return allocations
+    return _repair_team_allocations(
+        allocations=allocations,
+        surveyors=surveyors,
+        travel_matrix=travel_matrix,
+        capacities=capacities,
+    )
 
 
 def build_team_shortlists(

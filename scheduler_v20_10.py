@@ -728,6 +728,50 @@ def _daily_route_sequence_ranks(
     )
 
 
+
+def _remaining_cluster_proximity_km(
+    current_site: dict,
+    sites: List[dict],
+) -> Dict[str, float]:
+    """
+    Minimum straight-line distance from the current site to each remaining
+    strategic Planning Cluster.
+
+    Used only to rank which already-assigned cluster should be visited next.
+    Google remains the actual public-transport authority and no API calls are
+    added here.
+    """
+    current_coordinate = _site_coordinate(current_site)
+    if current_coordinate is None:
+        return {}
+
+    result: Dict[str, float] = {}
+
+    for site in sites:
+        cluster = _planning_cluster_key(site)
+        if not cluster:
+            continue
+
+        site_coordinate = _site_coordinate(site)
+        if site_coordinate is None:
+            continue
+
+        distance = haversine_km(
+            current_coordinate[0],
+            current_coordinate[1],
+            site_coordinate[0],
+            site_coordinate[1],
+        )
+        if distance is None:
+            continue
+
+        previous = result.get(cluster)
+        if previous is None or float(distance) < previous:
+            result[cluster] = float(distance)
+
+    return result
+
+
 def postcode_district(postcode: str) -> str:
     text = str(postcode or "").strip().upper()
     if not text:
@@ -1330,6 +1374,15 @@ class DailyTransitScheduler:
                 for idx, site in enumerate(remaining)
             }
 
+            remaining_cluster_proximity = (
+                _remaining_cluster_proximity_km(
+                    current_site,
+                    remaining,
+                )
+                if scheduled
+                else {}
+            )
+
             for idx, site in enumerate(remaining):
                 bypass = False
                 distance = None
@@ -1442,6 +1495,7 @@ class DailyTransitScheduler:
                 # Strategic cluster first; inside it, finish the connected local
                 # group nearest-next and favour a continuous same-road sequence.
                 cluster_tier = 0
+                next_cluster_distance_sort = float("inf")
                 local_group_tier = 1
 
                 route_component_order = (
@@ -1482,6 +1536,17 @@ class DailyTransitScheduler:
                         and current_planning_cluster == next_cluster
                         else 1
                     )
+
+                    if cluster_tier == 0:
+                        next_cluster_distance_sort = 0.0
+                    else:
+                        next_cluster_distance_sort = (
+                            remaining_cluster_proximity.get(
+                                next_cluster,
+                                float("inf"),
+                            )
+                        )
+
                     postcode_tier = (
                         0
                         if self._same_postcode(
@@ -1578,6 +1643,7 @@ class DailyTransitScheduler:
                 ranked.append(
                     (
                         cluster_tier,
+                        next_cluster_distance_sort,
                         local_group_tier,
                         reentry_tier,
                         route_component_order,
@@ -1595,7 +1661,10 @@ class DailyTransitScheduler:
             if not ranked:
                 break
 
-            # Coordinate-cluster tier first, then real transit economics.
+            # Finish the current strategic cluster first. Once it is exhausted,
+            # prefer the geographically nearest remaining assigned cluster, then
+            # let the existing Google travel data and feasibility rules validate
+            # the actual move.
             #
             # To preserve robustness, always keep up to two out-of-cluster
             # fallback candidates in the feasibility pool. That means an
@@ -1604,16 +1673,17 @@ class DailyTransitScheduler:
             # transit time happens to be a few minutes shorter.
             ranked.sort(
                 key=lambda x: (
-                    x[0],  # existing strategic cluster
-                    x[1],  # finish connected local group first
-                    x[2],  # strongly penalise A -> B -> A re-entry
-                    x[3],  # optimised micro-cluster order
-                    x[4],  # optimised site order within micro-cluster
-                    x[5],  # same-road continuity
-                    x[6],  # nearest-next coordinate distance
-                    x[7],  # same full postcode
-                    x[8],  # Google representative before group members
-                    x[9],  # existing Google/AI/special-request score
+                    x[0],  # finish current strategic cluster first
+                    x[1],  # then move to the nearest next strategic cluster
+                    x[2],  # finish connected local group first
+                    x[3],  # strongly penalise A -> B -> A re-entry
+                    x[4],  # optimised micro-cluster order
+                    x[5],  # optimised site order within micro-cluster
+                    x[6],  # same-road continuity
+                    x[7],  # nearest-next coordinate distance
+                    x[8],  # same full postcode
+                    x[9],  # Google representative before group members
+                    x[10], # existing Google/AI/special-request score
                 )
             )
 
@@ -1641,6 +1711,7 @@ class DailyTransitScheduler:
             lunch_blocked_candidate = False
 
             for (
+                _,
                 _,
                 _,
                 _,
