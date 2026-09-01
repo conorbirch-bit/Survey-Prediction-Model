@@ -55,6 +55,7 @@ from portfolio_clusterer import (
     add_portfolio_fields,
     build_cluster_summary,
     deterministic_cluster_choices,
+    compact_strategic_cluster_choices,
     shortlist_sites,
     build_drawing_priority_queue,
     endgame_adjust_cluster_choices,
@@ -1495,6 +1496,94 @@ with tab2:
                                                 "the team week."
                                             )
 
+                                        # Compact strategic geography WITHOUT
+                                        # reintroducing a survey-site cap.
+                                        #
+                                        # The AI may see the entire eligible portfolio,
+                                        # but Google home->cluster comparisons should only
+                                        # consider the smallest high-priority set of
+                                        # strategic clusters containing enough predicted
+                                        # survey workload to fill all selected person-days,
+                                        # plus a reserve. Every eligible site inside those
+                                        # retained clusters remains available.
+                                        window_start_dt = datetime.combine(
+                                            team_week_start,
+                                            team_first_survey_clock,
+                                        )
+                                        window_end_dt = datetime.combine(
+                                            team_week_start,
+                                            team_last_survey_clock,
+                                        )
+                                        per_day_survey_window_minutes = max(
+                                            60.0,
+                                            (
+                                                window_end_dt
+                                                - window_start_dt
+                                            ).total_seconds()
+                                            / 60.0,
+                                        )
+
+                                        lunch_overlap = (
+                                            team_first_survey_clock
+                                            <= time(13, 0)
+                                            and team_last_survey_clock
+                                            >= time(11, 45)
+                                        )
+                                        if lunch_overlap:
+                                            per_day_survey_window_minutes = max(
+                                                60.0,
+                                                per_day_survey_window_minutes
+                                                - 30.0,
+                                            )
+
+                                        team_person_days = sum(
+                                            len(
+                                                surveyor.available_dates
+                                                or []
+                                            )
+                                            for surveyor in active_surveyors
+                                        )
+
+                                        available_team_survey_minutes = (
+                                            per_day_survey_window_minutes
+                                            * max(1, team_person_days)
+                                        )
+
+                                        team_cluster_choices = (
+                                            compact_strategic_cluster_choices(
+                                                cluster_choices=(
+                                                    team_cluster_choices
+                                                ),
+                                                cluster_summary=(
+                                                    team_cluster_summary
+                                                ),
+                                                team_size=len(
+                                                    active_surveyors
+                                                ),
+                                                available_survey_minutes=(
+                                                    available_team_survey_minutes
+                                                ),
+                                                workload_reserve_factor=1.25,
+                                            )
+                                        )
+
+                                        if not team_cluster_choices:
+                                            raise ValueError(
+                                                "No compact strategic cluster set "
+                                                "contained usable current-week work."
+                                            )
+
+                                        strategic_selected_site_capacity = sum(
+                                            int(
+                                                choice.get(
+                                                    "target_sites",
+                                                    0,
+                                                )
+                                                or 0
+                                            )
+                                            for choice in team_cluster_choices
+                                        )
+
                                         # Rolling-horizon endgame guardrail. This is a
                                         # cheap portfolio-only adjustment: it can leave
                                         # a small number of released sites as future
@@ -1510,7 +1599,7 @@ with tab2:
                                             cluster_choices=team_cluster_choices,
                                             cluster_summary=team_cluster_summary,
                                             max_sites_for_google=(
-                                                total_team_candidate_cap
+                                                strategic_selected_site_capacity
                                             ),
                                         )
 
@@ -2283,7 +2372,7 @@ with tab2:
                                         f"{len(active_surveyors)} surveyor homes × "
                                         f"{len(team_representatives)} selected cluster "
                                         "representatives, followed by each person's "
-                                        "own capped shortlist."
+                                        "own coordinate-prefiltered detailed routing."
                                     )
 
                                     # Reporting only: show the actual Google usage

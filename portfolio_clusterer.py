@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+import math
 
 import pandas as pd
 
@@ -901,6 +902,174 @@ def build_cluster_summary(
         ["Eligible This Week", "Planning Hours Available", "Total Portfolio Sites"],
         ascending=[False, False, False],
     ).reset_index(drop=True)
+
+
+
+def compact_strategic_cluster_choices(
+    cluster_choices: Sequence[dict],
+    cluster_summary: pd.DataFrame,
+    team_size: int,
+    available_survey_minutes: float,
+    workload_reserve_factor: float = 1.25,
+) -> List[dict]:
+    """
+    Keep the strategic cluster set compact without imposing a site-count cap.
+
+    The smallest high-priority set of clusters is retained that:
+      - includes at least one useful cluster per active surveyor where possible;
+      - contains enough predicted survey minutes to cover the selected team
+        person-days plus a workload reserve.
+
+    Every eligible site inside a retained cluster remains available by setting
+    target_sites to that cluster's full current-week eligible count. Therefore
+    this function limits geographic spread, not survey capacity.
+
+    If AI choices are too narrow, the strongest remaining eligible clusters are
+    added deterministically until the workload target is covered.
+    """
+    if cluster_summary is None or cluster_summary.empty:
+        return list(cluster_choices)
+
+    summary_rows = cluster_summary.to_dict(orient="records")
+    summary_map = {
+        str(row.get("Cluster", "")).strip(): row
+        for row in summary_rows
+        if str(row.get("Cluster", "")).strip()
+    }
+
+    eligible_rows = [
+        row
+        for row in summary_rows
+        if int(row.get("Eligible This Week", 0) or 0) > 0
+    ]
+    if not eligible_rows:
+        return []
+
+    minimum_clusters = min(
+        len(eligible_rows),
+        max(1, int(team_size or 1)),
+    )
+
+    workload_target_minutes = max(
+        0.0,
+        float(available_survey_minutes or 0.0)
+        * max(1.0, float(workload_reserve_factor)),
+    )
+
+    def row_planning_minutes(row: dict) -> float:
+        try:
+            hours = float(row.get("Planning Hours Available", 0) or 0)
+        except Exception:
+            hours = 0.0
+
+        if math.isfinite(hours) and hours > 0:
+            return hours * 60.0
+
+        eligible = int(row.get("Eligible This Week", 0) or 0)
+
+        try:
+            average_minutes = float(
+                row.get("Average Planning Minutes", 0) or 0
+            )
+        except Exception:
+            average_minutes = 0.0
+
+        if not math.isfinite(average_minutes) or average_minutes <= 0:
+            average_minutes = 30.0
+
+        return float(eligible) * average_minutes
+
+    # Preserve AI/deterministic strategic priority first.
+    ordered_choices = sorted(
+        [dict(choice) for choice in cluster_choices],
+        key=lambda choice: (
+            -int(choice.get("priority", 50) or 50),
+            str(choice.get("cluster", "")),
+        ),
+    )
+
+    selected = []
+    selected_clusters = set()
+    accumulated_minutes = 0.0
+
+    def add_cluster(choice: dict) -> bool:
+        nonlocal accumulated_minutes
+
+        cluster = str(choice.get("cluster", "")).strip()
+        if (
+            not cluster
+            or cluster in selected_clusters
+            or cluster not in summary_map
+        ):
+            return False
+
+        row = summary_map[cluster]
+        eligible = int(row.get("Eligible This Week", 0) or 0)
+        if eligible <= 0:
+            return False
+
+        new_choice = dict(choice)
+
+        # Critical distinction: selected geographic clusters are compact, but
+        # eligible sites inside them are NOT capped.
+        new_choice["target_sites"] = eligible
+
+        selected.append(new_choice)
+        selected_clusters.add(cluster)
+        accumulated_minutes += row_planning_minutes(row)
+        return True
+
+    for choice in ordered_choices:
+        add_cluster(choice)
+
+        if (
+            len(selected) >= minimum_clusters
+            and accumulated_minutes >= workload_target_minutes
+        ):
+            break
+
+    # If AI selected too little work, add dense eligible clusters until there is
+    # enough predicted workload to fill the selected person-days.
+    if (
+        len(selected) < minimum_clusters
+        or accumulated_minutes < workload_target_minutes
+    ):
+        fallback_rows = sorted(
+            eligible_rows,
+            key=lambda row: (
+                -row_planning_minutes(row),
+                -int(row.get("Eligible This Week", 0) or 0),
+                str(row.get("Cluster", "")),
+            ),
+        )
+
+        for row in fallback_rows:
+            cluster = str(row.get("Cluster", "")).strip()
+            if cluster in selected_clusters:
+                continue
+
+            added = add_cluster({
+                "cluster": cluster,
+                "priority": 40,
+                "target_sites": int(
+                    row.get("Eligible This Week", 0) or 0
+                ),
+                "decision": "workload_filler_cluster",
+                "reason": (
+                    "Added deterministically because the higher-priority "
+                    "strategic clusters did not contain enough predicted "
+                    "survey workload to fill the selected team availability."
+                ),
+            })
+
+            if (
+                added
+                and len(selected) >= minimum_clusters
+                and accumulated_minutes >= workload_target_minutes
+            ):
+                break
+
+    return selected
 
 
 def deterministic_cluster_choices(
