@@ -552,6 +552,195 @@ def _repair_team_allocations(
     return working
 
 
+
+def _ensure_available_surveyors_have_work(
+    allocations: Sequence[ClusterAllocation],
+    surveyors: Sequence[SurveyorConfig],
+    travel_matrix: Dict[Tuple[str, str], float],
+    capacities: Dict[str, int],
+    chunk_size: int,
+) -> List[ClusterAllocation]:
+    """
+    Prevent an explicitly available surveyor from finishing with zero candidate
+    sites solely because home-fit protection kept all selected clusters with
+    better-positioned colleagues.
+
+    This runs after the existing whole-week home-fit repair, so normal
+    geographic allocation is unchanged unless an available surveyor has zero
+    work. It reuses the existing home->cluster Google matrix and never makes
+    another Google request.
+
+    The zero-work surveyor receives at most one normal allocation chunk,
+    limited to their proportional share of the selected candidate pool.
+    """
+    working = [
+        ClusterAllocation(**asdict(allocation))
+        for allocation in allocations
+    ]
+    if not working:
+        return working
+
+    available_surveyors = [
+        surveyor
+        for surveyor in surveyors
+        if len(surveyor.available_dates or []) > 0
+    ]
+    if not available_surveyors:
+        return working
+
+    total_available_days = max(
+        1,
+        sum(
+            min(5, len(surveyor.available_dates or []))
+            for surveyor in available_surveyors
+        ),
+    )
+
+    total_selected_sites = sum(
+        int(allocation.target_sites)
+        for allocation in working
+    )
+
+    def current_loads():
+        loads = {
+            surveyor.name: 0
+            for surveyor in available_surveyors
+        }
+        for allocation in working:
+            loads.setdefault(allocation.surveyor_name, 0)
+            loads[allocation.surveyor_name] += int(
+                allocation.target_sites
+            )
+        return loads
+
+    for surveyor in available_surveyors:
+        loads = current_loads()
+        if loads.get(surveyor.name, 0) > 0:
+            continue
+
+        available_days = min(
+            5,
+            len(surveyor.available_dates or []),
+        )
+        proportional_share = max(
+            1,
+            round(
+                total_selected_sites
+                * available_days
+                / total_available_days
+            ),
+        )
+
+        target_transfer = min(
+            max(1, int(chunk_size)),
+            proportional_share,
+            max(1, capacities.get(surveyor.name, 1)),
+        )
+        remaining_needed = target_transfer
+
+        candidate_allocations = []
+        for idx, allocation in enumerate(working):
+            donor_name = allocation.surveyor_name
+            if donor_name == surveyor.name:
+                continue
+
+            donor_load = loads.get(donor_name, 0)
+            if donor_load <= 1:
+                continue
+
+            travel = _travel_minutes_for_allocation(
+                travel_matrix,
+                surveyor.name,
+                allocation.cluster,
+            )
+            if travel is None:
+                continue
+
+            candidate_allocations.append(
+                (
+                    float(travel),
+                    -int(donor_load),
+                    idx,
+                )
+            )
+
+        candidate_allocations.sort()
+
+        for travel, _, idx in candidate_allocations:
+            if remaining_needed <= 0:
+                break
+
+            allocation = working[idx]
+            donor_name = allocation.surveyor_name
+            loads = current_loads()
+            donor_load = loads.get(donor_name, 0)
+
+            transfer = min(
+                int(allocation.target_sites),
+                max(0, donor_load - 1),
+                remaining_needed,
+            )
+            if transfer <= 0:
+                continue
+
+            original_sites = int(allocation.target_sites)
+            per_site_minutes = (
+                float(allocation.estimated_candidate_minutes)
+                / original_sites
+                if original_sites > 0
+                else 0.0
+            )
+            donor_remaining = original_sites - transfer
+
+            working[idx] = ClusterAllocation(
+                surveyor_name=allocation.surveyor_name,
+                cluster=allocation.cluster,
+                target_sites=donor_remaining,
+                home_to_cluster_minutes=float(
+                    allocation.home_to_cluster_minutes
+                ),
+                cluster_priority=int(allocation.cluster_priority),
+                cluster_reason=str(allocation.cluster_reason),
+                estimated_candidate_minutes=round(
+                    donor_remaining * per_site_minutes,
+                    1,
+                ),
+            )
+
+            working.append(
+                ClusterAllocation(
+                    surveyor_name=surveyor.name,
+                    cluster=allocation.cluster,
+                    target_sites=transfer,
+                    home_to_cluster_minutes=round(
+                        float(travel),
+                        1,
+                    ),
+                    cluster_priority=int(
+                        allocation.cluster_priority
+                    ),
+                    cluster_reason=(
+                        str(allocation.cluster_reason)
+                        + " Availability repair: reassigned a small "
+                        "candidate share because this explicitly available "
+                        "surveyor otherwise had zero work."
+                    ).strip(),
+                    estimated_candidate_minutes=round(
+                        transfer * per_site_minutes,
+                        1,
+                    ),
+                )
+            )
+
+            remaining_needed -= transfer
+
+    return [
+        allocation
+        for allocation in working
+        if int(allocation.target_sites) > 0
+    ]
+
+
 def allocate_cluster_targets(
     cluster_choices: Sequence[dict],
     cluster_summary: pd.DataFrame,
@@ -786,11 +975,19 @@ def allocate_cluster_targets(
         assigned_minutes[chosen.name] += estimated_minutes
         clusters_by_surveyor[chosen.name].add(cluster)
 
-    return _repair_team_allocations(
+    repaired_allocations = _repair_team_allocations(
         allocations=allocations,
         surveyors=surveyors,
         travel_matrix=travel_matrix,
         capacities=capacities,
+    )
+
+    return _ensure_available_surveyors_have_work(
+        allocations=repaired_allocations,
+        surveyors=surveyors,
+        travel_matrix=travel_matrix,
+        capacities=capacities,
+        chunk_size=chunk_size,
     )
 
 
