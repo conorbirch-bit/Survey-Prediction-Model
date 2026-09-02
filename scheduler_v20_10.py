@@ -818,6 +818,49 @@ def _daily_route_sequence_ranks(
 
 
 
+
+def _remaining_sequence_component_proximity_km(
+    current_site: dict,
+    sites: List[dict],
+) -> Dict[object, float]:
+    """
+    Minimum straight-line distance from the current site to each remaining
+    stable sequencing component.
+
+    This is sequencing-only. It deliberately ignores strategic-cluster
+    preference so a genuinely nearby local area can be visited before a much
+    farther part of the current strategic cluster. Google still validates the
+    actual journey where required.
+    """
+    current_coordinate = _site_coordinate(current_site)
+    if current_coordinate is None:
+        return {}
+
+    result: Dict[object, float] = {}
+
+    for site in sites:
+        component_key = site.get("_sequence_component_key")
+        if component_key is None:
+            continue
+
+        site_coordinate = _site_coordinate(site)
+        if site_coordinate is None:
+            continue
+
+        distance = _coordinate_distance_between_points(
+            current_coordinate,
+            site_coordinate,
+        )
+        if distance is None:
+            continue
+
+        previous = result.get(component_key)
+        if previous is None or float(distance) < previous:
+            result[component_key] = float(distance)
+
+    return result
+
+
 def _remaining_cluster_proximity_km(
     current_site: dict,
     sites: List[dict],
@@ -1564,6 +1607,14 @@ class DailyTransitScheduler:
         last_sequence_component_key = None
         closed_sequence_component_keys = set()
 
+        # Road-level continuity sits inside the existing micro-cluster logic.
+        # Once a confidently identified road has been left, returning to that
+        # road later is strongly penalised. This prevents sequences such as
+        # Pember Road -> Warfield Road -> Pember Road when the remaining Pember
+        # sites could have been completed before leaving.
+        last_sequence_road_name = None
+        closed_sequence_road_names = set()
+
         # For the first leg, Google needs a departure time to price/rank transit.
         # Probe shortly before the requested first-survey start, then back-calculate
         # the actual home departure for the chosen first site. This stops a long
@@ -1663,6 +1714,15 @@ class DailyTransitScheduler:
                 idx: site.get("_sequence_component_key")
                 for idx, site in enumerate(remaining)
             }
+
+            remaining_component_proximity = (
+                _remaining_sequence_component_proximity_km(
+                    current_site,
+                    remaining,
+                )
+                if scheduled
+                else {}
+            )
 
             remaining_cluster_proximity = (
                 _remaining_cluster_proximity_km(
@@ -1803,7 +1863,7 @@ class DailyTransitScheduler:
                 # group nearest-next and favour a continuous same-road sequence.
                 cluster_tier = 0
                 next_cluster_distance_sort = float("inf")
-                local_group_tier = 1
+                local_group_tier = float("inf")
 
                 route_component_order = (
                     route_component_rank.get(idx, 10**6)
@@ -1817,13 +1877,37 @@ class DailyTransitScheduler:
                 )
 
                 component_key = current_component_keys.get(idx)
+
+                # Sequencing preference: after the current road/development is
+                # finished, favour the geographically nearest remaining local
+                # component. This can be in another strategic cluster; the
+                # normal Google and far-cluster feasibility checks still decide
+                # whether the move can actually be made.
+                if scheduled and component_key is not None:
+                    local_group_tier = (
+                        remaining_component_proximity.get(
+                            component_key,
+                            float("inf"),
+                        )
+                    )
+
+                candidate_road_name = (
+                    infer_road_name_from_building_name(
+                        site.get("building_name", "")
+                    )
+                )
+                component_reentry = (
+                    component_key is not None
+                    and component_key in closed_sequence_component_keys
+                )
+                road_reentry = (
+                    candidate_road_name is not None
+                    and candidate_road_name
+                    in closed_sequence_road_names
+                )
                 reentry_tier = (
                     1
-                    if (
-                        component_key is not None
-                        and component_key
-                        in closed_sequence_component_keys
-                    )
+                    if component_reentry or road_reentry
                     else 0
                 )
 
@@ -1863,7 +1947,6 @@ class DailyTransitScheduler:
                     )
 
                     if idx in connected_path_km:
-                        local_group_tier = 0
                         direct_distance = haversine_km(
                             current_latitude,
                             current_longitude,
@@ -1886,7 +1969,6 @@ class DailyTransitScheduler:
                             )
                         )
                         if direct_bypass:
-                            local_group_tier = 0
                             if direct_distance is not None:
                                 local_distance_sort = float(direct_distance)
                             if _same_confident_road(current_site, site):
@@ -1968,25 +2050,26 @@ class DailyTransitScheduler:
             if not ranked:
                 break
 
-            # Finish the current strategic cluster first. Once it is exhausted,
-            # prefer the geographically nearest remaining assigned cluster, then
-            # let the existing Google travel data and feasibility rules validate
-            # the actual move.
+            # Route sequencing is local-first rather than strategic-cluster-first.
             #
-            # To preserve robustness, always keep up to two out-of-cluster
-            # fallback candidates in the feasibility pool. That means an
-            # impossible local job cannot prematurely end the day, while a
-            # distant hop cannot beat feasible nearby work merely because its
-            # transit time happens to be a few minutes shorter.
+            # Once the current road/development is finished, choose the nearest
+            # remaining local sequencing component by straight-line distance.
+            # Strategic-cluster membership remains a tie-break only. This prevents
+            # a distant part of the current strategic cluster from pulling the
+            # route past a much closer neighbouring area.
+            #
+            # Google still validates meaningful journeys, and the existing
+            # >=30-minute / 2:1 survey-to-travel efficiency gate still applies to
+            # far inter-strategic-cluster moves.
             ranked.sort(
                 key=lambda x: (
-                    x[0],  # finish current strategic cluster first
-                    x[1],  # then move to the nearest next strategic cluster
-                    x[2],  # finish connected local group first
-                    x[3],  # strongly penalise A -> B -> A re-entry
-                    x[4],  # optimised micro-cluster order
-                    x[5],  # optimised site order within micro-cluster
-                    x[6],  # same-road continuity
+                    x[3],  # avoid component/road A -> B -> A re-entry
+                    x[6],  # finish the current confident road before leaving it
+                    x[2],  # nearest remaining local component
+                    x[0],  # current strategic cluster only as a tie-break
+                    x[1],  # then nearest strategic-cluster proximity
+                    x[4],  # existing optimised micro-cluster order
+                    x[5],  # existing optimised site order
                     x[7],  # nearest-next coordinate distance
                     x[8],  # same full postcode
                     x[9],  # Google representative before group members
@@ -1994,25 +2077,10 @@ class DailyTransitScheduler:
                 )
             )
 
-            if scheduled:
-                same_cluster = [r for r in ranked if r[0] == 0]
-                other_cluster = [r for r in ranked if r[0] != 0]
-
-                fallback_slots = (
-                    min(2, len(other_cluster))
-                    if same_cluster
-                    else min(self.max_candidate_checks, len(other_cluster))
-                )
-                local_slots = max(
-                    0,
-                    self.max_candidate_checks - fallback_slots,
-                )
-                candidate_pool = (
-                    same_cluster[:local_slots]
-                    + other_cluster[:fallback_slots]
-                )
-            else:
-                candidate_pool = ranked[:self.max_candidate_checks]
+            # Do not rebuild the feasibility pool by strategic cluster after the
+            # local-first sort; doing so would undo the sequencing decision above.
+            # The pool size is unchanged, so this adds no Google calls.
+            candidate_pool = ranked[:self.max_candidate_checks]
 
             chosen = None
             lunch_blocked_candidate = False
@@ -2310,6 +2378,18 @@ class DailyTransitScheduler:
             if chosen_component_key is not None:
                 last_sequence_component_key = chosen_component_key
                 current_sequence_component_key = chosen_component_key
+
+            chosen_road_name = infer_road_name_from_building_name(
+                site.get("building_name", "")
+            )
+            if (
+                last_sequence_road_name is not None
+                and chosen_road_name != last_sequence_road_name
+            ):
+                closed_sequence_road_names.add(
+                    last_sequence_road_name
+                )
+            last_sequence_road_name = chosen_road_name
 
             remaining.pop(idx)
 
