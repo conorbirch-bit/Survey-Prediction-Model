@@ -32,6 +32,14 @@ SAME_ROAD_COORDINATE_FALLBACK_KM = 0.20
 GOOGLE_GROUPS_PER_DECISION = 8
 GOOGLE_FALLBACK_GROUPS_PER_DECISION = 2
 
+# Far strategic-cluster transition efficiency rule.
+#
+# Normal/local cluster changes are untouched. Only a move to a DIFFERENT
+# strategic cluster with >=30 minutes of travel must unlock at least twice as
+# much feasible remaining survey time as the travel required.
+FAR_CLUSTER_TRANSITION_MINUTES = 30.0
+FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO = 2.0
+
 _ROAD_SUFFIX_CANONICAL = {
     "road":"road", "rd":"road", "street":"street", "st":"street",
     "avenue":"avenue", "ave":"avenue", "lane":"lane", "ln":"lane",
@@ -88,6 +96,76 @@ def _planning_cluster_key(site: dict) -> str:
     return str(
         site.get("planning_cluster", "")
         or postcode_district(site.get("postcode", ""))
+    )
+
+
+
+def _remaining_cluster_survey_minutes(
+    sites: Sequence[dict],
+    target_cluster: str,
+    current_day,
+) -> float:
+    """
+    Total currently usable predicted/planning survey minutes remaining in one
+    strategic cluster. Future-dated special-request sites are excluded because
+    the normal scheduler would not allow them to be consumed today.
+    """
+    total = 0.0
+
+    for site in sites:
+        if _planning_cluster_key(site) != target_cluster:
+            continue
+
+        preferred_date = site.get("special_request_date")
+        if preferred_date:
+            try:
+                if hasattr(preferred_date, "date"):
+                    preferred_date = preferred_date.date()
+                if current_day < preferred_date:
+                    continue
+            except Exception:
+                pass
+
+        try:
+            minutes = float(site.get("planning_minutes", 0) or 0)
+        except Exception:
+            minutes = 0.0
+
+        if math.isfinite(minutes) and minutes > 0:
+            total += minutes
+
+    return float(total)
+
+
+def _far_cluster_transition_is_efficient(
+    travel_minutes: float,
+    feasible_survey_minutes: float,
+    far_threshold_minutes: float = FAR_CLUSTER_TRANSITION_MINUTES,
+    minimum_ratio: float = FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO,
+) -> bool:
+    """
+    Apply the efficiency rule only to a genuinely far inter-cluster jump.
+
+    Example with the defaults:
+      - 25 min travel -> rule does not activate
+      - 40 min travel + 100 min feasible survey work -> allow (2.5:1)
+      - 40 min travel + 50 min feasible survey work -> reject (1.25:1)
+    """
+    try:
+        travel = float(travel_minutes)
+        survey = max(0.0, float(feasible_survey_minutes))
+    except Exception:
+        return False
+
+    if not math.isfinite(travel) or travel <= 0:
+        return True
+
+    if travel < float(far_threshold_minutes):
+        return True
+
+    return (
+        survey / travel
+        >= float(minimum_ratio)
     )
 
 
@@ -2009,6 +2087,77 @@ class DailyTransitScheduler:
                     survey_start = arrive + timedelta(
                         minutes=self.pre_survey_buffer_minutes
                     )
+
+                # Efficiency gate for FAR moves between strategic clusters only.
+                #
+                # This does not affect:
+                #   - work inside the current strategic cluster;
+                #   - local/short cluster changes under 30 minutes;
+                #   - candidate ranking;
+                #   - Google journey times;
+                #   - any existing hard feasibility rule.
+                #
+                # "Feasible survey minutes" is the remaining survey workload in
+                # the destination cluster, capped by the survey-time window still
+                # available after arriving there. The existing detailed scheduler
+                # continues to validate every individual survey and the return
+                # journey home afterwards.
+                if not is_first_survey and current_planning_cluster:
+                    target_cluster = _planning_cluster_key(site)
+                    is_inter_cluster_jump = (
+                        target_cluster
+                        and target_cluster
+                        != current_planning_cluster
+                    )
+
+                    if (
+                        is_inter_cluster_jump
+                        and float(travel_minutes)
+                        >= FAR_CLUSTER_TRANSITION_MINUTES
+                    ):
+                        destination_work_minutes = (
+                            _remaining_cluster_survey_minutes(
+                                remaining,
+                                target_cluster,
+                                first_survey_start.date(),
+                            )
+                        )
+
+                        remaining_survey_window_minutes = max(
+                            0.0,
+                            (
+                                latest_survey_finish
+                                - survey_start
+                            ).total_seconds()
+                            / 60.0,
+                        )
+
+                        # If lunch is still due during the remaining survey
+                        # window, do not count those protected 30 minutes as
+                        # productive survey capacity for this ratio.
+                        if (
+                            not lunch_taken
+                            and survey_start <= lunch_latest_start
+                            and latest_survey_finish > lunch_window_start
+                        ):
+                            remaining_survey_window_minutes = max(
+                                0.0,
+                                remaining_survey_window_minutes
+                                - float(self.lunch_minutes),
+                            )
+
+                        feasible_destination_survey_minutes = min(
+                            destination_work_minutes,
+                            remaining_survey_window_minutes,
+                        )
+
+                        if not _far_cluster_transition_is_efficient(
+                            travel_minutes=travel_minutes,
+                            feasible_survey_minutes=(
+                                feasible_destination_survey_minutes
+                            ),
+                        ):
+                            continue
 
                 survey_end = survey_start + timedelta(
                     minutes=float(site["planning_minutes"])
