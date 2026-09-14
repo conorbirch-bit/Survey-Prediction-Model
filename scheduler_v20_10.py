@@ -40,6 +40,14 @@ GOOGLE_FALLBACK_GROUPS_PER_DECISION = 2
 FAR_CLUSTER_TRANSITION_MINUTES = 30.0
 FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO = 2.0
 
+# Retry scheduling preferences. The different-weekday rule is hard and is
+# enforced in build_week before any day routing. Morning/afternoon remains a
+# bounded soft preference so it cannot destroy an otherwise efficient route.
+RETRY_PERIOD_GROUP_RADIUS_KM = NO_GOOGLE_RADIUS_KM
+RETRY_PERIOD_MISMATCH_DISTANCE_PENALTY_KM = 0.50
+RETRY_PERIOD_MISMATCH_SCORE_PENALTY_MINUTES = 20.0
+RETRY_WEEKDAY_MISMATCH_SCORE_PENALTY_MINUTES = 15.0
+
 _ROAD_SUFFIX_CANONICAL = {
     "road":"road", "rd":"road", "street":"street", "st":"street",
     "avenue":"avenue", "ave":"avenue", "lane":"lane", "ln":"lane",
@@ -167,6 +175,110 @@ def _far_cluster_transition_is_efficient(
         survey / travel
         >= float(minimum_ratio)
     )
+
+
+
+def _normalise_retry_period(value) -> str:
+    text = str(value or "").strip().lower()
+    if text == "morning":
+        return "morning"
+    if text == "afternoon":
+        return "afternoon"
+    return ""
+
+
+def _time_period_for_datetime(value: datetime) -> str:
+    return "morning" if int(value.hour) < 12 else "afternoon"
+
+
+def _retry_preferred_weekdays(value) -> set:
+    if value is None:
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = str(value).split(",")
+    valid = {
+        "monday", "tuesday", "wednesday", "thursday",
+        "friday", "saturday", "sunday",
+    }
+    return {
+        str(item).strip().lower()
+        for item in values
+        if str(item).strip().lower() in valid
+    }
+
+
+def _assign_retry_period_neighbourhood_preferences(
+    sites: List[dict],
+    radius_km: float = RETRY_PERIOD_GROUP_RADIUS_KM,
+) -> None:
+    """
+    Propagate a retry's morning/afternoon preference to nearby buildings so the
+    optimiser can move a coherent local group with the revisit instead of making
+    an isolated time-of-day detour.
+
+    This is deliberately sequencing-only and bounded to the existing local
+    no-Google radius (plus exact full-postcode matches). It can cross strategic
+    cluster boundaries because geographic proximity, not the cluster label, is
+    what matters for keeping the local route coherent.
+    """
+    anchors = []
+    for anchor in sites:
+        period = _normalise_retry_period(
+            anchor.get("retry_preferred_period")
+        )
+        if not period:
+            continue
+        anchors.append((anchor, period))
+
+    if not anchors:
+        return
+
+    for site in sites:
+        preferences = set()
+        for anchor, period in anchors:
+            same_postcode = False
+            try:
+                a_pc = re.sub(r"\s+", "", str(anchor.get("postcode", "")).upper())
+                s_pc = re.sub(r"\s+", "", str(site.get("postcode", "")).upper())
+                same_postcode = bool(a_pc) and a_pc == s_pc
+            except Exception:
+                same_postcode = False
+
+            distance = haversine_km(
+                anchor.get("latitude"),
+                anchor.get("longitude"),
+                site.get("latitude"),
+                site.get("longitude"),
+            )
+            nearby = (
+                distance is not None
+                and float(distance) <= float(radius_km)
+            )
+
+            if same_postcode or nearby:
+                preferences.add(period)
+
+        # Conflicting nearby retry anchors cancel out rather than forcing an
+        # arbitrary morning/afternoon choice onto the local area.
+        site["_retry_group_preferred_period"] = (
+            next(iter(preferences)) if len(preferences) == 1 else ""
+        )
+
+
+def _retry_forbidden_on_date(site: dict, day_date) -> bool:
+    value = site.get("retry_forbidden_weekday")
+    if value is None or value == "":
+        return False
+    try:
+        forbidden = int(float(value))
+    except Exception:
+        return False
+    try:
+        return int(day_date.weekday()) == forbidden
+    except Exception:
+        return False
 
 
 def _coordinate_edge_distance_km(
@@ -1580,6 +1692,10 @@ class DailyTransitScheduler:
             remaining,
             radius_km=NO_GOOGLE_RADIUS_KM,
         )
+        _assign_retry_period_neighbourhood_preferences(
+            remaining,
+            radius_km=RETRY_PERIOD_GROUP_RADIUS_KM,
+        )
 
         scheduled: List[ScheduledSurvey] = []
 
@@ -1915,6 +2031,8 @@ class DailyTransitScheduler:
                 local_distance_sort = float("inf")
                 postcode_tier = 0
                 google_representative_tier = 0
+                retry_period_mismatch = False
+                retry_weekday_mismatch = False
 
                 if scheduled:
                     next_cluster = str(
@@ -1978,6 +2096,50 @@ class DailyTransitScheduler:
                         0 if idx in google_representative_indices else 1
                     )
 
+                # Retry morning/afternoon is a bounded SOFT preference. Nearby
+                # buildings inherit the revisit period, but geography still wins
+                # when forcing the period would create an inefficient detour.
+                group_period = _normalise_retry_period(
+                    site.get("_retry_group_preferred_period")
+                    or site.get("retry_preferred_period")
+                )
+                if group_period:
+                    if scheduled:
+                        estimated_leeway = self._site_to_site_leeway_minutes(
+                            current_site, site
+                        )
+                        estimated_start = current_time + timedelta(
+                            minutes=(
+                                float(minutes)
+                                + float(estimated_leeway)
+                                + float(self.pre_survey_buffer_minutes)
+                            )
+                        )
+                    else:
+                        estimated_start = first_survey_start
+
+                    retry_period_mismatch = (
+                        _time_period_for_datetime(estimated_start)
+                        != group_period
+                    )
+                    if (
+                        retry_period_mismatch
+                        and math.isfinite(float(local_group_tier))
+                    ):
+                        local_group_tier = (
+                            float(local_group_tier)
+                            + RETRY_PERIOD_MISMATCH_DISTANCE_PENALTY_KM
+                        )
+
+                preferred_weekdays = _retry_preferred_weekdays(
+                    site.get("retry_preferred_weekdays")
+                )
+                if preferred_weekdays:
+                    retry_weekday_mismatch = (
+                        first_survey_start.strftime("%A").lower()
+                        not in preferred_weekdays
+                    )
+
                 # AI priority is advisory: Google transit remains dominant.
                 # A 100-point AI priority can improve the candidate score by at
                 # most ai_priority_weight_minutes; a 0-point priority adds no bonus.
@@ -2028,6 +2190,16 @@ class DailyTransitScheduler:
                     - ai_adjustment
                     + defer_penalty
                     + special_request_adjustment
+                    + (
+                        RETRY_PERIOD_MISMATCH_SCORE_PENALTY_MINUTES
+                        if retry_period_mismatch
+                        else 0.0
+                    )
+                    + (
+                        RETRY_WEEKDAY_MISMATCH_SCORE_PENALTY_MINUTES
+                        if retry_weekday_mismatch
+                        else 0.0
+                    )
                 )
                 ranked.append(
                     (
@@ -2482,8 +2654,20 @@ class DailyTransitScheduler:
                 tzinfo=timezone,
             )
 
+            # Metro-fault retry rule: the failed weekday is a hard exclusion.
+            # Filter before build_day so forbidden retries do not create Google
+            # routing calls on that date. They remain in the weekly candidate
+            # pool for the later available dates.
+            day_sites = [
+                site
+                for site in remaining
+                if not _retry_forbidden_on_date(site, day_date)
+            ]
+            if not day_sites:
+                continue
+
             day_result = self.build_day(
-                sites=remaining,
+                sites=day_sites,
                 first_survey_start=first_survey_dt,
                 latest_survey_finish=latest_survey_finish_dt,
                 latest_return=return_deadline_dt,

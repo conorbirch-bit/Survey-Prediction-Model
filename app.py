@@ -35,6 +35,12 @@ from ai_planner import OpenAISchedulePlanner
 from tfl_client import TfLClient
 from metoffice_client import MetOfficeClient
 from salesforce_master import read_salesforce_or_standard_excel
+from retry_planner import (
+    build_retry_plan,
+    apply_retry_plan_to_portfolio,
+    build_retry_audit,
+    sense_check_retry_outputs,
+)
 from special_requests import (
     SpecialRequestResult,
     all_cluster_representatives,
@@ -440,6 +446,25 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
                 site_row.get("Special Request Target Cluster", "") or ""
             ),
             "special_request_bonus_minutes": 75.0,
+            "is_retry": bool(site_row.get("Is Retry", False)),
+            "retry_failure_type": str(
+                site_row.get("Retry Failure Type", "") or ""
+            ),
+            "retry_forbidden_weekday": optional_number(
+                site_row.get("Retry Forbidden Weekday Number")
+            ),
+            "retry_preferred_period": str(
+                site_row.get("Retry Preferred Period", "") or ""
+            ),
+            "retry_preferred_weekdays": str(
+                site_row.get("Retry Preferred Weekdays", "") or ""
+            ),
+            "retry_decision_reason": str(
+                site_row.get("Retry Decision Reason", "") or ""
+            ),
+            "work_order_number": str(
+                site_row.get("Work Order Number", "") or ""
+            ),
         })
     return sites
 
@@ -852,6 +877,22 @@ with tab2:
             "Postcode, Building Height, Sovereign Flat, Internal Ground Floor "
             "Area, Drawing Status and Earliest Survey Date."
         ),
+    )
+
+    retry_file = st.file_uploader(
+        "Cannot Complete retry workbook (optional)",
+        type=["xlsx", "xls"],
+        key="cannot_complete_retry_file",
+        help=(
+            "Two-tab Salesforce workbook: one tab contains Cannot Complete "
+            "reasons plus Metro/Customer fault, and the other contains the old "
+            "and replacement Service Appointment IDs plus the old Actual Start."
+        ),
+    )
+    st.caption(
+        "Retry workflow runs before clustering: deterministic business rules first, "
+        "AI only for customer-fault access interpretation, then only approved "
+        "retries enter the normal geographic scheduling pipeline."
     )
 
     if team_file is None:
@@ -1296,8 +1337,80 @@ with tab2:
                                         "across the team, then routing only each "
                                         "person's shortlist..."
                                     ):
+                                        # --------------------------------------------------
+                                        # Cannot Complete retry gate — BEFORE clustering.
+                                        # --------------------------------------------------
+                                        # The existing scheduler is unchanged for normal
+                                        # sites. Only approved retry rows are injected; held
+                                        # customer failures are removed from this run before
+                                        # duration prediction / geographic clustering.
+                                        retry_plan = None
+                                        retry_apply_stats = {}
+                                        team_upcoming_for_run = team_upcoming.copy()
+                                        team_predictions_for_run = team_predictions
+                                        team_portfolio_input_for_run = team_portfolio_input
+
+                                        if retry_file is not None:
+                                            retry_plan = build_retry_plan(
+                                                retry_file.getvalue(),
+                                                openai_api_key=team_openai_key,
+                                                openai_model=team_openai_model,
+                                            )
+                                            for warning in retry_plan.warnings:
+                                                st.warning(warning)
+
+                                            (
+                                                team_upcoming_for_run,
+                                                retry_apply_stats,
+                                            ) = apply_retry_plan_to_portfolio(
+                                                team_upcoming,
+                                                retry_plan.decisions,
+                                            )
+
+                                            # Re-run only the existing prediction step on
+                                            # the retry-gated portfolio so reconstructed
+                                            # retries get the same model treatment as every
+                                            # normal future survey.
+                                            team_predictions_for_run = predict_upcoming(
+                                                team_upcoming_for_run
+                                            )
+                                            team_portfolio_input_for_run = (
+                                                team_predictions_for_run[
+                                                    team_predictions_for_run[
+                                                        "Postcode"
+                                                    ].notna()
+                                                    & (
+                                                        team_predictions_for_run[
+                                                            "Postcode"
+                                                        ]
+                                                        .astype(str)
+                                                        .str.strip()
+                                                        != ""
+                                                    )
+                                                ].copy()
+                                            )
+
+                                            st.caption(
+                                                "Retry gate: "
+                                                f"{retry_plan.stats.get('retry_eligible', 0)} "
+                                                "approved retries entered the portfolio; "
+                                                f"{retry_plan.stats.get('client_access_required', 0)} "
+                                                "require client access; "
+                                                f"{retry_plan.stats.get('ignored', 0)} ignored/held. "
+                                                f"Existing rows annotated: "
+                                                f"{retry_apply_stats.get('annotated_existing', 0)}; "
+                                                f"missing retry rows reconstructed: "
+                                                f"{retry_apply_stats.get('appended_missing', 0)}."
+                                            )
+
+                                        if team_portfolio_input_for_run.empty:
+                                            raise ValueError(
+                                                "No schedulable portfolio rows remain after "
+                                                "the Cannot Complete retry gate."
+                                            )
+
                                         team_portfolio = add_portfolio_fields(
-                                            team_portfolio_input,
+                                            team_portfolio_input_for_run,
                                             target_week_start=team_week_start,
                                             today=today,
                                         )
@@ -2295,8 +2408,44 @@ with tab2:
 
                                         salesforce_copy_df = build_salesforce_copy(
                                             combined_team_schedule,
-                                            team_upcoming,
+                                            team_upcoming_for_run,
                                         )
+
+                                        retry_audit_df = pd.DataFrame()
+                                        retry_sense_check_df = pd.DataFrame()
+                                        client_access_required_df = pd.DataFrame()
+                                        if retry_plan is not None:
+                                            retry_audit_df = build_retry_audit(
+                                                retry_plan.decisions,
+                                                combined_team_schedule,
+                                            )
+                                            client_access_required_df = (
+                                                retry_plan.client_access_required.copy()
+                                            )
+                                            retry_sense_check_df = (
+                                                sense_check_retry_outputs(
+                                                    retry_plan.decisions,
+                                                    retry_audit_df,
+                                                    salesforce_copy_df,
+                                                )
+                                            )
+
+                                            failed_retry_checks = (
+                                                retry_sense_check_df[
+                                                    retry_sense_check_df[
+                                                        "Status"
+                                                    ].eq("FAIL")
+                                                ]
+                                            )
+                                            if not failed_retry_checks.empty:
+                                                raise ValueError(
+                                                    "Retry sense check failed: "
+                                                    + "; ".join(
+                                                        failed_retry_checks[
+                                                            "Details"
+                                                        ].astype(str).tolist()
+                                                    )
+                                                )
 
                                         cluster_matrix_rows = []
                                         for surveyor in active_surveyors:
@@ -2648,6 +2797,44 @@ with tab2:
                                         f"{total_team_travel} min",
                                     )
 
+                                    if retry_plan is not None:
+                                        st.markdown("#### Retry decisions / human audit")
+                                        r1, r2, r3 = st.columns(3)
+                                        r1.metric(
+                                            "Retries approved",
+                                            retry_plan.stats.get("retry_eligible", 0),
+                                        )
+                                        r2.metric(
+                                            "Client access required",
+                                            retry_plan.stats.get(
+                                                "client_access_required", 0
+                                            ),
+                                        )
+                                        r3.metric(
+                                            "Ignored / held",
+                                            retry_plan.stats.get("ignored", 0),
+                                        )
+                                        st.dataframe(
+                                            retry_audit_df,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
+
+                                        if not client_access_required_df.empty:
+                                            st.markdown("##### Client Access Required")
+                                            st.dataframe(
+                                                client_access_required_df,
+                                                use_container_width=True,
+                                                hide_index=True,
+                                            )
+
+                                        st.markdown("##### Retry sense check")
+                                        st.dataframe(
+                                            retry_sense_check_df,
+                                            use_container_width=True,
+                                            hide_index=True,
+                                        )
+
                                     st.markdown(
                                         "#### Scheduled-building prediction reliability"
                                     )
@@ -2664,7 +2851,7 @@ with tab2:
                                             "reliability analysis."
                                         )
                                     else:
-                                        reliability_source = team_predictions[[
+                                        reliability_source = team_predictions_for_run[[
                                             c for c in [
                                                 "Customer Reference",
                                                 "Prediction Model Used",
@@ -2675,7 +2862,7 @@ with tab2:
                                                 "Prediction Feature Count",
                                                 "Predicted Survey Duration (Minutes)",
                                             ]
-                                            if c in team_predictions.columns
+                                            if c in team_predictions_for_run.columns
                                         ]].drop_duplicates(
                                             subset=["Customer Reference"]
                                         )
@@ -2912,6 +3099,23 @@ with tab2:
                                             special_request_results_df.to_excel(
                                                 writer,
                                                 sheet_name="Weekly Notes",
+                                                index=False,
+                                            )
+                                        if retry_plan is not None:
+                                            retry_audit_df.to_excel(
+                                                writer,
+                                                sheet_name="Retry Decisions",
+                                                index=False,
+                                            )
+                                            if not client_access_required_df.empty:
+                                                client_access_required_df.to_excel(
+                                                    writer,
+                                                    sheet_name="Client Access Required",
+                                                    index=False,
+                                                )
+                                            retry_sense_check_df.to_excel(
+                                                writer,
+                                                sheet_name="Retry Sense Check",
                                                 index=False,
                                             )
                                         team_portfolio.to_excel(
