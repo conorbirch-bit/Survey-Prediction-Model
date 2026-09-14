@@ -895,6 +895,22 @@ def apply_retry_plan_to_portfolio(
         result["Work Order Number"] = ""
         wo_col = "Work Order Number"
 
+    # Salesforce identifiers are identifiers, not numeric measures. Excel/pandas
+    # can infer an all-numeric/blank Work Order or Service Appointment column as
+    # float64; retry injection then needs to write values such as "01023173" or
+    # "08pR..." into that column. Keep only these identifier fields object-typed
+    # so leading zeroes and Salesforce IDs are preserved safely.
+    identifier_columns = {
+        wo_col,
+        "Work Order Number",
+        "Work Order",
+        "Service Appointment ID",
+        "Primary Service Appointment: Service Appointment ID",
+    }
+    for identifier_col in identifier_columns:
+        if identifier_col in result.columns:
+            result[identifier_col] = result[identifier_col].astype(object)
+
     result["_retry_wo"] = result[wo_col].apply(_normalise_work_order)
 
     decision_by_wo = {
@@ -978,7 +994,20 @@ def apply_retry_plan_to_portfolio(
                 if len(result.index) and isinstance(result.index.max(), (int, float))
                 else len(result)
             )
-            result.loc[new_index] = candidate
+
+            # Concatenating a one-row frame lets pandas widen only the affected
+            # identifier columns to object where necessary. Direct
+            # result.loc[new_index] = candidate can fail when the Salesforce
+            # export inferred Work Order Number as float64.
+            candidate_frame = pd.DataFrame(
+                [candidate],
+                index=[new_index],
+            )
+            result = pd.concat(
+                [result, candidate_frame],
+                axis=0,
+                sort=False,
+            )
             row_index = new_index
             appended_missing += 1
 
