@@ -946,9 +946,22 @@ def apply_retry_plan_to_portfolio(
         "Retry Replacement Service Appointment ID",
         "Retry AI Confidence",
     ]
+
+    # Retry metadata is intentionally mixed-type: booleans, datetimes, weekday
+    # numbers and text all live in this annotation layer. Pandas 3 can infer a
+    # newly-created "" column as strict StringDtype, which then rejects values
+    # such as True or a Timestamp. Keep the metadata columns object-typed so the
+    # agreed retry values can be written without coercing business data.
     for col in annotation_columns:
         if col not in result.columns:
-            result[col] = ""
+            default_value = False if col == "Is Retry" else None
+            result[col] = pd.Series(
+                [default_value] * len(result),
+                index=result.index,
+                dtype=object,
+            )
+        else:
+            result[col] = result[col].astype(object)
 
     annotated_existing = 0
     appended_missing = 0
