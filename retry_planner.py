@@ -86,6 +86,20 @@ def _as_int(value, default: int = 0) -> int:
         return default
 
 
+def _as_optional_float(value):
+    try:
+        if value is None or pd.isna(value):
+            return None
+    except Exception:
+        if value is None:
+            return None
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _parse_datetime(value):
     if value is None:
         return pd.NaT
@@ -432,6 +446,30 @@ def _resolve_replacement_sa(
             if postcode:
                 break
 
+    # Prefer coordinates from the replacement SA row. If that row is blank,
+    # fall back to any valid coordinates attached to the same Work Order.
+    latitude = None
+    longitude = None
+    coordinate_rows = []
+    if replacement is not None:
+        coordinate_rows.append(replacement)
+    coordinate_rows.extend(
+        group.iloc[idx]
+        for idx in range(len(group))
+    )
+
+    for coordinate_row in coordinate_rows:
+        if latitude is None:
+            latitude = _as_optional_float(
+                coordinate_row.get("Latitude")
+            )
+        if longitude is None:
+            longitude = _as_optional_float(
+                coordinate_row.get("Longitude")
+            )
+        if latitude is not None and longitude is not None:
+            break
+
     return {
         "Replacement Service Appointment ID": (
             _normalise_sa_id(replacement.get("Service Appointment ID"))
@@ -441,6 +479,8 @@ def _resolve_replacement_sa(
         "Mapping Status": status,
         "Previous Visit": previous_visit,
         "Postcode from SA Report": postcode,
+        "Latitude from SA Report": latitude,
+        "Longitude from SA Report": longitude,
     }
 
 
@@ -621,6 +661,8 @@ def build_retry_plan(
             ),
             "Building Name": _clean_text(event.get("Building Name")),
             "Postcode": _clean_text(mapping.get("Postcode from SA Report")),
+            "Source Latitude": mapping.get("Latitude from SA Report"),
+            "Source Longitude": mapping.get("Longitude from SA Report"),
             "Old Service Appointment ID": _normalise_sa_id(
                 event.get("Old Service Appointment ID")
             ),
@@ -859,6 +901,8 @@ def _candidate_row_from_retry(decision: pd.Series) -> dict:
         "Planned Start": None,
         "Building Height": decision.get("Source Building Height"),
         "Sovereign Flat": decision.get("Source Sovereign Flat"),
+        "Latitude": decision.get("Source Latitude"),
+        "Longitude": decision.get("Source Longitude"),
         "Service Appointment ID": decision.get(
             "Replacement Service Appointment ID", ""
         ),
@@ -1029,6 +1073,41 @@ def apply_retry_plan_to_portfolio(
         )
         result.at[row_index, "Work Order Number"] = wo
         result.at[row_index, "Service Appointment ID"] = replacement
+
+        source_latitude = _as_optional_float(
+            decision.get("Source Latitude")
+        )
+        source_longitude = _as_optional_float(
+            decision.get("Source Longitude")
+        )
+
+        # Preserve any richer Future Surveys coordinates already present.
+        # Only fill a coordinate field when the existing row is blank/missing.
+        if source_latitude is not None:
+            if "Latitude" not in result.columns:
+                result["Latitude"] = pd.Series(
+                    [None] * len(result),
+                    index=result.index,
+                    dtype=object,
+                )
+            existing_latitude = _as_optional_float(
+                result.at[row_index, "Latitude"]
+            )
+            if existing_latitude is None:
+                result.at[row_index, "Latitude"] = source_latitude
+
+        if source_longitude is not None:
+            if "Longitude" not in result.columns:
+                result["Longitude"] = pd.Series(
+                    [None] * len(result),
+                    index=result.index,
+                    dtype=object,
+                )
+            existing_longitude = _as_optional_float(
+                result.at[row_index, "Longitude"]
+            )
+            if existing_longitude is None:
+                result.at[row_index, "Longitude"] = source_longitude
         result.at[
             row_index,
             "Primary Service Appointment: Service Appointment ID",
