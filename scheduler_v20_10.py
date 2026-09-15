@@ -8,6 +8,7 @@ import re
 from difflib import SequenceMatcher
 
 import pandas as pd
+from google_routes import GoogleNoRouteError, GoogleRoutesError
 
 from coordinate_clustering import (
     NO_GOOGLE_RADIUS_KM,
@@ -1708,6 +1709,7 @@ class DailyTransitScheduler:
             "coordinate_radius_bypasses": 0,
             "legacy_campus_bypasses": 0,
             "collapsed_nearby_destinations": 0,
+            "fallback_search_passes": 0,
         }
 
         current_location = self.home_location
@@ -1754,6 +1756,13 @@ class DailyTransitScheduler:
             tzinfo=first_survey_start.tzinfo,
         )
 
+        # Rejected candidates are exhausted only at this location/time. Explore
+        # the next small Google batch before ending a day; never re-query an
+        # exhausted batch at the same state. A survey or lunch resets the state.
+        search_state = None
+        exhausted_indices = set()
+        lunch_blocked_candidate = False
+
         while remaining:
             # Take lunch at the first natural between-survey boundary from 11:45.
             # The break must START by 13:00. It is a hard constraint, not an AI
@@ -1773,6 +1782,11 @@ class DailyTransitScheduler:
             # be protected. Do not schedule additional work after missing lunch.
             if not lunch_taken and current_time > lunch_latest_start:
                 break
+            state = (len(scheduled), current_time)
+            if state != search_state:
+                search_state = state
+                exhausted_indices = set()
+                lunch_blocked_candidate = False
             # Coordinate-first Google reduction.
             #
             # After the first site is reached, a remaining building is NOT sent
@@ -1850,6 +1864,8 @@ class DailyTransitScheduler:
             )
 
             for idx, site in enumerate(remaining):
+                if idx in exhausted_indices:
+                    continue
                 bypass = False
                 distance = None
                 bypass_reason = ""
@@ -1960,6 +1976,8 @@ class DailyTransitScheduler:
                     google_destinations,
                     current_time,
                 )
+                if len(google_matrix) != len(google_groups):
+                    raise GoogleRoutesError("Google returned an incomplete routing matrix.")
 
                 for group, minutes in zip(
                     google_groups,
@@ -2219,9 +2237,6 @@ class DailyTransitScheduler:
                     )
                 )
 
-            if not ranked:
-                break
-
             # Route sequencing is local-first rather than strategic-cluster-first.
             #
             # Once the current road/development is finished, choose the nearest
@@ -2251,11 +2266,13 @@ class DailyTransitScheduler:
 
             # Do not rebuild the feasibility pool by strategic cluster after the
             # local-first sort; doing so would undo the sequencing decision above.
-            # The pool size is unchanged, so this adds no Google calls.
-            candidate_pool = ranked[:self.max_candidate_checks]
+            # Check all already-routed candidates, not just the first eight.
+            # Cheap duration/lunch checks still precede return-home routing.
+            # max_candidate_checks is retained in the constructor for callers
+            # using the old API; Google group batches remain bounded separately.
+            candidate_pool = ranked
 
             chosen = None
-            lunch_blocked_candidate = False
 
             for (
                 _,
@@ -2275,13 +2292,17 @@ class DailyTransitScheduler:
                 site = remaining[idx]
 
                 is_first_survey = len(scheduled) == 0
+                first_site_start = max(first_survey_start, current_time)
+                earliest_start = first_site_start if is_first_survey else current_time
+                if earliest_start + timedelta(minutes=float(site["planning_minutes"])) > latest_survey_finish:
+                    continue
 
                 if is_first_survey:
                     # Back-calculate home departure so the first survey begins at
                     # the selected target rather than after an arbitrary fixed
                     # "leave home" time. Use one exact Compute Routes call only for
                     # the shortlisted candidate being feasibility-tested.
-                    estimated_departure = first_survey_start - timedelta(
+                    estimated_departure = first_site_start - timedelta(
                         minutes=(
                             travel_minutes
                             + self.travel_leeway_minutes
@@ -2294,7 +2315,7 @@ class DailyTransitScheduler:
                             site["route_location"],
                             estimated_departure,
                         )
-                    except Exception:
+                    except GoogleNoRouteError:
                         continue
 
                     buffered_travel_minutes = (
@@ -2305,7 +2326,7 @@ class DailyTransitScheduler:
                     # the exact route duration we just received so the first
                     # survey starts at the selected time rather than merely
                     # "not before" it. This does not add another Google call.
-                    depart_previous = first_survey_start - timedelta(
+                    depart_previous = first_site_start - timedelta(
                         minutes=(
                             buffered_travel_minutes
                             + self.pre_survey_buffer_minutes
@@ -2314,7 +2335,7 @@ class DailyTransitScheduler:
                     arrive = depart_previous + timedelta(
                         minutes=buffered_travel_minutes
                     )
-                    survey_start = first_survey_start
+                    survey_start = first_site_start
                 else:
                     site_to_site_leeway = self._site_to_site_leeway_minutes(
                         current_site, site
@@ -2447,7 +2468,7 @@ class DailyTransitScheduler:
                         self.home_location,
                         return_departure_for_check,
                     )
-                except Exception:
+                except GoogleNoRouteError:
                     continue
 
                 return_time = return_departure_for_check + timedelta(
@@ -2469,6 +2490,10 @@ class DailyTransitScheduler:
                     break
 
             if chosen is None:
+                exhausted_indices.update(travel_by_index)
+                if len(exhausted_indices) < len(remaining):
+                    routing_stats["fallback_search_passes"] += 1
+                    continue
                 # All otherwise-attractive candidates would cause lunch to be
                 # missed. Reserve lunch at 11:45, then re-run routing at 12:15.
                 if (
@@ -2707,4 +2732,3 @@ class DailyTransitScheduler:
             days=days,
             unscheduled_sites=remaining,
         )
-

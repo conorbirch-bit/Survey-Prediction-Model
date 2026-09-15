@@ -15,6 +15,10 @@ class GoogleRoutesError(RuntimeError):
     pass
 
 
+class GoogleNoRouteError(GoogleRoutesError):
+    """A successful routing request found no public-transport journey."""
+
+
 @dataclass
 class TransitRoute:
     origin: str
@@ -158,7 +162,7 @@ class GoogleTransitRouter:
         data = response.json()
         routes = data.get("routes") or []
         if not routes:
-            raise GoogleRoutesError(
+            raise GoogleNoRouteError(
                 f"No public-transport route found from {origin} to {destination}."
             )
 
@@ -242,13 +246,17 @@ class GoogleTransitRouter:
             batch_values: List[Optional[float]] = [None] * len(batch)
 
             for element in elements:
-                idx = element.get("destinationIndex")
-                if idx is None or idx >= len(batch):
-                    continue
-                if element.get("condition") != "ROUTE_EXISTS":
-                    continue
                 status = element.get("status") or {}
                 if status.get("code", 0) not in (0, None):
+                    raise GoogleRoutesError(
+                        "Google Route Matrix element failed "
+                        f"(code {status.get('code')}): "
+                        f"{str(status.get('message', 'Routing service error'))[:300]}"
+                    )
+                idx = element.get("destinationIndex")
+                if idx is None or idx < 0 or idx >= len(batch):
+                    continue
+                if element.get("condition") != "ROUTE_EXISTS":
                     continue
                 if element.get("duration"):
                     batch_values[idx] = self._seconds(

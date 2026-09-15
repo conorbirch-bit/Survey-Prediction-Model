@@ -73,7 +73,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.11 — split small-building models + same-road leeway")
+st.caption("Version 20.11.1 — candidate search and API failure fixes")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -3183,5 +3183,4 @@ with tab3:
         "MAE is leave-one-out cross-validation error on the historical "
         "completed-survey data."
     )
-
 

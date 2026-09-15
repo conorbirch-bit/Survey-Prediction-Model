@@ -1,3 +1,45 @@
+# Site Survey Scheduling Agent — Version 20.11.1
+
+This is a focused update to the uploaded 20.11 code. The older version notes below are retained as history.
+
+## Install and run
+
+Extract the ZIP and copy the contents of `scheduling_agent` into your existing project folder, replacing matching files. Filenames are restored to their importable names: `app.py`, `team_scheduler.py`, etc., without the download suffix `(1)`.
+
+Keep your existing API secrets and `Predictive Model.xlsx`. No secrets or real survey data are included. If the training workbook is not alongside `app.py`, upload your completed-surveys workbook through the sidebar.
+
+```bash
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+```
+
+For an existing Streamlit deployment, replace the project files and reboot the app. The page should show **Version 20.11.1**. The active scheduler module remains `scheduler_v20_10.py`; the older scheduler modules are retained but are not imported by the app.
+
+## What changed
+
+- The daily scheduler checks all already-routed candidates before concluding that no more work fits. Previously it examined only the first eight.
+- When the first geographic batch has no feasible work, it checks the next batch. Each batch still contains at most eight geographic representatives. Rejected candidates are not re-queried at the same position/time; a survey or lunch starts a fresh search state.
+- Cheap duration checks reject jobs that cannot fit before requesting exact outbound/return routes. Fallback searches can use additional Google calls when needed to find usable work; this is not a guarantee of unchanged API cost.
+- Google service, quota and permission failures propagate to the app's error handler instead of silently appearing as infeasible sites. A successful request with no public-transport route still allows another site to be tried. Matrix element errors are surfaced even when the HTTP response succeeds.
+- If a later AI retry-triage batch fails, completed decisions are retained. Cases with no valid decision remain excluded and a warning identifies the partial triage.
+- If lunch must occur before a long first survey, the first survey starts after lunch rather than being incorrectly reset to the original morning time.
+
+The duration models, cluster allocation, local-first route ordering, far-cluster efficiency threshold, weekly notes, Salesforce export format and existing retry business rules retain the uploaded implementation. No automatic reassignment of leftovers between surveyors was introduced.
+
+The final AI narrative is generated after the schedules: failure of that summary does not itself alter the schedules. An earlier triage failure can reduce the retry pool; a Google routing failure now stops the run visibly.
+
+## Verification
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+15 offline regression checks passed. These cover candidate search beyond eight, geographic-batch exhaustion, route failures, retry overlap and missing-building insertion, completed AI batch retention, lunch, return deadlines, retry weekday exclusion, and a local route with a rejected inefficient remote detour. The first three regression cases were reproduced as failures against the uploaded code before applying the fixes. All Python modules compiled. Streamlit startup passed with synthetic duration-training data.
+
+No live Google/OpenAI calls or real weekly portfolio replay were performed. The completed-surveys training workbook, actual future portfolio, cannot-completes workbook and problematic output were not included in this upload. These are needed to establish the impact on the specific surveyors' days and investigate remaining allocation or travel problems. Static initial team shortlists can still leave unused work with one surveyor while another has spare time.
+
+## Historical release notes
+
 
 ## Version 20 duration-model change
 

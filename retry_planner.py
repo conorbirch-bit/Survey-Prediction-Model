@@ -506,6 +506,7 @@ class CannotCompleteAIPlanner:
         self.model = model
 
     def triage(self, cases: Sequence[dict], batch_size: int = 40) -> Dict[str, dict]:
+        self.warnings = []
         if not cases:
             return {}
 
@@ -573,16 +574,30 @@ Return JSON only:
 
         for start in range(0, len(cases), max(1, int(batch_size))):
             batch = cases[start:start + max(1, int(batch_size))]
-            response = self.client.responses.create(
-                model=self.model,
-                instructions=instructions,
-                input=json.dumps({"cases": batch}, ensure_ascii=False, default=str),
-            )
-            data = _parse_json_output(response.output_text)
+            try:
+                response = self.client.responses.create(
+                    model=self.model,
+                    instructions=instructions,
+                    input=json.dumps({"cases": batch}, ensure_ascii=False, default=str),
+                )
+                data = _parse_json_output(response.output_text)
+                if not isinstance(data, dict) or not isinstance(data.get("decisions"), list):
+                    raise ValueError("AI triage did not return a decisions list.")
+            except Exception as exc:
+                self.warnings.append(
+                    "Customer-fault AI access triage stopped. "
+                    f"Kept {len(results)} completed decision(s); cases without "
+                    f"a valid decision remain held out. Error: {exc}"
+                )
+                break
 
             for item in data.get("decisions", []):
+                if not isinstance(item, dict):
+                    continue
                 wo = _normalise_work_order(item.get("work_order"))
-                if not wo:
+                if not wo or wo not in {
+                    _normalise_work_order(case.get("work_order")) for case in batch
+                }:
                     continue
                 decision = _clean_text(item.get("decision")).upper()
                 if decision not in RETRY_DECISIONS:
@@ -780,10 +795,12 @@ def build_retry_plan(
             )
         else:
             try:
-                ai_results = CannotCompleteAIPlanner(
+                triage_planner = CannotCompleteAIPlanner(
                     openai_api_key,
                     openai_model,
-                ).triage(ai_cases)
+                )
+                ai_results = triage_planner.triage(ai_cases)
+                warnings.extend(triage_planner.warnings)
             except Exception as exc:
                 warnings.append(
                     "Customer-fault AI access triage failed. Affected cases were "
