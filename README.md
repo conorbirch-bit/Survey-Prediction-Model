@@ -1,4 +1,4 @@
-# Site Survey Scheduling Agent — Version 20.11.1
+# Site Survey Scheduling Agent — Version 20.11.2
 
 This is a focused update to the uploaded 20.11 code. The older version notes below are retained as history.
 
@@ -13,9 +13,23 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-For an existing Streamlit deployment, replace the project files and reboot the app. The page should show **Version 20.11.1**. The active scheduler module remains `scheduler_v20_10.py`; the older scheduler modules are retained but are not imported by the app.
+For an existing Streamlit deployment, replace the project files and reboot the app. The page should show **Version 20.11.2**. The active scheduler module remains `scheduler_v20_10.py`; the older scheduler modules are retained but are not imported by the app.
 
-## What changed
+## Version 20.11.2 changes
+
+- When the current site has no coordinates, coordinate sequencing ranks are disabled, allowing measured Google times to choose between otherwise equally preferred candidates. Unknown destination coordinates do not receive invented nearest-neighbour ranks. Existing local and same-road preferences remain in place. This fixes a reproduced 30-minute move being selected ahead of an available 2-minute move.
+- After initial home-fit allocation, workload repair now considers everyone whose predicted candidate workload is below their share of available days, including people with a small nonzero allocation. Transfers come from colleagues' surplus while retaining their targets. The target is capped at the selected survey window after lunch, plus the existing 25% candidate reserve. It is not a cap on the number of candidate sites retained.
+- Transfers prefer lower home transit times and continuity, use the existing home-to-cluster matrix, and add no allocation-stage Google calls. They change candidate pools; the day scheduler continues to enforce lunch, survey/return deadlines, availability and retry restrictions. A candidate allocation is not a promise that all jobs fit the final schedule.
+- Surveyors with no selected dates do not receive allocations.
+- The app displays retry coordinate coverage. An added `Run Settings` worksheet records the version, selected time windows and coordinate counts to make future output checks reproducible.
+
+## Uploaded report check
+
+The report `15.09.2026 8.08pm(1).xlsx` contains usable coordinates and an unambiguous replacement appointment for all 361 Work Orders. The importer already supports this layout; no workbook changes were needed. An offline replay reused the existing AI access decisions from `Team_Survey_Week_2026-09-21.xlsx` to avoid new AI calls: all 274 approved retries retained their coordinates, and all 685 portfolio rows had valid coordinates after clustering. Planning clusters changed from 75 to 65 when the coordinate-based layer was recomputed.
+
+Separately, applying workload repair to the OLD allocations and their saved home matrix increased Rod's candidate allocation from 22 to 75 sites (roughly 202 to 1,003 estimated survey minutes), retaining 666 distinct candidate rows across the team. That isolates the allocation repair; it is not a forecast of the new live schedule, since corrected coordinates will change clusters and require fresh routing.
+
+## Retained Version 20.11.1 fixes
 
 - The daily scheduler checks all already-routed candidates before concluding that no more work fits. Previously it examined only the first eight.
 - When the first geographic batch has no feasible work, it checks the next batch. Each batch still contains at most eight geographic representatives. Rejected candidates are not re-queried at the same position/time; a survey or lunch starts a fresh search state.
@@ -24,7 +38,7 @@ For an existing Streamlit deployment, replace the project files and reboot the a
 - If a later AI retry-triage batch fails, completed decisions are retained. Cases with no valid decision remain excluded and a warning identifies the partial triage.
 - If lunch must occur before a long first survey, the first survey starts after lunch rather than being incorrectly reset to the original morning time.
 
-The duration models, cluster allocation, local-first route ordering, far-cluster efficiency threshold, weekly notes, Salesforce export format and existing retry business rules retain the uploaded implementation. No automatic reassignment of leftovers between surveyors was introduced.
+The duration models, far-cluster efficiency threshold, weekly notes, Salesforce export format and retry business rules retain the uploaded implementation. Workload repair occurs before daily routing; there is no additional reassignment of leftovers after the individual weeks have been built.
 
 The final AI narrative is generated after the schedules: failure of that summary does not itself alter the schedules. An earlier triage failure can reduce the retry pool; a Google routing failure now stops the run visibly.
 
@@ -34,9 +48,9 @@ The final AI narrative is generated after the schedules: failure of that summary
 python -m unittest discover -s tests -v
 ```
 
-15 offline regression checks passed. These cover candidate search beyond eight, geographic-batch exhaustion, route failures, retry overlap and missing-building insertion, completed AI batch retention, lunch, return deadlines, retry weekday exclusion, and a local route with a rejected inefficient remote detour. The first three regression cases were reproduced as failures against the uploaded code before applying the fixes. All Python modules compiled. Streamlit startup passed with synthetic duration-training data.
+23 offline regression checks passed, including the new missing-coordinate routing and workload repair cases. These cover candidate search beyond eight, geographic-batch exhaustion, route failures, retry overlap and missing-building insertion, completed AI batch retention, lunch, return deadlines, retry weekday exclusion, and a local route with a rejected inefficient remote detour. The first three regression cases were reproduced as failures against the uploaded code before applying the fixes. All Python modules compiled. Streamlit startup passed with synthetic duration-training data.
 
-No live Google/OpenAI calls or real weekly portfolio replay were performed. The completed-surveys training workbook, actual future portfolio, cannot-completes workbook and problematic output were not included in this upload. These are needed to establish the impact on the specific surveyors' days and investigate remaining allocation or travel problems. Static initial team shortlists can still leave unused work with one surveyor while another has spare time.
+No live Google/OpenAI calls were made. Import/clustering and allocation were checked against the supplied files as described above. Startup used synthetic training data. An actual full-week rerun with your completed-surveys training workbook and current input reports is still required to measure survey/travel time and final daily utilisation. An underfilled day may remain where hard constraints or practical travel prevent further work.
 
 ## Historical release notes
 

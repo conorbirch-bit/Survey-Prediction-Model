@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
+import math
 from typing import Dict, List, Sequence, Tuple
 
 import pandas as pd
@@ -741,12 +742,106 @@ def _ensure_available_surveyors_have_work(
     ]
 
 
+def _balance_candidate_workload(
+    allocations: Sequence[ClusterAllocation],
+    surveyors: Sequence[SurveyorConfig],
+    travel_matrix: Dict[Tuple[str, str], float],
+    capacities: Dict[str, int],
+    candidate_minutes_per_day: float = None,
+) -> List[ClusterAllocation]:
+    """Supply underloaded people from colleagues' surplus candidate workload.
+
+    The existing home-fit allocation runs first. Repair only workload below a
+    proportional share of predicted minutes, capped at the selected day window
+    plus candidate reserve when provided. Donors keep their own target. This
+    uses the existing home matrix and moves candidates, not booked visits;
+    detailed routing still enforces every daily constraint.
+    """
+    working = [ClusterAllocation(**asdict(a)) for a in allocations]
+    days = {s.name: len(set(s.available_dates or [])) for s in surveyors
+            if s.available_dates}
+    if not working or not days:
+        return working
+    minutes_per_day = sum(a.estimated_candidate_minutes for a in working) / sum(days.values())
+    if candidate_minutes_per_day is not None:
+        minutes_per_day = min(minutes_per_day, max(0.0, float(candidate_minutes_per_day)))
+    targets = {name: count * minutes_per_day for name, count in days.items()}
+
+    def loads():
+        minutes = {name: 0.0 for name in days}
+        counts = {name: 0 for name in days}
+        for a in working:
+            minutes[a.surveyor_name] += a.estimated_candidate_minutes
+            counts[a.surveyor_name] += a.target_sites
+        return minutes, counts
+
+    # Every transfer lowers the recipient's deficit without taking a donor
+    # below target, so a transferred site cannot bounce between surveyors.
+    while True:
+        minutes, counts = loads()
+        recipients = sorted(days, key=lambda name: (
+            minutes[name] / max(targets[name], 1.0), name,
+        ))
+        moved = False
+        for recipient in recipients:
+            needed = targets[recipient] - minutes[recipient]
+            capacity_left = capacities.get(recipient, 0) - counts[recipient]
+            if needed <= 0.1 or capacity_left <= 0:
+                continue
+            recipient_clusters = {a.cluster for a in working
+                                  if a.surveyor_name == recipient and a.target_sites > 0}
+            options = []
+            for idx, a in enumerate(working):
+                donor = a.surveyor_name
+                if donor == recipient or a.target_sites <= 0:
+                    continue
+                per_site = a.estimated_candidate_minutes / a.target_sites
+                surplus = minutes[donor] - targets[donor]
+                travel = _travel_minutes_for_allocation(travel_matrix, recipient, a.cluster)
+                if per_site <= 0 or not math.isfinite(per_site) or travel is None:
+                    continue
+                take = min(a.target_sites, capacity_left,
+                           max(0, math.floor((surplus + 1e-7) / per_site)),
+                           max(1, math.ceil(needed / per_site)))
+                if take <= 0:
+                    continue
+                # Avoid adding more workload than it resolves for a nearly
+                # supplied recipient (e.g. one huge survey for a tiny deficit).
+                transfer_minutes = take * per_site
+                if abs(needed - transfer_minutes) >= needed - 1e-7:
+                    continue
+                extra_commute = max(0.0, travel - a.home_to_cluster_minutes)
+                score = travel + extra_commute - (12.0 if a.cluster in recipient_clusters else 0.0)
+                options.append((score, -transfer_minutes, idx, take, travel))
+            if not options:
+                continue
+            _, _, idx, take, travel = min(options)
+            a = working[idx]
+            transfer_minutes = a.estimated_candidate_minutes * take / a.target_sites
+            a.target_sites -= take
+            a.estimated_candidate_minutes -= transfer_minutes
+            working.append(ClusterAllocation(
+                surveyor_name=recipient, cluster=a.cluster, target_sites=take,
+                home_to_cluster_minutes=round(travel, 1),
+                cluster_priority=a.cluster_priority,
+                cluster_reason=(a.cluster_reason + " Workload repair: transferred surplus "
+                                "candidate minutes to cover selected available days."),
+                estimated_candidate_minutes=transfer_minutes,
+            ))
+            moved = True
+            break
+        if not moved:
+            break
+    return [a for a in working if a.target_sites > 0]
+
+
 def allocate_cluster_targets(
     cluster_choices: Sequence[dict],
     cluster_summary: pd.DataFrame,
     surveyors: Sequence[SurveyorConfig],
     travel_matrix: Dict[Tuple[str, str], float],
     max_sites_per_surveyor: int,
+    candidate_minutes_per_day: float = None,
 ) -> List[ClusterAllocation]:
     """
     Split selected cluster capacity across the active team.
@@ -762,6 +857,7 @@ def allocate_cluster_targets(
     repair pass reuses the same home->cluster Google matrix to move or swap
     clearly inefficient allocations before detailed scheduling begins.
     """
+    surveyors = [s for s in surveyors if s.available_dates]
     if not surveyors:
         return []
 
@@ -982,12 +1078,12 @@ def allocate_cluster_targets(
         capacities=capacities,
     )
 
-    return _ensure_available_surveyors_have_work(
+    return _balance_candidate_workload(
         allocations=repaired_allocations,
         surveyors=surveyors,
         travel_matrix=travel_matrix,
         capacities=capacities,
-        chunk_size=chunk_size,
+        candidate_minutes_per_day=candidate_minutes_per_day,
     )
 
 

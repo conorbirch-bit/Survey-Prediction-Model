@@ -861,7 +861,9 @@ def _daily_route_sequence_ranks(
     Only ordering ranks are returned. No site is added, removed, made eligible
     or moved to another strategic cluster/day by this function.
     """
-    if not sites:
+    # Without a coordinate origin, a nearest-neighbour rank is only an index
+    # order. It must not outrank measured Google journey times.
+    if not sites or _site_coordinate(current_site or {}) is None:
         return {}, {}, {}
 
     current_cluster = _planning_cluster_key(
@@ -875,9 +877,10 @@ def _daily_route_sequence_ranks(
             idx
             for idx, site in enumerate(sites)
             if _planning_cluster_key(site) == current_cluster
+            and _site_coordinate(site) is not None
         ]
     else:
-        indices = list(range(len(sites)))
+        indices = [idx for idx, site in enumerate(sites) if _site_coordinate(site) is not None]
 
     if not indices:
         return {}, {}, {}

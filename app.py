@@ -73,7 +73,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.11.1 — candidate search and API failure fixes")
+st.caption("Version 20.11.2 — coordinate fallback and workload allocation fixes")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1426,6 +1426,23 @@ with tab2:
                                                 pd.Series(False, index=team_portfolio.index),
                                             ).astype(bool).sum()
                                         )
+                                        retry_mask = team_portfolio.get(
+                                            "Is Retry", pd.Series(False, index=team_portfolio.index)
+                                        ).fillna(False).astype(bool)
+                                        retry_coordinate_count = int(
+                                            team_portfolio.loc[retry_mask, "Coordinate Available"].sum()
+                                        )
+                                        retry_coordinate_total = int(retry_mask.sum())
+                                        if retry_coordinate_total:
+                                            st.caption(
+                                                f"Retry coordinates: {retry_coordinate_count} of "
+                                                f"{retry_coordinate_total} retry sites have valid latitude/longitude."
+                                            )
+                                            if retry_coordinate_count < retry_coordinate_total:
+                                                st.warning(
+                                                    "Some retry sites have no valid coordinates. Add latitude/longitude "
+                                                    "to the Cannot Complete report for proximity clustering."
+                                                )
                                         st.caption(
                                             f"Coordinate clustering active for {coordinate_count:,} of "
                                             f"{len(team_portfolio):,} portfolio sites. Strategic clusters "
@@ -1811,6 +1828,9 @@ with tab2:
                                                 ),
                                                 max_sites_per_surveyor=int(
                                                     unbounded_full_week_candidate_capacity
+                                                ),
+                                                candidate_minutes_per_day=(
+                                                    per_day_survey_window_minutes * 1.25
                                                 ),
                                             )
                                         )
@@ -3145,6 +3165,18 @@ with tab2:
                                                 index=False,
                                             )
 
+                                        pd.DataFrame([
+                                            {"Setting": "App Version", "Value": "20.11.2"},
+                                            {"Setting": "Week Start", "Value": str(team_week_start)},
+                                            {"Setting": "First Survey", "Value": str(team_first_survey_clock)},
+                                            {"Setting": "Last Survey Finish", "Value": str(team_last_survey_clock)},
+                                            {"Setting": "Return Home Deadline", "Value": str(team_return_home_clock)},
+                                            {"Setting": "Portfolio Sites", "Value": len(team_portfolio)},
+                                            {"Setting": "Sites with Coordinates", "Value": coordinate_count},
+                                            {"Setting": "Retry Sites", "Value": retry_coordinate_total},
+                                            {"Setting": "Retries with Coordinates", "Value": retry_coordinate_count},
+                                        ]).to_excel(writer, sheet_name="Run Settings", index=False)
+
                                     st.download_button(
                                         "Download team weekly schedule",
                                         data=team_output.getvalue(),
@@ -3183,4 +3215,3 @@ with tab3:
         "MAE is leave-one-out cross-validation error on the historical "
         "completed-survey data."
     )
-

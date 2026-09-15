@@ -1,12 +1,15 @@
-VERSION 20.11.1 — CANDIDATE SEARCH AND API FAILURE FIXES
+VERSION 20.11.2 — COORDINATE FALLBACK AND WORKLOAD ALLOCATION FIXES
 
 Run: python -m streamlit run app.py
 Active scheduler: scheduler_v20_10.py
 
-Extract the package, replace matching project files, and reboot Streamlit.
-Keep your API secrets and existing Predictive Model.xlsx; neither is bundled.
-Alternatively upload the completed-surveys training workbook in the sidebar.
+Replace matching project files and reboot Streamlit. Keep your API secrets and
+existing Predictive Model.xlsx, or upload completed-surveys training in the sidebar.
+Neither secrets nor training data are bundled.
 
-Changed Python files: app.py (version label), scheduler_v20_10.py,
-google_routes.py, retry_planner.py.
-See README.md for fixes, verification, and limitations.
+Use the updated Cannot Complete report with Latitude and Longitude columns.
+The app displays retry coordinate coverage; Run Settings records it in the output.
+
+Changed since 20.11.1: scheduler_v20_10.py, team_scheduler.py, app.py.
+The ZIP also includes the retained 20.11.1 fixes in google_routes.py and retry_planner.py.
+See README.md for verification details and live-rerun limitations.
