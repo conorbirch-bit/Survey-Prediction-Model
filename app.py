@@ -10,7 +10,7 @@ import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
-from scheduler_v20_10 import DailyTransitScheduler, postcode_district
+from scheduler_v20_10 import CachedRunRouter, DailyTransitScheduler, postcode_district
 from coordinate_clustering import (
     GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM,
     NO_GOOGLE_RADIUS_KM,
@@ -56,6 +56,8 @@ from team_scheduler import (
     allocate_cluster_targets,
     build_team_shortlists,
     allocations_dataframe,
+    fill_team_gaps,
+    apply_gap_assignments,
 )
 from portfolio_clusterer import (
     add_portfolio_fields,
@@ -73,7 +75,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.11.2 — coordinate fallback and workload allocation fixes")
+st.caption("Version 20.11.3 — productive day areas, journey checks and shared gap filling")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -411,6 +413,7 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "latitude": optional_number(site_row.get("Latitude Clean", site_row.get("Latitude"))),
             "longitude": optional_number(site_row.get("Longitude Clean", site_row.get("Longitude"))),
             "route_location": route_location,
+            "home_to_cluster_minutes": optional_number(site_row.get("Home to Cluster (Minutes)")),
             "planning_minutes": float(
                 site_row["Planning Duration (Minutes)"]
             ),
@@ -1775,14 +1778,14 @@ with tab2:
 
                                         # Google enters here for the first time:
                                         # tiny surveyor-home -> selected-cluster matrix.
-                                        team_router = GoogleTransitRouter(
+                                        team_router = CachedRunRouter(GoogleTransitRouter(
                                             api_key=team_google_key,
                                             transit_preference=(
                                                 team_router_pref[
                                                     team_transit_choice
                                                 ]
                                             ),
-                                        )
+                                        ))
 
                                         team_representatives = (
                                             representative_sites(
@@ -1856,6 +1859,17 @@ with tab2:
                                             )
                                         )
 
+                                        def make_team_scheduler(surveyor):
+                                            return DailyTransitScheduler(
+                                                router=team_router,
+                                                home_location=surveyor.start_location,
+                                                same_postcode_transfer_minutes=int(team_same_postcode),
+                                                travel_leeway_minutes=int(team_travel_leeway),
+                                                pre_survey_buffer_minutes=int(team_pre_buffer),
+                                                post_survey_buffer_minutes=int(team_post_buffer),
+                                                ai_priority_weight_minutes=15.0,
+                                            )
+
                                         team_results = {}
                                         combined_candidate_frames = []
 
@@ -1880,29 +1894,7 @@ with tab2:
                                                 )
                                             )
 
-                                            surveyor_scheduler = (
-                                                DailyTransitScheduler(
-                                                    router=team_router,
-                                                    home_location=(
-                                                        surveyor.start_location
-                                                    ),
-                                                    same_postcode_transfer_minutes=int(
-                                                        team_same_postcode
-                                                    ),
-                                                    travel_leeway_minutes=int(
-                                                        team_travel_leeway
-                                                    ),
-                                                    pre_survey_buffer_minutes=int(
-                                                        team_pre_buffer
-                                                    ),
-                                                    post_survey_buffer_minutes=int(
-                                                        team_post_buffer
-                                                    ),
-                                                    ai_priority_weight_minutes=(
-                                                        15.0
-                                                    ),
-                                                )
-                                            )
+                                            surveyor_scheduler = make_team_scheduler(surveyor)
 
                                             surveyor_dates = list(
                                                 surveyor.available_dates or []
@@ -2210,25 +2202,7 @@ with tab2:
                                                     )
                                                     continue
 
-                                                trial_scheduler = DailyTransitScheduler(
-                                                    router=team_router,
-                                                    home_location=(
-                                                        surveyor.start_location
-                                                    ),
-                                                    same_postcode_transfer_minutes=int(
-                                                        team_same_postcode
-                                                    ),
-                                                    travel_leeway_minutes=int(
-                                                        team_travel_leeway
-                                                    ),
-                                                    pre_survey_buffer_minutes=int(
-                                                        team_pre_buffer
-                                                    ),
-                                                    post_survey_buffer_minutes=int(
-                                                        team_post_buffer
-                                                    ),
-                                                    ai_priority_weight_minutes=15.0,
-                                                )
+                                                trial_scheduler = make_team_scheduler(surveyor)
                                                 trial_result = (
                                                     trial_scheduler.build_week(
                                                         sites=(
@@ -2309,6 +2283,22 @@ with tab2:
                                                             ),
                                                         )
                                                     )
+
+                                        # Share only globally unbooked selected-week sites.
+                                        # Existing bookings and accepted notes remain fixed.
+                                        team_results, team_gap_filling_df = fill_team_gaps(
+                                            team_results, active_surveyors,
+                                            {name: site_dataframe_to_dicts(frame)
+                                             for name, frame in team_shortlists.items()},
+                                            make_team_scheduler,
+                                            team_first_survey_clock, team_last_survey_clock,
+                                            team_return_home_clock, LONDON_TZ,
+                                            travel_matrix=team_home_cluster_matrix,
+                                        )
+                                        team_shortlists = apply_gap_assignments(
+                                            team_shortlists, team_gap_filling_df,
+                                            team_home_cluster_matrix,
+                                        )
 
                                         team_allocations_df = (
                                             allocations_dataframe(
@@ -3115,6 +3105,10 @@ with tab2:
                                             sheet_name="Drawing Priority",
                                             index=False,
                                         )
+                                        if not team_gap_filling_df.empty:
+                                            team_gap_filling_df.to_excel(
+                                                writer, sheet_name="Gap Filling", index=False,
+                                            )
                                         if not special_request_results_df.empty:
                                             special_request_results_df.to_excel(
                                                 writer,
@@ -3166,7 +3160,7 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.11.2"},
+                                            {"Setting": "App Version", "Value": "20.11.3"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
                                             {"Setting": "First Survey", "Value": str(team_first_survey_clock)},
                                             {"Setting": "Last Survey Finish", "Value": str(team_last_survey_clock)},

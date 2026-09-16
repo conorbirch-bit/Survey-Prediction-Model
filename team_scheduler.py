@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from datetime import datetime
 import math
 from typing import Dict, List, Sequence, Tuple
@@ -8,7 +8,15 @@ from typing import Dict, List, Sequence, Tuple
 import pandas as pd
 
 from portfolio_clusterer import _site_sort_frame
-from coordinate_clustering import haversine_km
+from coordinate_clustering import NO_GOOGLE_RADIUS_KM, haversine_km
+from scheduler_v20_10 import (
+    WeeklyScheduleResult,
+    _day_area_workloads,
+    _local_work_candidates,
+    _planning_cluster_key,
+    _site_allowed_today,
+    _site_identity_for_sequence,
+)
 
 
 # ============================================================================
@@ -1209,3 +1217,205 @@ def allocations_dataframe(
     if not allocations:
         return pd.DataFrame()
     return pd.DataFrame([asdict(a) for a in allocations])
+
+
+def fill_team_gaps(
+    team_results, surveyors, sites_by_surveyor, scheduler_factory,
+    first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
+    travel_matrix=None,
+):
+    """Append globally unbooked work to available days without moving bookings.
+
+    Existing days consider only the final site's local area. Empty days compare
+    up to three productive areas using the already-paid home/cluster matrix.
+    All trials use the normal scheduler, including lunch, retry and return rules.
+    Accepted weekly-note candidates remain reserved for their original owner.
+    """
+    results = {
+        name: replace(result, days=list(result.days), unscheduled_sites=list(result.unscheduled_sites))
+        if result is not None else None
+        for name, result in team_results.items()
+    }
+    travel_matrix = travel_matrix or {}
+    site_by_id, owner_by_id = {}, {}
+    for name, sites in sites_by_surveyor.items():
+        for site in sites:
+            identity = _site_identity_for_sequence(site)
+            # A note trial can introduce a site already in another shortlist.
+            # Prefer its explicit reservation when choosing the pool owner.
+            reserved = site.get("special_request_date")
+            if identity not in site_by_id or (reserved is not None and not pd.isna(reserved)):
+                site_by_id[identity] = site
+                owner_by_id[identity] = name
+
+    def item_id(item):
+        return _site_identity_for_sequence(vars(item))
+
+    booked = {
+        item_id(item) for result in results.values() if result is not None
+        for day in result.days for item in day.items
+    }
+    slots = []
+    for surveyor in surveyors:
+        result = results.get(surveyor.name)
+        by_date = {
+            (day.first_survey_target or day.start_time).date(): day
+            for day in result.days
+        } if result is not None else {}
+        for day_date in sorted(set(surveyor.available_dates or [])):
+            day = by_date.get(day_date)
+            first = datetime.combine(day_date, first_survey_clock, tzinfo=timezone)
+            finish = datetime.combine(day_date, latest_survey_clock, tzinfo=timezone)
+            has_work = day is not None and bool(day.items)
+            gap = (finish - (day.return_departure if has_work else first)).total_seconds() / 60
+            if gap > 0:
+                slots.append((not has_work, -gap, day_date, surveyor.name, surveyor, day))
+
+    additions = []
+    for _, _, day_date, name, surveyor, baseline in sorted(slots, key=lambda row: row[:4]):
+        first = datetime.combine(day_date, first_survey_clock, tzinfo=timezone)
+        finish = datetime.combine(day_date, latest_survey_clock, tzinfo=timezone)
+        deadline = datetime.combine(day_date, latest_return_clock, tzinfo=timezone)
+        scheduler = scheduler_factory(surveyor)
+        has_work = baseline is not None and bool(baseline.items)
+        available_minutes = (finish - (baseline.return_departure if has_work else first)).total_seconds() / 60
+        candidates = []
+        for identity, site in site_by_id.items():
+            if identity in booked or not _site_allowed_today(site, day_date):
+                continue
+            reserved = site.get("special_request_date")
+            if reserved is not None and not pd.isna(reserved) and owner_by_id[identity] != name:
+                continue
+            if float(site["planning_minutes"]) + scheduler.pre_survey_buffer_minutes > available_minutes:
+                continue
+            candidate = dict(site)
+            candidate["home_to_cluster_minutes"] = travel_matrix.get((name, _planning_cluster_key(site)))
+            candidates.append(candidate)
+
+        anchor = None
+        if has_work:
+            anchor = site_by_id.get(item_id(baseline.items[-1]))
+            if anchor is None:
+                continue
+            candidates = _local_work_candidates(anchor, candidates)
+        else:
+            # No added matrix: use existing home-fit measurements to shortlist
+            # whole working areas before asking Google about an empty day.
+            workloads = _day_area_workloads(
+                candidates, max(0, available_minutes - scheduler.lunch_minutes),
+                scheduler.pre_survey_buffer_minutes + scheduler.post_survey_buffer_minutes,
+            )
+            area_scores = {}
+            for area, workload in workloads.items():
+                commute = travel_matrix.get((name, area))
+                if commute is not None and math.isfinite(float(commute)):
+                    score = workload - 2 * float(commute)
+                    if score > 0:
+                        area_scores[area] = score
+            selected_areas = sorted(area_scores, key=lambda area: (-area_scores[area], area))[:3]
+            candidates = [site for site in candidates if _planning_cluster_key(site) in selected_areas]
+        if not candidates:
+            continue
+
+        if has_work:
+            # New jobs on a previously visited road must not lose to a wider
+            # detour solely because the baseline already left that road.
+            immediate = []
+            for site in candidates:
+                distance = haversine_km(anchor.get("latitude"), anchor.get("longitude"),
+                                        site.get("latitude"), site.get("longitude"))
+                if ((distance is not None and distance <= NO_GOOGLE_RADIUS_KM)
+                        or scheduler._same_postcode(anchor.get("postcode", ""), site.get("postcode", ""))):
+                    immediate.append(site)
+            same_area = [site for site in candidates
+                         if _planning_cluster_key(site) == _planning_cluster_key(anchor)]
+            batches = [immediate, same_area, candidates]
+        else:
+            batches = [candidates]
+
+        best = baseline if has_work else None
+        for batch in batches:
+            used_here = {item_id(item) for item in best.items} if best is not None else set()
+            batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
+            if not batch:
+                continue
+            trial = scheduler.build_day(
+                batch, first, finish, deadline,
+                resume_from=best,
+                resume_site=site_by_id[item_id(best.items[-1])] if best is not None else None,
+                local_continuation_only=has_work,
+            )
+            prefix = best.items if best is not None else []
+            added = trial.items[len(prefix):]
+            added_ids = [item_id(item) for item in added]
+            # Keep a productive close-by extension even if a later, wider
+            # trial fails its travel or return-home check.
+            extra_travel = trial.travel_minutes - (best.travel_minutes if best is not None else 0)
+            added_work = sum(item.survey_minutes for item in added)
+            if (not added or trial.items[:len(prefix)] != prefix
+                    or len(set(added_ids)) != len(added_ids) or booked.intersection(added_ids)
+                    or trial.return_time > deadline or any(item.survey_end > finish for item in added)
+                    or added_work < 2 * max(0, extra_travel)):
+                continue
+            best = trial
+
+        if best is None or best is baseline:
+            continue
+        trial = best
+        prefix = baseline.items if has_work else []
+        added = trial.items[len(prefix):]
+        added_ids = [item_id(item) for item in added]
+
+        result = results.get(name)
+        days = list(result.days) if result is not None else []
+        if baseline is not None:
+            days = [trial if day is baseline else day for day in days]
+        else:
+            days.append(trial)
+        days.sort(key=lambda day: day.first_survey_target or day.start_time)
+        results[name] = WeeklyScheduleResult(days, [])
+        booked.update(added_ids)
+        for item, identity in zip(added, added_ids):
+            additions.append({
+                "Customer Reference": item.customer_reference,
+                "Building Name": item.building_name,
+                "Postcode": item.postcode,
+                "Original Surveyor": owner_by_id[identity],
+                "Surveyor": name,
+                "Date": day_date.isoformat(),
+                "Survey Minutes Added": item.survey_minutes,
+            })
+
+    for name, result in list(results.items()):
+        if result is not None:
+            results[name] = replace(result, unscheduled_sites=[
+                site for site in sites_by_surveyor.get(name, [])
+                if _site_identity_for_sequence(site) not in booked
+            ])
+    return results, pd.DataFrame(additions)
+
+
+def apply_gap_assignments(shortlists, additions, travel_matrix):
+    """Keep exported shortlists and downstream resource assignment in sync."""
+    updated = {name: frame.copy() for name, frame in shortlists.items()}
+    for addition in additions.to_dict(orient="records"):
+        source, target = addition["Original Surveyor"], addition["Surveyor"]
+        if source == target:
+            continue
+        frame = updated[source]
+        reference = str(addition["Customer Reference"] or "").strip()
+        if reference:
+            match = frame["Customer Reference"].fillna("").astype(str).str.strip().eq(reference)
+        else:
+            match = (frame["Building Name"].astype(str).eq(addition["Building Name"])
+                     & frame["Postcode"].astype(str).eq(addition["Postcode"]))
+        moved = frame.loc[match].head(1).copy()
+        if moved.empty:
+            raise ValueError(f"Cannot find gap-fill source row for {addition['Building Name']}.")
+        updated[source] = frame.loc[~match].copy()
+        moved["Assigned Surveyor"] = target
+        moved["Home to Cluster (Minutes)"] = moved["Planning Cluster"].map(
+            lambda area: travel_matrix.get((target, str(area)))
+        )
+        updated[target] = pd.concat([updated.get(target, pd.DataFrame()), moved], ignore_index=True)
+    return updated
