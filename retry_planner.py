@@ -4,8 +4,8 @@ import io
 import json
 import math
 import re
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -33,6 +33,7 @@ class RetryPlan:
     client_access_required: pd.DataFrame
     warnings: List[str]
     stats: Dict[str, int]
+    booking_exclusions: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _clean_text(value) -> str:
@@ -106,6 +107,29 @@ def _parse_datetime(value):
     return pd.to_datetime(value, dayfirst=True, errors="coerce")
 
 
+def _parse_booking_datetime(value):
+    """Read UK report dates and ISO timestamps as UK-local, Excel-safe times."""
+    text = _clean_text(value)
+    if not text:
+        return pd.NaT
+    # Explicit ISO dates must not be interpreted as UK day/month strings.
+    parsed = pd.to_datetime(value, dayfirst=not bool(re.match(r"^\d{4}-\d{2}-\d{2}", text)), errors="coerce")
+    if pd.isna(parsed):
+        return pd.NaT
+    if parsed.tzinfo is not None:
+        parsed = parsed.tz_convert("Europe/London").tz_localize(None)
+    return parsed
+
+
+def booking_week_start(value=None):
+    """Monday of the UK calendar week, independent of the planning week."""
+    parsed = _parse_booking_datetime(value) if value is not None else pd.Timestamp.now(tz="Europe/London")
+    if pd.isna(parsed):
+        raise ValueError("An exclusion week needs a valid date.")
+    day = parsed.date()
+    return day - timedelta(days=day.weekday())
+
+
 def _period_from_datetime(value) -> str:
     parsed = _parse_datetime(value)
     if pd.isna(parsed):
@@ -164,7 +188,11 @@ def _read_report_table(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFram
         return pd.DataFrame()
 
     df = pd.read_excel(excel_file, sheet_name=sheet_name, header=header_row)
-    df = df.dropna(axis=1, how="all").dropna(axis=0, how="all")
+    # A present but entirely blank booking column means no bookings. Preserve
+    # it so it is not confused with a report missing the required column.
+    empty_columns = [c for c in df.columns
+                     if df[c].isna().all() and _normalise_header(c) != "Scheduled Start"]
+    df = df.drop(columns=empty_columns).dropna(axis=0, how="all")
     df.columns = [_normalise_header(c) for c in df.columns]
 
     # Keep names unique without changing the meaningful Salesforce headers.
@@ -241,6 +269,80 @@ def _prepare_sa_mapping(sa_df: pd.DataFrame) -> pd.DataFrame:
     ).apply(_parse_datetime)
 
     return working.drop(columns=["_wo_raw", "_wo_group", "_sa_id"], errors="ignore")
+
+
+BOOKING_EXCLUSION_COLUMNS = [
+    "Work Order Number", "Customer Reference", "Building Name",
+    "Replacement SA ID", "Scheduled Start", "Excluded Week Commencing", "Reason",
+]
+
+
+def _scheduled_booking_dates(sa_mapping):
+    if "Scheduled Start" not in sa_mapping.columns:
+        raise ValueError(
+            "Booking exclusions require a Scheduled Start column on the old/new "
+            "Service Appointment tab. Add that column and upload the refreshed report, "
+            "or clear the exclusion-week selection to run without booking exclusions."
+        )
+    dates = sa_mapping["Scheduled Start"].map(_parse_booking_datetime)
+    invalid = sa_mapping["Scheduled Start"].map(_clean_text).ne("") & dates.isna()
+    if invalid.any():
+        raise ValueError(
+            f"Scheduled Start contains {int(invalid.sum())} unreadable date(s). "
+            "Correct the dates before using booking exclusions."
+        )
+    return dates
+
+
+def available_booking_weeks(file_bytes):
+    """Weeks present in the appointment report, for the UI selector only."""
+    sa_raw, _ = _detect_retry_tabs(file_bytes)
+    dates = _scheduled_booking_dates(_prepare_sa_mapping(sa_raw))
+    return sorted({booking_week_start(value) for value in dates.dropna()})
+
+
+def _existing_booking_exclusions(sa_mapping, latest, all_history, excluded_week_starts):
+    exclusions = pd.DataFrame(columns=BOOKING_EXCLUSION_COLUMNS)
+    selected_weeks = {booking_week_start(value) for value in (excluded_week_starts or [])}
+    if not selected_weeks:
+        return exclusions
+
+    dates = _scheduled_booking_dates(sa_mapping)
+    if latest.empty:
+        return exclusions
+    failed_ids = set(all_history["Old Service Appointment ID"].map(_normalise_sa_id))
+    # Never mistake a known failed visit for an outstanding replacement, even
+    # when its Actual Start is missing. Check all unstarted replacements so an
+    # existing booking cannot be bypassed by choosing a different/newer SA.
+    candidates = sa_mapping[
+        sa_mapping["_actual_start_dt"].isna()
+        & ~sa_mapping["Service Appointment ID"].isin(failed_ids)
+        & sa_mapping["Work Order Number"].isin(latest["Work Order Number"])
+    ].copy()
+    candidates["_booking_dt"] = dates.loc[candidates.index]
+    rows = []
+    by_wo = latest.set_index("Work Order Number")
+    for _, appointment in candidates.iterrows():
+        scheduled = appointment["_booking_dt"]
+        if pd.isna(scheduled):
+            continue
+        week = booking_week_start(scheduled)
+        if week not in selected_weeks:
+            continue
+        wo = appointment["Work Order Number"]
+        event = by_wo.loc[wo]
+        rows.append({
+            "Work Order Number": wo,
+            "Customer Reference": _clean_text(event.get("Customer Reference Code")),
+            "Building Name": _clean_text(event.get("Building Name")),
+            "Replacement SA ID": appointment["Service Appointment ID"],
+            "Scheduled Start": scheduled,
+            "Excluded Week Commencing": week.isoformat(),
+            "Reason": "Unstarted replacement appointment booked in a selected exclusion week.",
+        })
+    return pd.DataFrame(rows, columns=BOOKING_EXCLUSION_COLUMNS).drop_duplicates(
+        subset=["Work Order Number", "Replacement SA ID", "Scheduled Start"]
+    ).reset_index(drop=True)
 
 
 def _prepare_failure_history(failure_df: pd.DataFrame) -> pd.DataFrame:
@@ -646,17 +748,26 @@ def build_retry_plan(
     file_bytes: bytes,
     openai_api_key: str = "",
     openai_model: str = "gpt-5.6",
+    excluded_week_starts: Optional[Sequence] = None,
 ) -> RetryPlan:
     sa_raw, failures_raw = _detect_retry_tabs(file_bytes)
     sa_mapping = _prepare_sa_mapping(sa_raw)
     latest = _prepare_failure_history(failures_raw)
     all_history = latest.attrs.get("all_history", pd.DataFrame()).copy()
+    booking_exclusions = _existing_booking_exclusions(
+        sa_mapping, latest, all_history, excluded_week_starts,
+    )
+    excluded_work_orders = set(booking_exclusions["Work Order Number"])
 
     rows: List[dict] = []
     ai_cases: List[dict] = []
     warnings: List[str] = []
 
     for _, event in latest.iterrows():
+        # Filter before business/AI triage. These work orders are accounted for
+        # separately in the booking audit, never sent back to the retry pool.
+        if event["Work Order Number"] in excluded_work_orders:
+            continue
         mapping = _resolve_replacement_sa(
             event,
             all_history=all_history,
@@ -846,7 +957,8 @@ def build_retry_plan(
             decisions=decisions,
             client_access_required=decisions.copy(),
             warnings=warnings,
-            stats={"work_orders": 0},
+            stats={"work_orders": int(len(latest)), "bookings_excluded": len(excluded_work_orders)},
+            booking_exclusions=booking_exclusions,
         )
 
     mapping_ok = decisions["Mapping Status"].astype(str).str.startswith("OK")
@@ -876,7 +988,8 @@ def build_retry_plan(
         )
 
     stats = {
-        "work_orders": int(len(decisions)),
+        "work_orders": int(len(latest)),
+        "bookings_excluded": len(excluded_work_orders),
         "retry_eligible": int(decisions["Retry Eligible"].sum()),
         "metro_retries": int(
             ((decisions["Failure Type"] == "Metro") & decisions["Retry Eligible"]).sum()
@@ -894,6 +1007,7 @@ def build_retry_plan(
         client_access_required=client_access,
         warnings=warnings,
         stats=stats,
+        booking_exclusions=booking_exclusions,
     )
 
 
@@ -932,6 +1046,7 @@ def _candidate_row_from_retry(decision: pd.Series) -> dict:
 def apply_retry_plan_to_portfolio(
     portfolio: pd.DataFrame,
     decisions: pd.DataFrame,
+    booking_exclusions: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, int]]:
     """
     Apply the retry gate BEFORE duration prediction / geographic clustering.
@@ -944,9 +1059,24 @@ def apply_retry_plan_to_portfolio(
       predicted/clusted (postcode clustering is used if coordinates are absent).
     """
     result = portfolio.copy()
+    removed_existing_bookings = 0
+    if booking_exclusions is not None and not booking_exclusions.empty:
+        excluded_wos = set(booking_exclusions["Work Order Number"].map(_normalise_work_order)) - {""}
+        wo_col = _portfolio_work_order_column(result)
+        if not result.empty and wo_col is None:
+            raise ValueError("The master portfolio needs Work Order Number to apply booking exclusions.")
+        if wo_col is not None:
+            remove = result[wo_col].map(_normalise_work_order).isin(excluded_wos)
+            removed_existing_bookings = int(remove.sum())
+            result = result.loc[~remove].copy()
+        if decisions is not None and not decisions.empty:
+            decisions = decisions.loc[
+                ~decisions["Work Order Number"].map(_normalise_work_order).isin(excluded_wos)
+            ].copy()
     if decisions is None or decisions.empty:
         return result, {
             "removed_non_retry": 0,
+            "removed_existing_bookings": removed_existing_bookings,
             "annotated_existing": 0,
             "appended_missing": 0,
         }
@@ -1162,6 +1292,7 @@ def apply_retry_plan_to_portfolio(
     result = result.drop(columns=["_retry_wo"], errors="ignore")
     return result.reset_index(drop=True), {
         "removed_non_retry": int(removed_non_retry),
+        "removed_existing_bookings": removed_existing_bookings,
         "annotated_existing": int(annotated_existing),
         "appended_missing": int(appended_missing),
     }

@@ -37,6 +37,8 @@ from metoffice_client import MetOfficeClient
 from salesforce_master import read_salesforce_or_standard_excel
 from retry_planner import (
     build_retry_plan,
+    available_booking_weeks,
+    booking_week_start,
     apply_retry_plan_to_portfolio,
     build_retry_audit,
     sense_check_retry_outputs,
@@ -75,7 +77,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.11.3 — productive day areas, journey checks and shared gap filling")
+st.caption("Version 20.11.4 — exclude existing replacement bookings by week")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -470,6 +472,47 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             ),
         })
     return sites
+
+
+@st.cache_data(show_spinner=False)
+def booking_weeks_in_report(file_bytes):
+    return available_booking_weeks(file_bytes)
+
+
+def booking_exclusion_controls(retry_file, current_monday, planning_week):
+    report_weeks = []
+    report_error = ""
+    if retry_file is not None:
+        try:
+            report_weeks = booking_weeks_in_report(retry_file.getvalue())
+        except (ValueError, KeyError) as exc:
+            report_error = str(exc)
+    # Include every week in the report as well as nearby planning weeks. The
+    # planning date never determines which week is considered "current".
+    options = sorted(set(report_weeks) | {
+        current_monday + timedelta(weeks=offset) for offset in range(-4, 13)
+    } | {booking_week_start(planning_week)})
+    weeks = st.multiselect(
+        "Weeks to exclude existing bookings",
+        options=options,
+        default=[current_monday],
+        format_func=lambda week: (
+            f"{week.strftime('%d %b %Y')} – {(week + timedelta(days=6)).strftime('%d %b %Y')}"
+            + (" (current week)" if week == current_monday else "")
+        ),
+        key=f"team_booking_exclusion_weeks_{current_monday.isoformat()}",
+        disabled=retry_file is None,
+        help=(
+            "Select weeks already booked in Salesforce. Unstarted replacement appointments "
+            "in those weeks are excluded from this run. Refresh the report after uploading "
+            "another schedule. Clear the selection to turn booking exclusions off."
+        ),
+    )
+    if retry_file is None:
+        st.caption("Upload the Cannot Complete workbook with Scheduled Start to enable booking exclusions.")
+    elif weeks and report_error:
+        st.warning(report_error)
+    return weeks if retry_file is not None else [], bool(weeks and report_error)
 
 
 def result_uses_cluster_on_date(result, requested_date, cluster):
@@ -889,7 +932,7 @@ with tab2:
         help=(
             "Two-tab Salesforce workbook: one tab contains Cannot Complete "
             "reasons plus Metro/Customer fault, and the other contains the old "
-            "and replacement Service Appointment IDs plus the old Actual Start."
+            "and replacement Service Appointment IDs, Actual Start and Scheduled Start."
         ),
     )
     st.caption(
@@ -946,7 +989,7 @@ with tab2:
                     )
                 else:
                     today = datetime.now(LONDON_TZ).date()
-                    current_monday = today - timedelta(days=today.weekday())
+                    current_monday = booking_week_start(today)
                     default_team_week = current_monday + timedelta(days=7)
 
                     def quarter_hour_options(start_hour=6, end_hour=20):
@@ -1005,6 +1048,10 @@ with tab2:
                                 "the final survey earlier when the journey home is long."
                             ),
                         )
+
+                    team_excluded_booking_weeks, booking_exclusion_error = booking_exclusion_controls(
+                        retry_file, current_monday, team_week_start,
+                    )
 
                     st.caption(
                         "Efficiency rule: the outbound commute is placed before the first "
@@ -1261,7 +1308,7 @@ with tab2:
                         "Create weekly schedules",
                         type="primary",
                         key="create_team_week",
-                        disabled=not bool(team_google_key.strip()),
+                        disabled=not bool(team_google_key.strip()) or booking_exclusion_error,
                     ):
                         if team_week_start.weekday() != 0:
                             st.error(
@@ -1358,6 +1405,7 @@ with tab2:
                                                 retry_file.getvalue(),
                                                 openai_api_key=team_openai_key,
                                                 openai_model=team_openai_model,
+                                                excluded_week_starts=team_excluded_booking_weeks,
                                             )
                                             for warning in retry_plan.warnings:
                                                 st.warning(warning)
@@ -1368,7 +1416,20 @@ with tab2:
                                             ) = apply_retry_plan_to_portfolio(
                                                 team_upcoming,
                                                 retry_plan.decisions,
+                                                booking_exclusions=retry_plan.booking_exclusions,
                                             )
+
+                                            st.metric(
+                                                "Work orders excluded — already booked",
+                                                retry_plan.stats.get("bookings_excluded", 0),
+                                            )
+                                            if not retry_plan.booking_exclusions.empty:
+                                                with st.expander("Existing bookings excluded from this run"):
+                                                    st.dataframe(
+                                                        retry_plan.booking_exclusions,
+                                                        use_container_width=True,
+                                                        hide_index=True,
+                                                    )
 
                                             # Re-run only the existing prediction step on
                                             # the retry-gated portfolio so reconstructed
@@ -3116,6 +3177,9 @@ with tab2:
                                                 index=False,
                                             )
                                         if retry_plan is not None:
+                                            retry_plan.booking_exclusions.to_excel(
+                                                writer, sheet_name="Booking Exclusions", index=False,
+                                            )
                                             retry_audit_df.to_excel(
                                                 writer,
                                                 sheet_name="Retry Decisions",
@@ -3160,8 +3224,14 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.11.3"},
+                                            {"Setting": "App Version", "Value": "20.11.4"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
+                                            {"Setting": "Booking Exclusion Weeks", "Value": ", ".join(
+                                                str(week) for week in sorted(team_excluded_booking_weeks)
+                                            ) or "None"},
+                                            {"Setting": "Existing Booked Work Orders Excluded", "Value": (
+                                                retry_plan.stats.get("bookings_excluded", 0) if retry_plan is not None else 0
+                                            )},
                                             {"Setting": "First Survey", "Value": str(team_first_survey_clock)},
                                             {"Setting": "Last Survey Finish", "Value": str(team_last_survey_clock)},
                                             {"Setting": "Return Home Deadline", "Value": str(team_return_home_clock)},
