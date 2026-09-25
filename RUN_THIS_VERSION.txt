@@ -1,4 +1,4 @@
-VERSION 20.11.2 — COORDINATE FALLBACK AND WORKLOAD ALLOCATION FIXES
+VERSION 20.12 — AUDITED RETRIES AND FULLER DAYS
 
 Run: python -m streamlit run app.py
 Active scheduler: scheduler_v20_10.py
@@ -7,9 +7,28 @@ Replace matching project files and reboot Streamlit. Keep your API secrets and
 existing Predictive Model.xlsx, or upload completed-surveys training in the sidebar.
 Neither secrets nor training data are bundled.
 
-Use the updated Cannot Complete report with Latitude and Longitude columns.
-The app displays retry coordinate coverage; Run Settings records it in the output.
+Use the latest two-tab Cannot Complete report, including service appointment
+Status, Actual Start, Scheduled Start and coordinates. The second Status column
+in the appointment tab is supported (the first is the Work Order status).
 
-Changed since 20.11.1: scheduler_v20_10.py, team_scheduler.py, app.py.
-The ZIP also includes the retained 20.11.1 fixes in google_routes.py and retry_planner.py.
-See README.md for verification details and live-rerun limitations.
+Completed appointments exclude the work. Client help is required after two
+customer failures OR a clear access barrier after one visit. Blank descriptions
+mean no answer. Mixed Metro/customer counts are allowed below the customer limit.
+No-answer retries change weekday; Metro operational retries have no weekday ban.
+Known access days are enforced. Technical/instruction problems stay on hold.
+
+The final filling pass uses the full eligible portfolio, including sites outside
+the initial shortlist. It tries local work first, then a wider area up to 15 km
+from the last site. Only during this final pass, a longer trip may be accepted
+with one minute of proven survey work per additional travel minute instead of
+two. Actual routes, lunch, finishing time, home deadline and access rules still
+apply. Existing placed visits are not moved. This may make additional Google calls.
+
+Capacity Review and Unplaced Eligible tabs explain the remaining workload.
+Missing residential model inputs use a labelled historical-average duration.
+Client access output includes original descriptions and recorded visit dates.
+
+Replace only the files included in this update, including new access_rules.py,
+then reboot Streamlit. Keep all other project files, data and API secrets.
+Verified with offline regression tests and the supplied 25 September export.
+A live Google routing run and Streamlit UI run were not available in this workspace.

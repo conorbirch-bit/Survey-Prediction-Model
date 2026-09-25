@@ -70,6 +70,13 @@ class CachedRunRouter:
 def _site_allowed_today(site, day_date):
     if _retry_forbidden_on_date(site, day_date):
         return False
+    required = site.get("retry_required_weekdays") or []
+    if isinstance(required, str):
+        required = [value.strip() for value in required.split(",") if value.strip()]
+    if not isinstance(required, (list, tuple, set)):
+        required = []
+    if required and day_date.strftime("%A") not in required:
+        return False
     preferred = site.get("special_request_date")
     if preferred is not None and not pd.isna(preferred):
         preferred = pd.to_datetime(preferred).date()
@@ -1692,6 +1699,7 @@ class DailyTransitScheduler:
         lunch_minutes: int = 30,
         lunch_window_start_clock=time(11, 45),
         lunch_latest_start_clock=time(13, 0),
+        minimum_survey_to_travel_ratio=FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO,
     ):
         self.router = router if isinstance(router, CachedRunRouter) else CachedRunRouter(router)
         self.home_location = home_location
@@ -1701,6 +1709,7 @@ class DailyTransitScheduler:
         self.pre_survey_buffer_minutes = pre_survey_buffer_minutes
         self.post_survey_buffer_minutes = post_survey_buffer_minutes
         self.ai_priority_weight_minutes = ai_priority_weight_minutes
+        self.minimum_survey_to_travel_ratio = float(minimum_survey_to_travel_ratio)
         self.lunch_minutes = lunch_minutes
         self.lunch_window_start_clock = lunch_window_start_clock
         self.lunch_latest_start_clock = lunch_latest_start_clock
@@ -2513,7 +2522,8 @@ class DailyTransitScheduler:
                     if not lunch_taken and latest_survey_finish >= lunch_window_start:
                         available_work = max(0.0, available_work - self.lunch_minutes)
                     if not _far_cluster_transition_is_efficient(
-                        buffered_travel_minutes, min(potential_work, available_work)
+                        buffered_travel_minutes, min(potential_work, available_work),
+                        minimum_ratio=self.minimum_survey_to_travel_ratio
                     ):
                         continue
 
@@ -2606,7 +2616,7 @@ class DailyTransitScheduler:
                         )
                         achieved_work = sum(item.survey_minutes for item in proof.items[len(scheduled):])
                         if (proof.return_time > latest_return
-                                or not _far_cluster_transition_is_efficient(buffered_travel_minutes, achieved_work)):
+                                or not _far_cluster_transition_is_efficient(buffered_travel_minutes, achieved_work, minimum_ratio=self.minimum_survey_to_travel_ratio)):
                             continue
                         # Commit the proven local block together, so subsequent
                         # greedy choices cannot discard the work justifying it.
@@ -2847,14 +2857,14 @@ class DailyTransitScheduler:
                 tzinfo=timezone,
             )
 
-            # Metro-fault retry rule: the failed weekday is a hard exclusion.
+            # No-answer retries and known access days are hard exclusions.
             # Filter before build_day so forbidden retries do not create Google
             # routing calls on that date. They remain in the weekly candidate
             # pool for the later available dates.
             day_sites = [
                 site
                 for site in remaining
-                if not _retry_forbidden_on_date(site, day_date)
+                if _site_allowed_today(site, day_date)
             ]
             if not day_sites:
                 continue

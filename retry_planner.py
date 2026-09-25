@@ -10,12 +10,14 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from access_rules import classify_access
+
 
 # ---------------------------------------------------------------------------
 # RETRY BUSINESS RULES
 # ---------------------------------------------------------------------------
 # Kept as explicit constants so the agreed behaviour is easy to change later.
-BLANK_CUSTOMER_FAILURE_ACTION = "IGNORE"
+BLANK_CUSTOMER_FAILURE_ACTION = "RETRY"
 CUSTOMER_CLIENT_HELP_ATTEMPT = 3
 TIME_PERIOD_SPLIT_HOUR = 12
 
@@ -191,7 +193,7 @@ def _read_report_table(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFram
     # A present but entirely blank booking column means no bookings. Preserve
     # it so it is not confused with a report missing the required column.
     empty_columns = [c for c in df.columns
-                     if df[c].isna().all() and _normalise_header(c) != "Scheduled Start"]
+                     if df[c].isna().all() and _normalise_header(c) not in {"Scheduled Start", "Actual Start", "Status", "Status.1", "Failed Visits (Customer)", "Failed Visits (Metro)"}]
     df = df.drop(columns=empty_columns).dropna(axis=0, how="all")
     df.columns = [_normalise_header(c) for c in df.columns]
 
@@ -268,6 +270,12 @@ def _prepare_sa_mapping(sa_df: pd.DataFrame) -> pd.DataFrame:
         "Created Date", pd.Series(index=working.index, dtype=object)
     ).apply(_parse_datetime)
 
+    # Salesforce repeats Status: the first is Work Order, the last is SA.
+    status_columns = [c for c in working if re.fullmatch(r"Status(?:\.\d+|__\d+)?", c)]
+    explicit = [c for c in working if c in {"Service Appointment Status", "Service Appointment: Status"}]
+    status_column = explicit[-1] if explicit else (status_columns[-1] if status_columns else None)
+    working["_sa_status"] = (working[status_column].map(_clean_text).str.casefold()
+                             if status_column else "")
     return working.drop(columns=["_wo_raw", "_wo_group", "_sa_id"], errors="ignore")
 
 
@@ -360,6 +368,8 @@ def _prepare_failure_history(failure_df: pd.DataFrame) -> pd.DataFrame:
         & working["Old Service Appointment ID"].ne("")
     ].copy()
 
+    # Repeated report rows must not turn one appointment into two attempts.
+    working = working.drop_duplicates(["Work Order Number", "Old Service Appointment ID"])
     customer_flag = pd.to_numeric(
         working.get("Failed Visits (Customer)"), errors="coerce"
     ).fillna(0) > 0
@@ -370,7 +380,7 @@ def _prepare_failure_history(failure_df: pd.DataFrame) -> pd.DataFrame:
     working["Failure Type"] = "Unknown"
     working.loc[customer_flag & ~metro_flag, "Failure Type"] = "Customer"
     working.loc[metro_flag & ~customer_flag, "Failure Type"] = "Metro"
-    working.loc[metro_flag & customer_flag, "Failure Type"] = "Ambiguous"
+    working.loc[metro_flag & customer_flag, "Failure Type"] = "Customer"
 
     working["_actual_start_dt"] = working.get(
         "Actual Start", pd.Series(index=working.index, dtype=object)
@@ -388,17 +398,16 @@ def _prepare_failure_history(failure_df: pd.DataFrame) -> pd.DataFrame:
     working["_row_order"] = range(len(working))
 
     def failure_reason(row) -> str:
-        for col in [
-            "Primary Service Appointment: Reason Description",
-            "Cancelation Reason Description",
-            "Reason Not Complete",
-        ]:
-            value = _clean_text(row.get(col))
-            if value:
-                return value
-        return ""
+        descriptions = [_clean_text(row.get(c)) for c in [
+            "Primary Service Appointment: Reason Description", "Cancelation Reason Description"]]
+        if any(descriptions):
+            return " ".join(dict.fromkeys(v for v in descriptions if v))
+        return "No answer at door"
 
     working["Failure Reason"] = working.apply(failure_reason, axis=1)
+    metro_reason = working.get("Reason Not Complete", pd.Series("", index=working.index)).fillna("").astype(str).str.contains(
+        r"metro|unable to make it", case=False, regex=True)
+    working.loc[metro_reason, "Failure Type"] = "Metro"
 
     # Support both Salesforce shapes we may receive:
     #   1) one failed-visit row per attempt with a value of 1; or
@@ -505,6 +514,7 @@ def _resolve_replacement_sa(
 
     candidates = group[
         ~group["Service Appointment ID"].astype(str).isin(failed_sa_ids)
+        & ~group["_sa_status"].isin(["completed", "cannot complete", "cancelled", "canceled"])
     ].copy()
 
     # A replacement that already has an Actual Start is not a safe future
@@ -766,8 +776,6 @@ def build_retry_plan(
     for _, event in latest.iterrows():
         # Filter before business/AI triage. These work orders are accounted for
         # separately in the booking audit, never sent back to the retry pool.
-        if event["Work Order Number"] in excluded_work_orders:
-            continue
         mapping = _resolve_replacement_sa(
             event,
             all_history=all_history,
@@ -818,6 +826,8 @@ def build_retry_plan(
             "AI Confidence": "",
             "Client Action Required": False,
             "Retry Eligible": False,
+            "Required Weekdays": [],
+            "Surveyor Original Description": _clean_text(event.get("Primary Service Appointment: Reason Description")) or _clean_text(event.get("Cancelation Reason Description")),
             # Source fields used only if this retry is missing from the normal
             # future-surveys portfolio and must be reconstructed.
             "Source Status": _clean_text(event.get("Status")),
@@ -832,67 +842,34 @@ def build_retry_plan(
         reason = base["Failure Reason"]
         customer_count = int(base["Customer Failure Count"])
 
-        if failure_type == "Metro":
-            base.update({
-                "Decision": "RETRY",
-                "Decision Source": "Python Metro-fault rule",
-                "Reason Category": "METRO_FAULT",
-                "Decision Reason": (
-                    "Metro-fault Cannot Complete: automatically returned to the "
-                    "future scheduling pool."
-                ),
-                "Preferred Retry Period": _opposite_period(previous_period),
-                "Forbidden Weekday": previous_weekday,
-                "Forbidden Weekday Number": previous_weekday_number,
-                "Client Action Required": False,
-            })
-
-        elif failure_type == "Customer":
-            if customer_count >= CUSTOMER_CLIENT_HELP_ATTEMPT - 1:
-                base.update({
-                    "Decision": "CLIENT_ACCESS_REQUIRED",
-                    "Decision Source": "Python third-attempt rule",
-                    "Reason Category": "THIRD_ATTEMPT_CLIENT_SUPPORT",
-                    "Decision Reason": (
-                        f"{customer_count} customer-fault failures are already "
-                        "recorded; client support is required before the third "
-                        "attempt is released back to scheduling."
-                    ),
-                    "Recommended Client Action": (
-                        "Client to arrange/support access before another visit."
-                    ),
-                    "Client Action Required": True,
-                })
-            elif not reason:
-                base.update({
-                    "Decision": BLANK_CUSTOMER_FAILURE_ACTION,
-                    "Decision Source": "Python blank-description rule",
-                    "Reason Category": "BLANK_DESCRIPTION",
-                    "Decision Reason": (
-                        "Blank customer-fault description ignored under the current "
-                        "configurable rule."
-                    ),
-                })
-            else:
-                ai_cases.append({
-                    "work_order": base["Work Order Number"],
-                    "building": base["Building Name"],
-                    "failure_reason": reason,
-                    "customer_failure_count": customer_count,
-                    "previous_visit": str(previous_visit or ""),
-                    "previous_weekday": previous_weekday,
-                    "previous_period": previous_period,
-                })
+        appointments = sa_mapping[sa_mapping["Work Order Number"].eq(base["Work Order Number"])]
+        completed = appointments[appointments["_sa_status"].eq("completed")]
+        visits = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
+        visit_dates = sorted(pd.to_datetime(visits["_actual_start_dt"], errors="coerce").dropna().tolist())
+        for index, value in enumerate(visit_dates, 1):
+            base[f"Visit {index} Date"] = value.date().isoformat()
+        if not completed.empty:
+            base.update(Decision="RESOLVED", **{
+                "Decision Source": "Completed service appointment",
+                "Reason Category": "COMPLETED", "Decision Reason": "A linked service appointment is Completed.",
+                "Completed Service Appointment IDs": ", ".join(completed["Service Appointment ID"])})
         else:
-            base.update({
-                "Decision": "IGNORE",
-                "Decision Source": "Python ambiguous-failure rule",
-                "Reason Category": "AMBIGUOUS_FAILURE_TYPE",
-                "Decision Reason": (
-                    "Could not unambiguously classify the latest failure as Metro "
-                    "or Customer, so it was held out of automatic retry scheduling."
-                ),
-            })
+            rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
+            if rule:
+                base.update(rule)
+                if base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
+                    if base["Reason Category"] == "NO_ANSWER" and failure_type != "Metro":
+                        base["Forbidden Weekday"] = previous_weekday
+                        base["Forbidden Weekday Number"] = previous_weekday_number
+                        base["Preferred Retry Period"] = _opposite_period(previous_period)
+            else:
+                ai_cases.append({"work_order": base["Work Order Number"], "building": base["Building Name"],
+                    "failure_reason": reason, "customer_failure_count": customer_count,
+                    "previous_visit": str(previous_visit or ""), "previous_weekday": previous_weekday,
+                    "previous_period": previous_period})
+        base["Client Action Required"] = base["Decision"] == "CLIENT_ACCESS_REQUIRED"
+        if base["Work Order Number"] in excluded_work_orders and base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
+            continue
 
         rows.append(base)
 
@@ -919,7 +896,7 @@ def build_retry_plan(
                 )
 
     for row in rows:
-        if row["Failure Type"] != "Customer" or row["Decision"]:
+        if row["Decision"]:
             continue
 
         wo = row["Work Order Number"]
@@ -950,6 +927,17 @@ def build_retry_plan(
             row["Decision"] == "CLIENT_ACCESS_REQUIRED"
         )
 
+    # Completed work may have vanished from the failure-detail tab while still
+    # appearing in the master portfolio. Emit exclusions for those Work Orders too.
+    seen = {r["Work Order Number"] for r in rows}
+    for wo, group in sa_mapping[sa_mapping["_sa_status"].eq("completed")].groupby("Work Order Number"):
+        if wo in seen:
+            continue
+        rows.append({"Work Order Number": wo, "Customer Reference": "", "Building Name": "",
+            "Decision": "RESOLVED", "Decision Source": "Completed service appointment",
+            "Decision Reason": "A linked service appointment is Completed.", "Reason Category": "COMPLETED",
+            "Completed Service Appointment IDs": ", ".join(group["Service Appointment ID"]),
+            "Mapping Status": "Completed", "Failure Type": "", "Client Action Required": False, "Retry Eligible": False})
     decisions = pd.DataFrame(rows)
 
     if decisions.empty:
@@ -991,6 +979,7 @@ def build_retry_plan(
         "work_orders": int(len(latest)),
         "bookings_excluded": len(excluded_work_orders),
         "retry_eligible": int(decisions["Retry Eligible"].sum()),
+        "resolved": int(decisions["Decision"].eq("RESOLVED").sum()),
         "metro_retries": int(
             ((decisions["Failure Type"] == "Metro") & decisions["Retry Eligible"]).sum()
         ),
@@ -1133,6 +1122,7 @@ def apply_retry_plan_to_portfolio(
         "Retry Forbidden Weekday Number",
         "Retry Preferred Period",
         "Retry Preferred Weekdays",
+        "Retry Required Weekdays",
         "Retry Old Service Appointment ID",
         "Retry Replacement Service Appointment ID",
         "Retry AI Confidence",
@@ -1275,6 +1265,8 @@ def apply_retry_plan_to_portfolio(
                 "Forbidden Weekday Number"
             ),
             "Retry Preferred Period": decision.get("Preferred Retry Period", ""),
+            "Retry Required Weekdays": ", ".join(decision.get("Required Weekdays", []))
+                if isinstance(decision.get("Required Weekdays"), list) else "",
             "Retry Preferred Weekdays": ", ".join(
                 decision.get("Preferred Weekdays", [])
                 if isinstance(decision.get("Preferred Weekdays", []), list)
@@ -1450,7 +1442,7 @@ def sense_check_retry_outputs(
     )
 
     scheduled_non_retry = 0
-    metro_same_weekday = 0
+    forbidden_same_weekday = 0
     if audit is not None and not audit.empty:
         scheduled_non_retry = int((
             audit["Scheduled?"].eq("Yes")
@@ -1458,8 +1450,7 @@ def sense_check_retry_outputs(
         ).sum())
 
         metro_rows = audit[
-            audit["Failure Type"].eq("Metro")
-            & audit["Scheduled?"].eq("Yes")
+            audit["Scheduled?"].eq("Yes")
         ]
         for _, row in metro_rows.iterrows():
             scheduled_date = pd.to_datetime(
@@ -1468,7 +1459,7 @@ def sense_check_retry_outputs(
             forbidden = _clean_text(row.get("Forbidden Weekday"))
             if not pd.isna(scheduled_date) and forbidden:
                 if scheduled_date.day_name() == forbidden:
-                    metro_same_weekday += 1
+                    forbidden_same_weekday += 1
 
     add(
         "Held/client-access rows not scheduled",
@@ -1476,9 +1467,9 @@ def sense_check_retry_outputs(
         f"Non-retry decisions found in final schedule: {scheduled_non_retry}",
     )
     add(
-        "Metro retry different-weekday hard rule",
-        "PASS" if metro_same_weekday == 0 else "FAIL",
-        f"Metro retries scheduled on the failed weekday: {metro_same_weekday}",
+        "No-answer retry different-weekday hard rule",
+        "PASS" if forbidden_same_weekday == 0 else "FAIL",
+        f"Retries scheduled on their forbidden weekday: {forbidden_same_weekday}",
     )
 
     # Check that the Salesforce copy uses the replacement 08p ID for every

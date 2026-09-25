@@ -478,6 +478,20 @@ class DurationPredictor:
         missing = tuple(k for k, v in values.items() if v is None)
         flats_value = values["flats"]
 
+        if flats_value is None and values["ground_floor_area"] is None:
+            training = self.training_data
+            if training is None or training.empty:
+                raise ValueError("No accepted training data for the duration fallback.")
+            sample = training[training[FEATURE_COLUMNS["flats"]].isna() |
+                              training[FEATURE_COLUMNS["flats"]].gt(0)]
+            durations = pd.to_numeric(sample[TARGET_COLUMN], errors="coerce").dropna()
+            if durations.empty:
+                raise ValueError("No completed residential durations for fallback.")
+            estimate = round(float(durations.mean()), 1)
+            return PredictionResult(estimate, estimate, (),
+                "Residential historical average (missing inputs)", "Low",
+                None, None, len(durations), 0, missing)
+
         if flats_value is not None and flats_value < 0:
             raise ValueError("Sovereign flat count cannot be negative.")
 

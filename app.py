@@ -52,6 +52,7 @@ from special_requests import (
     request_results_dataframe,
 )
 from team_scheduler import (
+    capacity_review,
     SurveyorConfig,
     representative_sites,
     home_to_cluster_matrix,
@@ -77,7 +78,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.11.4 — exclude existing replacement bookings by week")
+st.caption("Version 20.12.4 — exclude existing replacement bookings by week")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -199,7 +200,7 @@ except Exception as exc:
 if getattr(predictor, "model_version", None) != "20.11-segmented-1-3-4-6":
     st.error(
         "Old duration predictor detected. Replace duration_predictor_height.py "
-        "and app.py with the Version 20.11 files, then reboot the Streamlit app."
+        "and app.py with the Version 20.12 files, then reboot the Streamlit app."
     )
     st.stop()
 
@@ -461,6 +462,7 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "retry_preferred_period": str(
                 site_row.get("Retry Preferred Period", "") or ""
             ),
+            "retry_required_weekdays": site_row.get("Retry Required Weekdays", []) or [],
             "retry_preferred_weekdays": str(
                 site_row.get("Retry Preferred Weekdays", "") or ""
             ),
@@ -1461,6 +1463,7 @@ with tab2:
                                                 f"{retry_plan.stats.get('client_access_required', 0)} "
                                                 "require client access; "
                                                 f"{retry_plan.stats.get('ignored', 0)} ignored/held. "
+                                                f"{retry_plan.stats.get('resolved', 0)} completed Work Orders excluded. "
                                                 f"Existing rows annotated: "
                                                 f"{retry_apply_stats.get('annotated_existing', 0)}; "
                                                 f"missing retry rows reconstructed: "
@@ -2355,11 +2358,21 @@ with tab2:
                                             team_first_survey_clock, team_last_survey_clock,
                                             team_return_home_clock, LONDON_TZ,
                                             travel_matrix=team_home_cluster_matrix,
+                                            reserve_sites=site_dataframe_to_dicts(
+                                                team_portfolio[team_portfolio["Eligible for Selected Week"].eq(True)]
+                                            ),
+                                            maximise_days=True,
                                         )
                                         team_shortlists = apply_gap_assignments(
                                             team_shortlists, team_gap_filling_df,
                                             team_home_cluster_matrix,
+                                            reserve_portfolio=team_portfolio,
                                         )
+                                        team_capacity_review_df = capacity_review(
+                                            team_portfolio, active_surveyors, team_results,
+                                            per_day_survey_window_minutes,
+                                        )
+                                        st.dataframe(team_capacity_review_df, use_container_width=True)
 
                                         team_allocations_df = (
                                             allocations_dataframe(
@@ -3165,6 +3178,21 @@ with tab2:
                                             writer,
                                             sheet_name="Drawing Priority",
                                             index=False,
+                                        )
+                                        team_capacity_review_df.to_excel(
+                                            writer, sheet_name="Capacity Review", index=False,
+                                        )
+                                        placed_references = {
+                                            str(item.customer_reference).strip()
+                                            for result in team_results.values() if result is not None
+                                            for day in result.days for item in day.items
+                                        }
+                                        unplaced_eligible = team_portfolio.loc[
+                                            team_portfolio["Eligible for Selected Week"].eq(True)
+                                            & ~team_portfolio["Customer Reference"].fillna("").astype(str).str.strip().isin(placed_references)
+                                        ].copy()
+                                        unplaced_eligible.to_excel(
+                                            writer, sheet_name="Unplaced Eligible", index=False,
                                         )
                                         if not team_gap_filling_df.empty:
                                             team_gap_filling_df.to_excel(

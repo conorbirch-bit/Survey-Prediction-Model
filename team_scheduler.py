@@ -1222,7 +1222,7 @@ def allocations_dataframe(
 def fill_team_gaps(
     team_results, surveyors, sites_by_surveyor, scheduler_factory,
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
-    travel_matrix=None,
+    travel_matrix=None, reserve_sites=None, maximise_days=False,
 ):
     """Append globally unbooked work to available days without moving bookings.
 
@@ -1247,6 +1247,12 @@ def fill_team_gaps(
             if identity not in site_by_id or (reserved is not None and not pd.isna(reserved)):
                 site_by_id[identity] = site
                 owner_by_id[identity] = name
+
+    for site in reserve_sites or []:
+        identity = _site_identity_for_sequence(site)
+        if identity not in site_by_id:
+            site_by_id[identity] = site
+            owner_by_id[identity] = ""
 
     def item_id(item):
         return _site_identity_for_sequence(vars(item))
@@ -1292,6 +1298,7 @@ def fill_team_gaps(
             candidate["home_to_cluster_minutes"] = travel_matrix.get((name, _planning_cluster_key(site)))
             candidates.append(candidate)
 
+        all_candidates = list(candidates)
         anchor = None
         if has_work:
             anchor = site_by_id.get(item_id(baseline.items[-1]))
@@ -1312,9 +1319,19 @@ def fill_team_gaps(
                     score = workload - 2 * float(commute)
                     if score > 0:
                         area_scores[area] = score
+            if maximise_days:
+                # Missing representative routes must not hide eligible reserve
+                # areas. Coordinates rank them; real transit still decides fit.
+                home = _surveyor_home_coordinates(surveyor)
+                for site in candidates:
+                    area = _planning_cluster_key(site)
+                    if area not in area_scores:
+                        distance = (haversine_km(*home, site.get("latitude"), site.get("longitude"))
+                                    if home else None)
+                        area_scores[area] = workloads.get(area, 0) - (2 * distance if distance is not None else 60)
             selected_areas = sorted(area_scores, key=lambda area: (-area_scores[area], area))[:3]
             candidates = [site for site in candidates if _planning_cluster_key(site) in selected_areas]
-        if not candidates:
+        if not candidates and not (has_work and maximise_days):
             continue
 
         if has_work:
@@ -1333,8 +1350,21 @@ def fill_team_gaps(
         else:
             batches = [candidates]
 
+        wider_index = None
+        if has_work and maximise_days:
+            wider = []
+            for site in all_candidates:
+                distance = haversine_km(anchor.get("latitude"), anchor.get("longitude"),
+                                        site.get("latitude"), site.get("longitude"))
+                if distance is not None and distance <= 15.0:
+                    wider.append(site)
+            if wider:
+                wider_index = len(batches)
+                batches.append(wider)
         best = baseline if has_work else None
-        for batch in batches:
+        for batch_index, batch in enumerate(batches):
+            wider_search = maximise_days and (batch_index == wider_index or not has_work)
+            scheduler.minimum_survey_to_travel_ratio = 1.0 if wider_search else 2.0
             used_here = {item_id(item) for item in best.items} if best is not None else set()
             batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
             if not batch:
@@ -1343,7 +1373,7 @@ def fill_team_gaps(
                 batch, first, finish, deadline,
                 resume_from=best,
                 resume_site=site_by_id[item_id(best.items[-1])] if best is not None else None,
-                local_continuation_only=has_work,
+                local_continuation_only=has_work and not wider_search,
             )
             prefix = best.items if best is not None else []
             added = trial.items[len(prefix):]
@@ -1355,7 +1385,7 @@ def fill_team_gaps(
             if (not added or trial.items[:len(prefix)] != prefix
                     or len(set(added_ids)) != len(added_ids) or booked.intersection(added_ids)
                     or trial.return_time > deadline or any(item.survey_end > finish for item in added)
-                    or added_work < 2 * max(0, extra_travel)):
+                    or added_work < (1.0 if wider_search else 2.0) * max(0, extra_travel)):
                 continue
             best = trial
 
@@ -1395,14 +1425,16 @@ def fill_team_gaps(
     return results, pd.DataFrame(additions)
 
 
-def apply_gap_assignments(shortlists, additions, travel_matrix):
+def apply_gap_assignments(shortlists, additions, travel_matrix, reserve_portfolio=None):
     """Keep exported shortlists and downstream resource assignment in sync."""
     updated = {name: frame.copy() for name, frame in shortlists.items()}
     for addition in additions.to_dict(orient="records"):
         source, target = addition["Original Surveyor"], addition["Surveyor"]
         if source == target:
             continue
-        frame = updated[source]
+        frame = updated[source] if source else reserve_portfolio
+        if frame is None:
+            raise ValueError("Missing reserve portfolio for an added gap-fill site.")
         reference = str(addition["Customer Reference"] or "").strip()
         if reference:
             match = frame["Customer Reference"].fillna("").astype(str).str.strip().eq(reference)
@@ -1412,10 +1444,30 @@ def apply_gap_assignments(shortlists, additions, travel_matrix):
         moved = frame.loc[match].head(1).copy()
         if moved.empty:
             raise ValueError(f"Cannot find gap-fill source row for {addition['Building Name']}.")
-        updated[source] = frame.loc[~match].copy()
+        if source:
+            updated[source] = frame.loc[~match].copy()
         moved["Assigned Surveyor"] = target
         moved["Home to Cluster (Minutes)"] = moved["Planning Cluster"].map(
             lambda area: travel_matrix.get((target, str(area)))
         )
         updated[target] = pd.concat([updated.get(target, pd.DataFrame()), moved], ignore_index=True)
     return updated
+
+
+def capacity_review(portfolio, surveyors, results, survey_minutes_per_day):
+    """Distinguish a workload shortage from work left unplaced by routing."""
+    eligible = portfolio.loc[portfolio["Eligible for Selected Week"].eq(True)]
+    available = float(pd.to_numeric(eligible["Planning Duration (Minutes)"], errors="coerce").fillna(0).sum())
+    days = sum(len(s.available_dates or []) for s in surveyors)
+    window = float(survey_minutes_per_day) * days
+    scheduled = sum(r.total_survey_minutes for r in results.values() if r is not None)
+    return pd.DataFrame([
+        {"Measure": "Eligible buildings", "Value": len(eligible), "Meaning": "After status, access and booking gates."},
+        {"Measure": "Eligible survey hours", "Value": round(available / 60, 2), "Meaning": "All eligible work, including outside initial shortlists."},
+        {"Measure": "Selected person-days", "Value": days, "Meaning": "Surveyor availability selected for this run."},
+        {"Measure": "Survey window hours before travel", "Value": round(window / 60, 2), "Meaning": "Working window less lunch; travel will reduce this."},
+        {"Measure": "Scheduled survey hours", "Value": round(scheduled / 60, 2), "Meaning": "Survey time actually placed in the final routes."},
+        {"Measure": "Unplaced eligible survey hours", "Value": round(max(0, available - scheduled) / 60, 2), "Meaning": "Check remaining locations, access days and journey feasibility."},
+        {"Measure": "Supply assessment", "Value": "Insufficient survey workload for all windows" if available < window else "Enough raw survey workload; routing still limits fit",
+         "Meaning": "A workload comparison, not a claim that all raw hours can fit after travel."},
+    ])
