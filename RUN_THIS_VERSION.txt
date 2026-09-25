@@ -1,25 +1,18 @@
-VERSION 20.12.5 — STANDALONE CANNOT-COMPLETES ACCESS REPORT
+VERSION 20.12.7 — REMOVE FINAL FILLING RATIO ONLY
 
-Apply these changed/new files on top of version 20.12, then restart Streamlit.
+Apply over version 20.12.6 and restart Streamlit.
 Run: python -m streamlit run app.py
-All scheduling and access classification rules remain unchanged.
 
-Upload the two-tab Cannot Complete workbook. Click Generate cannot-completes
-report to download the report without running a schedule. It is also generated
-automatically alongside a successful team schedule when this workbook is supplied.
+The final filling pass can add a survey even when the extra travel takes longer
+than the survey. The existing 15 km wider-search radius remains. Initial route
+planning retains its normal efficiency preference; only final filling drops the
+minimum survey-to-travel ratio.
 
-The separate workbook contains Summary, Client Access Required and All Cannot
-Completes. The client tab includes original surveyor descriptions, date-only
-visit columns and blank response/contact/access-date fields with a status dropdown.
-Completed Work Orders are excluded from client help. Booking-week exclusions
-never hide client-help cases; booked retries remain visible in the full register.
+The original gap-priority order and empty-day area shortlist are retained.
+Access rules, completed-work exclusions, existing bookings, lunch, survey finish
+and return-home deadlines remain enforced. The seven approved resolved issues
+and standalone access report are unchanged.
 
-The register includes completed Work Orders found only in appointment mapping;
-missing names, references and failure counts remain blank and are labelled.
-It reflects the current upload, not historical rows absent from both source tabs.
-Each fresh export starts with blank client response fields; retain client replies
-separately. No new runtime dependencies or API calls are needed for Excel export.
-Standalone classification can use the existing AI triage for unclear reasons.
-
-Only app.py, retry_planner.py, this file, new access_report.py and the new report
-tests are included. Keep all other version 20.12 files, training data and secrets.
+Included: app.py, team_scheduler.py, RUN_THIS_VERSION.txt
+and tests/test_fuller_days.py. Replace matching files and keep everything else.
+89 offline regression tests passed. Rerun with your live Google connection for results.

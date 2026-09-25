@@ -80,7 +80,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.5 — standalone cannot-completes access report")
+st.caption("Version 20.12.7 — gap filling without a survey-to-travel ratio")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -3282,7 +3282,7 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.5"},
+                                            {"Setting": "App Version", "Value": "20.12.7"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
                                             {"Setting": "Booking Exclusion Weeks", "Value": ", ".join(
                                                 str(week) for week in sorted(team_excluded_booking_weeks)

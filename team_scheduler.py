@@ -1226,7 +1226,9 @@ def fill_team_gaps(
 ):
     """Append globally unbooked work to available days without moving bookings.
 
-    Existing days consider only the final site's local area. Empty days compare
+    Maximise-days filling retains the 15 km search radius but has no minimum
+    survey-to-travel ratio. Normal planning keeps its efficiency preference.
+    Existing days first consider the final site's local area. Empty days compare
     up to three productive areas using the already-paid home/cluster matrix.
     All trials use the normal scheduler, including lunch, retry and return rules.
     Accepted weekly-note candidates remain reserved for their original owner.
@@ -1364,7 +1366,7 @@ def fill_team_gaps(
         best = baseline if has_work else None
         for batch_index, batch in enumerate(batches):
             wider_search = maximise_days and (batch_index == wider_index or not has_work)
-            scheduler.minimum_survey_to_travel_ratio = 1.0 if wider_search else 2.0
+            scheduler.minimum_survey_to_travel_ratio = 0.0 if maximise_days else 2.0
             used_here = {item_id(item) for item in best.items} if best is not None else set()
             batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
             if not batch:
@@ -1385,7 +1387,8 @@ def fill_team_gaps(
             if (not added or trial.items[:len(prefix)] != prefix
                     or len(set(added_ids)) != len(added_ids) or booked.intersection(added_ids)
                     or trial.return_time > deadline or any(item.survey_end > finish for item in added)
-                    or added_work < (1.0 if wider_search else 2.0) * max(0, extra_travel)):
+                    or added_work <= 0
+                    or (not maximise_days and added_work < 2.0 * max(0, extra_travel))):
                 continue
             best = trial
 
