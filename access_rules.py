@@ -4,6 +4,47 @@ import re
 # Explicit review hold from Conor's audit, not a generic restriction on large sites.
 INTERNAL_REVIEW_REFERENCES = {"BRAU0000"}
 
+# Conor confirmed these specific issues resolved on 25 September 2026.
+# Scope each release to the reviewed Work Order and failed appointments, so a
+# fresh failure returns to normal triage instead of becoming a permanent bypass.
+# Tuple: customer reference, building number, known failed SAs, customer / Metro counts.
+RESOLVED_ISSUES = {
+    "01040732": ("LIVE0060", "101645", {"08pR5000002hLl9"}, 0, 1),
+    "01040107": ("MINE0130", "102026", {"08pR5000002hKlk", "08pR5000002lqZt"}, 1, 1),
+    "01041073": ("MINE0051", "102028", {"08pR5000002hM4I"}, 1, 0),
+    "01042316": ("MINE0142", "102030", {"08pR5000002hMiF", "08pR5000002lqbV"}, 1, 1),
+    "01041397": ("DEBH0001", "101288", {"08pR5000002hM4f"}, 0, 1),
+    "01042666": ("DEBH0013", "101334", {"08pR5000002hMf8"}, 0, 1),
+    "01040790": ("BADG0013", "101333", {"08pR5000002hLrP", "08pR5000002mzhZ"}, 0, 2),
+}
+
+
+def resolved_issue_decision(work_order, reference, failed_sa_ids,
+                            customer_failures, metro_failures):
+    """Release only the failure history explicitly reviewed by Conor.
+
+    Completion, booking exclusions and replacement-SA validation are still
+    enforced by the caller. Historical failure counts are not reset.
+    """
+    approval = RESOLVED_ISSUES.get(work_order)
+    if approval is None:
+        return None
+    approved_ref, building, known_failures, customers, metro = approval
+    if (reference != approved_ref or not failed_sa_ids
+            or not set(failed_sa_ids).issubset(known_failures)
+            or customer_failures > customers or metro_failures > metro):
+        return None
+    return {
+        "Decision": "RETRY",
+        "Reason Category": "ISSUE_RESOLVED",
+        "Decision Source": "Conor approval — 25 September 2026",
+        "Decision Reason": (
+            f"Issue resolved — approved to reschedule building {building} by Conor "
+            "on 25 September 2026. Previous failure history retained."
+        ),
+        "Recommended Client Action": "",
+    }
+
 
 def classify_access(reason, customer_failures, metro_failures=0, reference=""):
     """Return a clear rule decision, or None for genuinely unrecognised prose.

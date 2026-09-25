@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from access_rules import classify_access
+from access_rules import classify_access, resolved_issue_decision
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +862,18 @@ def build_retry_plan(
                 "Reason Category": "COMPLETED", "Decision Reason": "A linked service appointment is Completed.",
                 "Completed Service Appointment IDs": ", ".join(completed["Service Appointment ID"])})
         else:
-            rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
+            failed_ids = set(visits["Service Appointment ID"]) | set(
+                all_history.loc[
+                    all_history["Work Order Number"].eq(base["Work Order Number"]),
+                    "Old Service Appointment ID",
+                ]
+            )
+            rule = resolved_issue_decision(
+                base["Work Order Number"], base["Customer Reference"], failed_ids,
+                customer_count, base["Metro Failure Count"],
+            )
+            if rule is None:
+                rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
             if rule:
                 base.update(rule)
                 if base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
