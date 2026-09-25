@@ -36,6 +36,7 @@ class RetryPlan:
     warnings: List[str]
     stats: Dict[str, int]
     booking_exclusions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    report_decisions: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _clean_text(value) -> str:
@@ -770,6 +771,7 @@ def build_retry_plan(
     excluded_work_orders = set(booking_exclusions["Work Order Number"])
 
     rows: List[dict] = []
+    booked_report_rows: List[dict] = []
     ai_cases: List[dict] = []
     warnings: List[str] = []
 
@@ -838,11 +840,17 @@ def build_retry_plan(
             "Source Estimated Site Time": event.get("Estimated Site Time (Mins)"),
         }
 
+        for column in ("Primary Service Appointment: Reason Description", "Cancelation Reason Description", "Reason Not Complete"):
+            base[column] = _clean_text(event.get(column))
+        base["Record Coverage"] = "Failure detail and appointment mapping"
+        base["Booking Excluded"] = base["Work Order Number"] in excluded_work_orders
+
         failure_type = base["Failure Type"]
         reason = base["Failure Reason"]
         customer_count = int(base["Customer Failure Count"])
 
         appointments = sa_mapping[sa_mapping["Work Order Number"].eq(base["Work Order Number"])]
+        base["Linked Appointment Statuses"] = ", ".join(sorted(set(appointments["_sa_status"])))
         completed = appointments[appointments["_sa_status"].eq("completed")]
         visits = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
         visit_dates = sorted(pd.to_datetime(visits["_actual_start_dt"], errors="coerce").dropna().tolist())
@@ -869,6 +877,7 @@ def build_retry_plan(
                     "previous_period": previous_period})
         base["Client Action Required"] = base["Decision"] == "CLIENT_ACCESS_REQUIRED"
         if base["Work Order Number"] in excluded_work_orders and base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
+            booked_report_rows.append(base.copy())
             continue
 
         rows.append(base)
@@ -937,6 +946,9 @@ def build_retry_plan(
             "Decision": "RESOLVED", "Decision Source": "Completed service appointment",
             "Decision Reason": "A linked service appointment is Completed.", "Reason Category": "COMPLETED",
             "Completed Service Appointment IDs": ", ".join(group["Service Appointment ID"]),
+            "Record Coverage": "Completed appointment mapping only; failure detail absent",
+            "Postcode": _clean_text(group.iloc[0].get("Zip/Postal Code")),
+            "Building ID": _clean_text(group.iloc[0].get("Building_Id")),
             "Mapping Status": "Completed", "Failure Type": "", "Client Action Required": False, "Retry Eligible": False})
     decisions = pd.DataFrame(rows)
 
@@ -947,6 +959,7 @@ def build_retry_plan(
             warnings=warnings,
             stats={"work_orders": int(len(latest)), "bookings_excluded": len(excluded_work_orders)},
             booking_exclusions=booking_exclusions,
+            report_decisions=pd.DataFrame(booked_report_rows),
         )
 
     mapping_ok = decisions["Mapping Status"].astype(str).str.startswith("OK")
@@ -997,6 +1010,7 @@ def build_retry_plan(
         warnings=warnings,
         stats=stats,
         booking_exclusions=booking_exclusions,
+        report_decisions=pd.concat([decisions, pd.DataFrame(booked_report_rows)], ignore_index=True),
     )
 
 

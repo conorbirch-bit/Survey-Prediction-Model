@@ -3,6 +3,8 @@ from pathlib import Path
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import io
+import hashlib
+from access_report import build_access_report
 import os
 
 import pandas as pd
@@ -78,7 +80,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.4 — exclude existing replacement bookings by week")
+st.caption("Version 20.12.5 — standalone cannot-completes access report")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -942,6 +944,34 @@ with tab2:
         "AI only for customer-fault access interpretation, then only approved "
         "retries enter the normal geographic scheduling pipeline."
     )
+
+    report_source_key = hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
+    if retry_file is not None:
+        if st.button("Generate cannot-completes report", key="generate_access_report"):
+            try:
+                with st.spinner("Building access report..."):
+                    report_plan = build_retry_plan(
+                        retry_file.getvalue(),
+                        openai_api_key=get_secret("OPENAI_API_KEY", ""),
+                        openai_model=get_secret("OPENAI_MODEL", "gpt-5.6"),
+                        excluded_week_starts=[],
+                    )
+                    st.session_state["access_report_export"] = (
+                        report_source_key,
+                        build_access_report(report_plan, retry_file.name),
+                    )
+            except Exception as exc:
+                st.error(f"Could not build access report: {exc}")
+        saved_report = st.session_state.get("access_report_export")
+        if saved_report and saved_report[0] == report_source_key:
+            st.download_button(
+                "Download cannot-completes access report",
+                data=saved_report[1],
+                file_name=f"Cannot_Completes_Access_Report_{datetime.now().date().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="access_report_download",
+            )
+        st.caption("The access report can run on its own. It includes all client-help cases regardless of excluded booking weeks.")
 
     if team_file is None:
         st.info(
@@ -3252,7 +3282,7 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.11.4"},
+                                            {"Setting": "App Version", "Value": "20.12.5"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
                                             {"Setting": "Booking Exclusion Weeks", "Value": ", ".join(
                                                 str(week) for week in sorted(team_excluded_booking_weeks)
@@ -3268,6 +3298,20 @@ with tab2:
                                             {"Setting": "Retry Sites", "Value": retry_coordinate_total},
                                             {"Setting": "Retries with Coordinates", "Value": retry_coordinate_count},
                                         ]).to_excel(writer, sheet_name="Run Settings", index=False)
+
+                                    if retry_plan is not None:
+                                        try:
+                                            access_report_bytes = build_access_report(retry_plan, retry_file.name)
+                                            st.session_state["access_report_export"] = (report_source_key, access_report_bytes)
+                                            st.download_button(
+                                                "Download cannot-completes access report",
+                                                data=access_report_bytes,
+                                                file_name=f"Cannot_Completes_Access_Report_{datetime.now().date().isoformat()}.xlsx",
+                                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                                key="scheduled_access_report_download",
+                                            )
+                                        except Exception as report_exc:
+                                            st.error(f"Schedule built, but access report export failed: {report_exc}")
 
                                     st.download_button(
                                         "Download team weekly schedule",

@@ -1,34 +1,25 @@
-VERSION 20.12 — AUDITED RETRIES AND FULLER DAYS
+VERSION 20.12.5 — STANDALONE CANNOT-COMPLETES ACCESS REPORT
 
+Apply these changed/new files on top of version 20.12, then restart Streamlit.
 Run: python -m streamlit run app.py
-Active scheduler: scheduler_v20_10.py
+All scheduling and access classification rules remain unchanged.
 
-Replace matching project files and reboot Streamlit. Keep your API secrets and
-existing Predictive Model.xlsx, or upload completed-surveys training in the sidebar.
-Neither secrets nor training data are bundled.
+Upload the two-tab Cannot Complete workbook. Click Generate cannot-completes
+report to download the report without running a schedule. It is also generated
+automatically alongside a successful team schedule when this workbook is supplied.
 
-Use the latest two-tab Cannot Complete report, including service appointment
-Status, Actual Start, Scheduled Start and coordinates. The second Status column
-in the appointment tab is supported (the first is the Work Order status).
+The separate workbook contains Summary, Client Access Required and All Cannot
+Completes. The client tab includes original surveyor descriptions, date-only
+visit columns and blank response/contact/access-date fields with a status dropdown.
+Completed Work Orders are excluded from client help. Booking-week exclusions
+never hide client-help cases; booked retries remain visible in the full register.
 
-Completed appointments exclude the work. Client help is required after two
-customer failures OR a clear access barrier after one visit. Blank descriptions
-mean no answer. Mixed Metro/customer counts are allowed below the customer limit.
-No-answer retries change weekday; Metro operational retries have no weekday ban.
-Known access days are enforced. Technical/instruction problems stay on hold.
+The register includes completed Work Orders found only in appointment mapping;
+missing names, references and failure counts remain blank and are labelled.
+It reflects the current upload, not historical rows absent from both source tabs.
+Each fresh export starts with blank client response fields; retain client replies
+separately. No new runtime dependencies or API calls are needed for Excel export.
+Standalone classification can use the existing AI triage for unclear reasons.
 
-The final filling pass uses the full eligible portfolio, including sites outside
-the initial shortlist. It tries local work first, then a wider area up to 15 km
-from the last site. Only during this final pass, a longer trip may be accepted
-with one minute of proven survey work per additional travel minute instead of
-two. Actual routes, lunch, finishing time, home deadline and access rules still
-apply. Existing placed visits are not moved. This may make additional Google calls.
-
-Capacity Review and Unplaced Eligible tabs explain the remaining workload.
-Missing residential model inputs use a labelled historical-average duration.
-Client access output includes original descriptions and recorded visit dates.
-
-Replace only the files included in this update, including new access_rules.py,
-then reboot Streamlit. Keep all other project files, data and API secrets.
-Verified with offline regression tests and the supplied 25 September export.
-A live Google routing run and Streamlit UI run were not available in this workspace.
+Only app.py, retry_planner.py, this file, new access_report.py and the new report
+tests are included. Keep all other version 20.12 files, training data and secrets.
