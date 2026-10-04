@@ -1223,11 +1223,14 @@ def fill_team_gaps(
     team_results, surveyors, sites_by_surveyor, scheduler_factory,
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
     travel_matrix=None, reserve_sites=None, maximise_days=False,
+    expand_underfilled_days=False, expansion_gap_minutes=30, diagnostics=None,
 ):
     """Append globally unbooked work to available days without moving bookings.
 
-    Maximise-days filling retains the 15 km search radius but has no minimum
-    survey-to-travel ratio. Normal planning keeps its efficiency preference.
+    Maximise-days filling first searches within 15 km without a minimum
+    survey-to-travel ratio. Optional expansion then searches all remaining
+    candidates if the local passes leave at least expansion_gap_minutes before
+    the survey cut-off. Normal planning keeps its efficiency preference.
     Existing days first consider the final site's local area. Empty days compare
     up to three productive areas using the already-paid home/cluster matrix.
     All trials use the normal scheduler, including lunch, retry and return rules.
@@ -1286,6 +1289,25 @@ def fill_team_gaps(
         deadline = datetime.combine(day_date, latest_return_clock, tzinfo=timezone)
         scheduler = scheduler_factory(surveyor)
         has_work = baseline is not None and bool(baseline.items)
+        review = {
+            "Surveyor": name, "Date": day_date.isoformat(),
+            "Before Filling Survey End": baseline.items[-1].survey_end.strftime("%H:%M") if has_work else "",
+            "After Local Filling Survey End": "",
+            "Minutes Left After Local Filling": None,
+            "Wider Search Candidates": 0, "Candidates Beyond 15 km": 0,
+            "Wider Search": "Disabled", "Wider Search Additions": 0,
+            "Wider Search Survey Minutes": 0.0,
+        }
+
+        def record_review(final_day, outcome):
+            if diagnostics is not None:
+                review.update({
+                    "Final Survey End": final_day.items[-1].survey_end.strftime("%H:%M") if final_day and final_day.items else "",
+                    "Return Home": final_day.return_time.strftime("%H:%M") if final_day and final_day.items else "",
+                    "Outcome": outcome,
+                })
+                diagnostics.append(review)
+
         available_minutes = (finish - (baseline.return_departure if has_work else first)).total_seconds() / 60
         candidates = []
         for identity, site in site_by_id.items():
@@ -1305,6 +1327,7 @@ def fill_team_gaps(
         if has_work:
             anchor = site_by_id.get(item_id(baseline.items[-1]))
             if anchor is None:
+                record_review(baseline, "Last scheduled building missing from the candidate data; cannot extend its route.")
                 continue
             candidates = _local_work_candidates(anchor, candidates)
         else:
@@ -1333,7 +1356,8 @@ def fill_team_gaps(
                         area_scores[area] = workloads.get(area, 0) - (2 * distance if distance is not None else 60)
             selected_areas = sorted(area_scores, key=lambda area: (-area_scores[area], area))[:3]
             candidates = [site for site in candidates if _planning_cluster_key(site) in selected_areas]
-        if not candidates and not (has_work and maximise_days):
+        if not candidates and not (maximise_days and (has_work or expand_underfilled_days)):
+            record_review(baseline, "No candidates in the normal search after availability, reservation and duration checks.")
             continue
 
         if has_work:
@@ -1364,11 +1388,36 @@ def fill_team_gaps(
                 wider_index = len(batches)
                 batches.append(wider)
         best = baseline if has_work else None
+        expansion_index = None
+        if maximise_days and expand_underfilled_days:
+            expansion_index = len(batches)
+            batches.append(all_candidates)
+        addition_pass = {}
         for batch_index, batch in enumerate(batches):
-            wider_search = maximise_days and (batch_index == wider_index or not has_work)
+            expanded_search = batch_index == expansion_index
+            if expanded_search:
+                remaining_minutes = (finish - (best.return_departure if best is not None else first)).total_seconds() / 60
+                review["After Local Filling Survey End"] = best.items[-1].survey_end.strftime("%H:%M") if best is not None and best.items else ""
+                review["Minutes Left After Local Filling"] = round(max(0, remaining_minutes), 1)
+                if remaining_minutes < expansion_gap_minutes:
+                    review["Wider Search"] = f"Not triggered: less than {expansion_gap_minutes:g} minutes left"
+                    continue
+            wider_search = maximise_days and (expanded_search or batch_index == wider_index or not has_work)
             scheduler.minimum_survey_to_travel_ratio = 0.0 if maximise_days else 2.0
             used_here = {item_id(item) for item in best.items} if best is not None else set()
             batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
+            if expanded_search:
+                # Cheap duration pruning is safe; do not use current home travel
+                # as a veto because a new stop may bring the surveyor nearer home.
+                batch = [site for site in batch if float(site["planning_minutes"])
+                         + scheduler.pre_survey_buffer_minutes <= remaining_minutes]
+                review["Wider Search Candidates"] = len(batch)
+                if best is not None:
+                    current_anchor = site_by_id[item_id(best.items[-1])]
+                    distances = [haversine_km(current_anchor.get("latitude"), current_anchor.get("longitude"),
+                                             site.get("latitude"), site.get("longitude")) for site in batch]
+                    review["Candidates Beyond 15 km"] = sum(d is not None and d > 15 for d in distances)
+                review["Wider Search"] = "Searched all distances" if batch else "No eligible candidates remain that could fit before travel"
             if not batch:
                 continue
             trial = scheduler.build_day(
@@ -1391,6 +1440,19 @@ def fill_team_gaps(
                     or (not maximise_days and added_work < 2.0 * max(0, extra_travel))):
                 continue
             best = trial
+            for identity in added_ids:
+                addition_pass[identity] = "Expanded search" if expanded_search else "Normal search"
+            if expanded_search:
+                review["Wider Search Additions"] = len(added)
+                review["Wider Search Survey Minutes"] = round(added_work, 1)
+
+        if review["Wider Search"] == "Searched all distances":
+            outcome = ("Added work using the wider search within the survey, lunch and return-home limits."
+                       if review["Wider Search Additions"] else
+                       "Wider search found no additional feasible extension of this route within the time and lunch limits.")
+        else:
+            outcome = review["Wider Search"]
+        record_review(best or baseline, outcome)
 
         if best is None or best is baseline:
             continue
@@ -1417,6 +1479,7 @@ def fill_team_gaps(
                 "Surveyor": name,
                 "Date": day_date.isoformat(),
                 "Survey Minutes Added": item.survey_minutes,
+                "Fill Pass": addition_pass[identity],
             })
 
     for name, result in list(results.items()):
@@ -1471,6 +1534,6 @@ def capacity_review(portfolio, surveyors, results, survey_minutes_per_day):
         {"Measure": "Survey window hours before travel", "Value": round(window / 60, 2), "Meaning": "Working window less lunch; travel will reduce this."},
         {"Measure": "Scheduled survey hours", "Value": round(scheduled / 60, 2), "Meaning": "Survey time actually placed in the final routes."},
         {"Measure": "Unplaced eligible survey hours", "Value": round(max(0, available - scheduled) / 60, 2), "Meaning": "Check remaining locations, access days and journey feasibility."},
-        {"Measure": "Supply assessment", "Value": "Insufficient survey workload for all windows" if available < window else "Enough raw survey workload; routing still limits fit",
-         "Meaning": "A workload comparison, not a claim that all raw hours can fit after travel."},
+        {"Measure": "Supply assessment", "Value": "Eligible work remains unplaced" if available - scheduled > 0.1 else "All eligible survey work placed",
+         "Meaning": "Survey hours alone do not measure full days because travel also uses time. See Day Filling Review for the wider-search results."},
     ])

@@ -80,7 +80,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.7 — gap filling without a survey-to-travel ratio")
+st.caption("Version 20.12.8 — automatic wider search for underfilled days")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -2380,6 +2380,13 @@ with tab2:
 
                                         # Share only globally unbooked selected-week sites.
                                         # Existing bookings and accepted notes remain fixed.
+                                        team_day_filling_review = []
+                                        st.caption(
+                                            "Filling nearby work first. If at least 30 minutes remain "
+                                            "before the survey cut-off, the search expands beyond 15 km. "
+                                            "All access, lunch and return-time limits still apply. "
+                                            "The wider search may take longer and use more Google requests."
+                                        )
                                         team_results, team_gap_filling_df = fill_team_gaps(
                                             team_results, active_surveyors,
                                             {name: site_dataframe_to_dicts(frame)
@@ -2392,7 +2399,11 @@ with tab2:
                                                 team_portfolio[team_portfolio["Eligible for Selected Week"].eq(True)]
                                             ),
                                             maximise_days=True,
+                                            expand_underfilled_days=True,
+                                            expansion_gap_minutes=30,
+                                            diagnostics=team_day_filling_review,
                                         )
+                                        team_day_filling_review_df = pd.DataFrame(team_day_filling_review)
                                         team_shortlists = apply_gap_assignments(
                                             team_shortlists, team_gap_filling_df,
                                             team_home_cluster_matrix,
@@ -2403,6 +2414,8 @@ with tab2:
                                             per_day_survey_window_minutes,
                                         )
                                         st.dataframe(team_capacity_review_df, use_container_width=True)
+                                        with st.expander("Day filling and wider-search results"):
+                                            st.dataframe(team_day_filling_review_df, use_container_width=True)
 
                                         team_allocations_df = (
                                             allocations_dataframe(
@@ -3212,6 +3225,9 @@ with tab2:
                                         team_capacity_review_df.to_excel(
                                             writer, sheet_name="Capacity Review", index=False,
                                         )
+                                        team_day_filling_review_df.to_excel(
+                                            writer, sheet_name="Day Filling Review", index=False,
+                                        )
                                         placed_references = {
                                             str(item.customer_reference).strip()
                                             for result in team_results.values() if result is not None
@@ -3282,7 +3298,9 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.7"},
+                                            {"Setting": "App Version", "Value": "20.12.8"},
+                                            {"Setting": "Wider Search Trigger", "Value": "30 minutes left before survey cut-off after normal filling"},
+                                            {"Setting": "Wider Search Limit", "Value": "No distance or survey-to-travel ratio limit; time, lunch and access checks retained"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
                                             {"Setting": "Booking Exclusion Weeks", "Value": ", ".join(
                                                 str(week) for week in sorted(team_excluded_booking_weeks)

@@ -1,18 +1,33 @@
-VERSION 20.12.7 — REMOVE FINAL FILLING RATIO ONLY
+VERSION 20.12.8 — WIDER SEARCH FOR UNDERFILLED DAYS
 
-Apply over version 20.12.6 and restart Streamlit.
+Apply over version 20.12.7 and restart Streamlit.
 Run: python -m streamlit run app.py
 
-The final filling pass can add a survey even when the extra travel takes longer
-than the survey. The existing 15 km wider-search radius remains. Initial route
-planning retains its normal efficiency preference; only final filling drops the
-minimum survey-to-travel ratio.
+The final filling pass tries nearby work first, including the existing 15 km
+search. If at least 30 minutes remain before the survey cut-off after those
+passes, it tries all remaining eligible buildings without a distance limit.
+Google journey times determine which additional visits actually fit. This can
+take longer and use more routing requests.
 
-The original gap-priority order and empty-day area shortlist are retained.
-Access rules, completed-work exclusions, existing bookings, lunch, survey finish
-and return-home deadlines remain enforced. The seven approved resolved issues
-and standalone access report are unchanged.
+There is no survey-to-travel ratio requirement in final filling. Access rules,
+completed-work exclusions, booking-week exclusions, lunch, survey finish and
+return-home deadlines still apply. Existing visits are kept in their original
+order; additional visits are appended. This is a wider filling pass, not a
+guarantee of a full day when the remaining work cannot fit.
+
+The new Day Filling Review tab shows each day considered for filling, the
+remaining time after normal filling, whether the wider search ran, candidate
+counts, added visits and the final return time. Gap Filling identifies which
+pass added each visit. Capacity Review no longer infers a workload shortage
+from survey hours alone, since travel also takes up the day.
+
+Initial planning preferences, day priority, cannot-complete rules, approved
+resolved issues and access reporting are unchanged.
 
 Included: app.py, team_scheduler.py, RUN_THIS_VERSION.txt
-and tests/test_fuller_days.py. Replace matching files and keep everything else.
-89 offline regression tests passed. Rerun with your live Google connection for results.
+and tests/test_adaptive_wider_search.py. Replace matching files, add the new
+test file and keep everything else.
+
+Validation: 99 offline regression tests passed, including 10 new wider-search
+cases. App syntax checked. Live Google routing and the Streamlit interface were
+not run here; rerun the schedule with your existing connection for results.
