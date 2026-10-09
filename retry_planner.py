@@ -25,7 +25,8 @@ QUALITY_REVIEW_CUTOFF = date(2026, 10, 9)
 
 def _visit_resource(row):
     for column in ("Resource Name: Name", "Resource Name", "Service Resource: Name",
-                   "Service Resource Name", "Assigned Resource: Service Resource: Name", "Surveyor"):
+                   "Service Resource Name", "Assigned Resource: Service Resource: Name",
+                   "Assigned Service Resource: Name", "Surveyor"):
         value = _clean_text(row.get(column))
         if value:
             return value
@@ -270,7 +271,8 @@ def _read_report_table(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFram
     # columns explicitly marked as grouped; a blank name in a flat export stays
     # unknown rather than inheriting the preceding appointment's surveyor.
     resource_headers = {"Resource Name: Name", "Resource Name", "Service Resource: Name",
-                        "Service Resource Name", "Assigned Resource: Service Resource: Name", "Surveyor"}
+                        "Service Resource Name", "Assigned Resource: Service Resource: Name",
+                        "Assigned Service Resource: Name", "Surveyor"}
     for column in df.columns:
         if _normalise_header(column) in resource_headers and re.search(r"[↑↓]", str(column)):
             df[column] = df[column].replace(r"^\s*$", pd.NA, regex=True).ffill()
