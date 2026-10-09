@@ -100,7 +100,8 @@ def build_access_report(plan, source_name='', generated_on=None):
         summary.append([name, count])
     summary.append([])
     for note in [
-        'Client help: two customer failures, or a clear access barrier after one visit. Metro failures do not count towards the customer limit.',
+        'Client help: two customer failures, or a clear access barrier after one visit, unless that history has a specific reviewed-revisit exception. Metro failures do not count towards the customer limit.',
+        'The 9 October review reopens verified Harrison second failed visits and Joe/Harrison access refusals recorded by that date. Completed work stays resolved; original failure counts are retained. A later failure returns to normal triage.',
         'Any linked Completed service appointment resolves the Work Order and removes it from the client tab.',
         'Booking-week exclusions affect scheduling only; they do not hide client access issues.',
         'Blank failure narratives are assessed as No answer at door; original descriptions remain blank.',
@@ -132,6 +133,8 @@ def build_access_report(plan, source_name='', generated_on=None):
             cell.fill = PatternFill('solid', fgColor='FFF2CC')
         row[2].number_format = 'dd mmm yyyy'
     fields = ['Customer Reference','Building Name','Postcode','Work Order Number','Decision','Reason Category','Decision Reason','Recommended Client Action','Customer Failure Count','Metro Failure Count','Previous Visit','Surveyor Original Description','Primary Service Appointment: Reason Description','Cancelation Reason Description','Reason Not Complete','Failure Reason','Mapping Status','Replacement Service Appointment ID','Old Service Appointment ID','Completed Service Appointment IDs','Linked Appointment Statuses','Booking Excluded','Retry Eligible','Required Weekdays','Forbidden Weekday','Preferred Retry Period','Record Coverage','Building ID'] + visits
+    fields += ['Latest Failed Surveyor', 'Second Failed Surveyor', 'Quality Revisit Basis',
+               'Quality Review Evidence', 'Quality Review Cutoff', 'Preferred Weekdays', 'Requested Day Priority']
     rows = [[action_group(r)] + [excel_date(r.get(k)) if k == 'Previous Visit' or k in visits else r.get(k) for k in fields] for r in records]
     table_sheet(wb, 'All Cannot Completes', ['Action group']+fields, rows, {7:50,8:50,13:65,14:65,15:65})
     output = BytesIO()

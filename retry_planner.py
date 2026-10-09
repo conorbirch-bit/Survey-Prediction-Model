@@ -5,12 +5,12 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from access_rules import classify_access, resolved_issue_decision
+from access_rules import classify_access, resolved_issue_decision, requested_access_days
 
 
 # ---------------------------------------------------------------------------
@@ -20,6 +20,81 @@ from access_rules import classify_access, resolved_issue_decision
 BLANK_CUSTOMER_FAILURE_ACTION = "RETRY"
 CUSTOMER_CLIENT_HELP_ATTEMPT = 3
 TIME_PERIOD_SPLIT_HOUR = 12
+QUALITY_REVIEW_CUTOFF = date(2026, 10, 9)
+
+
+def _visit_resource(row):
+    for column in ("Resource Name: Name", "Resource Name", "Service Resource: Name",
+                   "Service Resource Name", "Assigned Resource: Service Resource: Name", "Surveyor"):
+        value = _clean_text(row.get(column))
+        if value:
+            return value
+    return ""
+
+
+def _review_person(value):
+    key = re.sub(r"\s+", " ", _clean_text(value).replace(",", " ")).strip().casefold()
+    return {"harrison grice": "Harrison Grice", "grice harrison": "Harrison Grice",
+            "harrison": "Harrison Grice", "joe reynolds": "Joe Reynolds",
+            "reynolds joe": "Joe Reynolds", "joe": "Joe Reynolds"}.get(key, "")
+
+
+def _quality_review_evidence(work_order, all_history, appointments, recorded_failures=0):
+    """Join names to the actual failed SA; never infer a name from the new SA."""
+    history = all_history[all_history["Work Order Number"].eq(work_order)]
+    evidence = {}
+    for _, row in history.iterrows():
+        identity = row["Old Service Appointment ID"]
+        evidence[identity] = dict(id=identity, when=row.get("_event_dt"), name=_visit_resource(row),
+                                 reason=" ".join(_clean_text(row.get(c)) for c in (
+                                     "Failure Reason", "Reason Not Complete", "Cancelation Reason Description")))
+    for _, row in appointments.iterrows():
+        identity = row["Service Appointment ID"]
+        if row.get("_sa_status") != "cannot complete" and identity not in evidence:
+            continue
+        item = evidence.setdefault(identity, dict(id=identity, when=None, name="", reason=""))
+        if pd.notna(row.get("_actual_start_dt")):
+            item["when"] = row["_actual_start_dt"]
+        mapped_name = _visit_resource(row)
+        if mapped_name and item["name"] and _review_person(mapped_name) != _review_person(item["name"]):
+            item["name"] = "Conflicting surveyor names"
+        elif mapped_name:
+            item["name"] = mapped_name
+    result = {"Latest Failed Surveyor": "", "Second Failed Surveyor": "",
+              "Quality Review Evidence": "", "Quality Revisit Basis": "",
+              "Quality Review Cutoff": QUALITY_REVIEW_CUTOFF.isoformat()}
+    visits = list(evidence.values())
+    if not visits or any(pd.isna(v["when"]) or v["when"] is None for v in visits):
+        result["Quality Review Evidence"] = "Cannot verify failed-visit order: missing visit dates."
+        return result, None
+    visits.sort(key=lambda v: pd.Timestamp(v["when"]).isoformat())
+    if len({pd.Timestamp(v["when"]).isoformat() for v in visits}) != len(visits):
+        result["Quality Review Evidence"] = "Cannot verify failed-visit order: equal visit timestamps."
+        return result, None
+    latest = visits[-1]
+    result["Latest Failed Surveyor"] = latest["name"]
+    result["Second Failed Surveyor"] = visits[1]["name"] if len(visits) >= 2 else ""
+    result["Quality Review Evidence"] = f"{len(visits)} distinct failed appointments; latest {latest['id']}."
+    if recorded_failures > len(visits):
+        result["Second Failed Surveyor"] = ""
+        result["Quality Review Evidence"] += " Recorded failure counts exceed the supplied visit history; cannot confirm the reviewed visit."
+        return result, None
+    if pd.Timestamp(latest["when"]).date() > QUALITY_REVIEW_CUTOFF:
+        return result, None
+    person = _review_person(latest["name"])
+    basis = ""
+    if len(visits) == 2 and person == "Harrison Grice":
+        basis = "Second failed visit by Harrison Grice: revisit requested for operational review."
+    elif person in {"Joe Reynolds", "Harrison Grice"} and re.search(
+            r"refus\w*[^.;]*access|access[^.;]*refus|resident[^.;]*refus|denied access", latest["reason"], re.I):
+        basis = f"Access refusal recorded by {person}: revisit requested for operational review."
+    if not basis:
+        return result, None
+    result["Quality Revisit Basis"] = basis
+    return result, {"Decision": "RETRY", "Reason Category": "QUALITY_REVISIT",
+                    "Decision Source": "Operational review — 9 October 2026",
+                    "Decision Reason": basis + " Original failure counts retained.",
+                    "Recommended Client Action": "", "Review Original Surveyor": person}
 
 RETRY_DECISIONS = {
     "RETRY",
@@ -191,6 +266,14 @@ def _read_report_table(excel_file: pd.ExcelFile, sheet_name: str) -> pd.DataFram
         return pd.DataFrame()
 
     df = pd.read_excel(excel_file, sheet_name=sheet_name, header=header_row)
+    # Salesforce grouped exports print each resource name only once. Fill only
+    # columns explicitly marked as grouped; a blank name in a flat export stays
+    # unknown rather than inheriting the preceding appointment's surveyor.
+    resource_headers = {"Resource Name: Name", "Resource Name", "Service Resource: Name",
+                        "Service Resource Name", "Assigned Resource: Service Resource: Name", "Surveyor"}
+    for column in df.columns:
+        if _normalise_header(column) in resource_headers and re.search(r"[↑↓]", str(column)):
+            df[column] = df[column].replace(r"^\s*$", pd.NA, regex=True).ffill()
     # A present but entirely blank booking column means no bookings. Preserve
     # it so it is not confused with a report missing the required column.
     empty_columns = [c for c in df.columns
@@ -655,7 +738,7 @@ Access judgement guidance:
 - if the note gives a useful preference (e.g. "Mondays are best"), use
   RETRY_WITH_CONSTRAINT and extract it. A preference is not a hard constraint unless
   the note explicitly says access is only possible then; downstream Python still
-  protects route efficiency.
+  prioritises requested days while enforcing route/time feasibility.
 - numeric codes or unintelligible text with no interpretable access meaning should
   be IGNORE rather than guessed.
 
@@ -850,6 +933,11 @@ def build_retry_plan(
         customer_count = int(base["Customer Failure Count"])
 
         appointments = sa_mapping[sa_mapping["Work Order Number"].eq(base["Work Order Number"])]
+        review_evidence, review_rule = _quality_review_evidence(
+            base["Work Order Number"], all_history, appointments,
+            customer_count + base["Metro Failure Count"],
+        )
+        base.update(review_evidence)
         base["Linked Appointment Statuses"] = ", ".join(sorted(set(appointments["_sa_status"])))
         completed = appointments[appointments["_sa_status"].eq("completed")]
         visits = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
@@ -873,6 +961,8 @@ def build_retry_plan(
                 customer_count, base["Metro Failure Count"],
             )
             if rule is None:
+                rule = review_rule
+            if rule is None:
                 rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
             if rule:
                 base.update(rule)
@@ -886,6 +976,8 @@ def build_retry_plan(
                     "failure_reason": reason, "customer_failure_count": customer_count,
                     "previous_visit": str(previous_visit or ""), "previous_weekday": previous_weekday,
                     "previous_period": previous_period})
+        if base.get("Reason Category") != "QUALITY_REVISIT":
+            base["Quality Revisit Basis"] = ""
         base["Client Action Required"] = base["Decision"] == "CLIENT_ACCESS_REQUIRED"
         if base["Work Order Number"] in excluded_work_orders and base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
             booked_report_rows.append(base.copy())
@@ -946,6 +1038,32 @@ def build_retry_plan(
         row["Client Action Required"] = (
             row["Decision"] == "CLIENT_ACCESS_REQUIRED"
         )
+
+    # Explicit access instructions outrank the generic different-weekday rule.
+    # Keep these separate from classification so recognised reasons retain days
+    # without requiring an AI call.
+    for row in rows + booked_report_rows:
+        if row.get("Decision") not in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
+            continue
+        preferred, required = requested_access_days(row.get("Failure Reason", ""))
+        row["Preferred Weekdays"] = list(dict.fromkeys((row.get("Preferred Weekdays") or []) + preferred))
+        if required:
+            row["Required Weekdays"] = required
+        if row.get("Forbidden Weekday") in row["Preferred Weekdays"]:
+            row["Forbidden Weekday"] = ""
+            row["Forbidden Weekday Number"] = None
+        if row["Preferred Weekdays"]:
+            row["Requested Day Priority"] = "Plan requested days before ordinary work; feasibility still applies."
+
+    missing_review_names = sum(
+        not r.get("Latest Failed Surveyor")
+        for r in rows + booked_report_rows
+        if r.get("Decision") != "RESOLVED")
+    if missing_review_names:
+        warnings.append(
+            f"{missing_review_names} Work Order(s) lack a verified latest failed-visit surveyor. "
+            "The Harrison/Joe review exceptions cannot be confirmed for those rows. "
+            "Include Resource Name and visit dates against each failed Service Appointment ID.")
 
     # Completed work may have vanished from the failure-detail tab while still
     # appearing in the master portfolio. Emit exclusions for those Work Orders too.
@@ -1148,6 +1266,7 @@ def apply_retry_plan_to_portfolio(
         "Retry Preferred Period",
         "Retry Preferred Weekdays",
         "Retry Required Weekdays",
+        "Retry Review Original Surveyor",
         "Retry Old Service Appointment ID",
         "Retry Replacement Service Appointment ID",
         "Retry AI Confidence",
@@ -1290,6 +1409,7 @@ def apply_retry_plan_to_portfolio(
                 "Forbidden Weekday Number"
             ),
             "Retry Preferred Period": decision.get("Preferred Retry Period", ""),
+            "Retry Review Original Surveyor": decision.get("Review Original Surveyor", ""),
             "Retry Required Weekdays": ", ".join(decision.get("Required Weekdays", []))
                 if isinstance(decision.get("Required Weekdays"), list) else "",
             "Retry Preferred Weekdays": ", ".join(
@@ -1371,6 +1491,17 @@ def build_retry_audit(
                     scheduled_period = ""
 
         preferred_period = _clean_text(decision.get("Preferred Retry Period"))
+        preferred_days = decision.get("Preferred Weekdays", [])
+        preferred_days = preferred_days if isinstance(preferred_days, list) else []
+        parsed_scheduled_day = _parse_booking_datetime(scheduled_date)
+        if not preferred_days:
+            day_honoured, day_reason = "N/A", "No requested weekday."
+        elif scheduled is None:
+            day_honoured, day_reason = "Not scheduled", "Requested retry was not placed; inspect Retry Day Assignments and mapping/access checks."
+        elif pd.notna(parsed_scheduled_day) and parsed_scheduled_day.strftime("%A") in preferred_days:
+            day_honoured, day_reason = "Yes", "Requested weekday honoured."
+        else:
+            day_honoured, day_reason = "No", "Requested weekday was not achieved; an alternative feasible day was used."
         if not preferred_period:
             preference_honoured = "N/A"
             override_reason = "No morning/afternoon preference applied."
@@ -1405,6 +1536,12 @@ def build_retry_audit(
             "Previous Period": decision.get("Previous Period", ""),
             "Decision": decision.get("Decision", ""),
             "Decision Source": decision.get("Decision Source", ""),
+            "Latest Failed Surveyor": decision.get("Latest Failed Surveyor", ""),
+            "Second Failed Surveyor": decision.get("Second Failed Surveyor", ""),
+            "Quality Revisit Basis": decision.get("Quality Revisit Basis", ""),
+            "Quality Review Evidence": decision.get("Quality Review Evidence", ""),
+            "Requested Day Honoured?": day_honoured,
+            "Requested Day Outcome": day_reason,
             "Reason Category": decision.get("Reason Category", ""),
             "Decision Reason": decision.get("Decision Reason", ""),
             "Preferred Retry Period": preferred_period,

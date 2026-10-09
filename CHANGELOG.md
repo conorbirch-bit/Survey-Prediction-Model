@@ -1,6 +1,16 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. The application remains **v20.12.8**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.9**.
+
+## v20.12.9 — Requested retry days and operational revisits — 9 October 2026
+
+- Allocate retries with requested weekdays to available surveyors and plan those days before ordinary work, including final gap filling beyond the usual local area. Keep explicit access-only weekdays mandatory.
+- Add optional Saturday availability, off by default and restricted to cannot-complete retries in every scheduling path.
+- Reopen verified second/latest failed visits by Harrison Grice and the latest access-refusal failures by Joe Reynolds or Harrison Grice recorded through 9 October 2026. Assign another surveyor and retain the original failure counts. Later failures return to normal triage.
+- Preserve completed-work exclusions, existing booking checks and replacement-appointment validation. Do not infer failed-visit ownership from the replacement appointment.
+- Read grouped Salesforce resource names correctly and expose review evidence or missing-history limitations in the decision outputs.
+- Add `Retry Day Assignments`, requested-day outcomes in `Retry Decisions`, and review evidence in the standalone access report.
+- Verified with 130 offline regression tests and syntax checks. Live API routing and the Streamlit booking-selector UI tests were outside that run.
 
 ## Documentation refresh — 8 October 2026
 

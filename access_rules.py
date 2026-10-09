@@ -1,6 +1,27 @@
 """Audited access decisions, independent of route planning and booking weeks."""
 import re
 
+
+def requested_access_days(reason):
+    """Extract explicit forward-looking day requests, not a past visit date."""
+    weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    found, required = set(), set()
+    for clause in re.split(r"[.;\n]|\bbut\b", str(reason or "").lower()):
+        if not re.search(r"\b(?:try|retry|revisit|reschedul\w*|return|come|back|available|availability|only|office|staff|best|prefer\w*|suggest\w*|recommend\w*)\b|\b(?:will be|usually) (?:at )?home\b", clause):
+            continue
+        for index, day in enumerate(weekdays):
+            for match in re.finditer(r"\b" + day[:3].lower() + r"(?:" + day[3:].lower() + r")?s?\b", clause):
+                prefix = clause[:match.start()]
+                if re.search(r"(?:not|never|unavailable|closed|except|excluding|away)\s+(?:(?:at|on|in|home|available|working)\s+)*$", prefix):
+                    continue
+                # 'Not home Monday or Tuesday' must not make Tuesday positive.
+                if re.search(r"(?:not (?:at )?(?:home|available|working|in)|unavailable|closed|away).*\b(?:or|and)\s*$", prefix):
+                    continue
+                found.add(index)
+                if re.search(r"\bonly\b", clause):
+                    required.add(index)
+    return [weekdays[i] for i in sorted(found)], [weekdays[i] for i in sorted(required)]
+
 # Explicit review hold from Conor's audit, not a generic restriction on large sites.
 INTERNAL_REVIEW_REFERENCES = {"BRAU0000"}
 

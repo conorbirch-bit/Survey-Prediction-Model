@@ -16,6 +16,9 @@ from scheduler_v20_10 import (
     _planning_cluster_key,
     _site_allowed_today,
     _site_identity_for_sequence,
+    _requested_retry_day,
+    _retry_preferred_weekdays,
+    _site_allowed_for_surveyor,
 )
 
 
@@ -600,7 +603,7 @@ def _ensure_available_surveyors_have_work(
     total_available_days = max(
         1,
         sum(
-            min(5, len(surveyor.available_dates or []))
+            min(6, len(surveyor.available_dates or []))
             for surveyor in available_surveyors
         ),
     )
@@ -628,7 +631,7 @@ def _ensure_available_surveyors_have_work(
             continue
 
         available_days = min(
-            5,
+            6,
             len(surveyor.available_dates or []),
         )
         proportional_share = max(
@@ -874,7 +877,7 @@ def allocate_cluster_targets(
             1,
             round(
                 int(max_sites_per_surveyor)
-                * min(5, len(s.available_dates or []))
+                * min(6, len(s.available_dates or []))
                 / 5
             ),
         )
@@ -962,12 +965,12 @@ def allocate_cluster_targets(
             total_available_days = max(
                 1,
                 sum(
-                    min(5, len(s.available_dates or []))
+                    min(6, len(s.available_dates or []))
                     for s in surveyors
                 ),
             )
             surveyor_day_share = (
-                min(5, len(surveyor.available_dates or []))
+                min(6, len(surveyor.available_dates or []))
                 / total_available_days
             )
             target_minutes = max(
@@ -1143,7 +1146,7 @@ def build_team_shortlists(
             1,
             round(
                 int(max_sites_per_surveyor)
-                * min(5, len(surveyor_cfg.available_dates or []))
+                * min(6, len(surveyor_cfg.available_dates or []))
                 / 5
             ),
         )
@@ -1199,7 +1202,7 @@ def build_team_shortlists(
                 1,
                 round(
                     int(max_sites_per_surveyor)
-                    * min(5, len(surveyor.available_dates or []))
+                    * min(6, len(surveyor.available_dates or []))
                     / 5
                 ),
             )
@@ -1217,6 +1220,61 @@ def allocations_dataframe(
     if not allocations:
         return pd.DataFrame()
     return pd.DataFrame([asdict(a) for a in allocations])
+
+
+def prioritise_retry_day_assignments(shortlists, portfolio, surveyors, travel_matrix=None):
+    """Put dated retries with people available on the requested days before routing."""
+    updated = {name: frame.copy() for name, frame in shortlists.items()}
+    audit, priority_load = [], {s.name: 0.0 for s in surveyors}
+    travel_matrix = travel_matrix or {}
+    for _, row in portfolio.iterrows():
+        if not bool(row.get("Eligible for Selected Week", False)) or str(row.get("Is Retry", False)).lower() not in {"true", "1", "1.0"}:
+            continue
+        site = {"is_retry": True,
+                "retry_preferred_weekdays": row.get("Retry Preferred Weekdays"),
+                "retry_required_weekdays": row.get("Retry Required Weekdays"),
+                "retry_forbidden_weekday": row.get("Retry Forbidden Weekday Number"),
+                "retry_review_original_surveyor": row.get("Retry Review Original Surveyor")}
+        wanted = (_retry_preferred_weekdays(site["retry_preferred_weekdays"])
+                  | _retry_preferred_weekdays(site["retry_required_weekdays"]))
+        if not wanted and not str(site["retry_review_original_surveyor"] or "").strip():
+            continue
+        reference = str(row.get("Customer Reference", "") or "").strip()
+        wo = str(row.get("Work Order Number", "") or "").strip()
+        options = []
+        for surveyor in surveyors:
+            dates = [d for d in surveyor.available_dates or []
+                     if _site_allowed_today(site, d) and _site_allowed_for_surveyor(site, surveyor.name)
+                     and (not wanted or d.strftime("%A").lower() in wanted)]
+            if not dates:
+                continue
+            commute = travel_matrix.get((surveyor.name, str(row.get("Planning Cluster", ""))))
+            commute = float(commute) if commute is not None and pd.notna(commute) else 120.0
+            options.append((priority_load[surveyor.name] / len(dates) + commute, surveyor.name, dates))
+        record = {"Work Order Number": wo, "Customer Reference": reference,
+                  "Requested Weekdays": ", ".join(sorted(wanted)), "Surveyor": "",
+                  "Available Requested Dates": "", "Assignment Outcome": "No suitable surveyor available for the requested days/review."}
+        if options:
+            _, target, dates = min(options)
+            for name, frame in updated.items():
+                if frame.empty:
+                    continue
+                if wo and "Work Order Number" in frame:
+                    match = frame["Work Order Number"].fillna("").astype(str).str.strip().eq(wo)
+                elif reference and "Customer Reference" in frame:
+                    match = frame["Customer Reference"].fillna("").astype(str).str.strip().eq(reference)
+                else:
+                    match = frame["Building Name"].eq(row.get("Building Name")) & frame["Postcode"].eq(row.get("Postcode"))
+                updated[name] = frame.loc[~match].copy()
+            chosen = row.to_frame().T.copy()
+            chosen["Assigned Surveyor"] = target
+            chosen["Home to Cluster (Minutes)"] = travel_matrix.get((target, str(row.get("Planning Cluster", ""))))
+            updated[target] = pd.concat([updated.get(target, portfolio.head(0)), chosen], ignore_index=True)
+            priority_load[target] += float(row.get("Planning Duration (Minutes)", 0) or 0)
+            record.update({"Surveyor": target, "Available Requested Dates": ", ".join(d.isoformat() for d in dates),
+                           "Assignment Outcome": "Reserved in the candidate pool; route/time feasibility still required."})
+        audit.append(record)
+    return updated, pd.DataFrame(audit)
 
 
 def fill_team_gaps(
@@ -1282,8 +1340,20 @@ def fill_team_gaps(
             if gap > 0:
                 slots.append((not has_work, -gap, day_date, surveyor.name, surveyor, day))
 
+    available_slots = {(row[3], row[2]) for row in slots}
+    untried_requested_slots = {
+        identity: {(s.name, d) for s in surveyors for d in s.available_dates or []
+                   if (s.name, d) in available_slots and _requested_retry_day(site, d)
+                   and _site_allowed_for_surveyor(site, s.name)}
+        for identity, site in site_by_id.items() if identity not in booked
+    }
+    slots.sort(key=lambda row: (
+        not any((row[3], row[2]) in choices for choices in untried_requested_slots.values()),
+        *row[:4]))
     additions = []
-    for _, _, day_date, name, surveyor, baseline in sorted(slots, key=lambda row: row[:4]):
+    for _, _, day_date, name, surveyor, baseline in slots:
+        for choices in untried_requested_slots.values():
+            choices.discard((name, day_date))
         first = datetime.combine(day_date, first_survey_clock, tzinfo=timezone)
         finish = datetime.combine(day_date, latest_survey_clock, tzinfo=timezone)
         deadline = datetime.combine(day_date, latest_return_clock, tzinfo=timezone)
@@ -1311,7 +1381,10 @@ def fill_team_gaps(
         available_minutes = (finish - (baseline.return_departure if has_work else first)).total_seconds() / 60
         candidates = []
         for identity, site in site_by_id.items():
-            if identity in booked or not _site_allowed_today(site, day_date):
+            if (identity in booked or not _site_allowed_today(site, day_date)
+                    or not _site_allowed_for_surveyor(site, name)):
+                continue
+            if not _requested_retry_day(site, day_date) and untried_requested_slots.get(identity):
                 continue
             reserved = site.get("special_request_date")
             if reserved is not None and not pd.isna(reserved) and owner_by_id[identity] != name:
@@ -1356,7 +1429,8 @@ def fill_team_gaps(
                         area_scores[area] = workloads.get(area, 0) - (2 * distance if distance is not None else 60)
             selected_areas = sorted(area_scores, key=lambda area: (-area_scores[area], area))[:3]
             candidates = [site for site in candidates if _planning_cluster_key(site) in selected_areas]
-        if not candidates and not (maximise_days and (has_work or expand_underfilled_days)):
+        requested_today = [site for site in all_candidates if _requested_retry_day(site, day_date)]
+        if not candidates and not requested_today and not (maximise_days and (has_work or expand_underfilled_days)):
             record_review(baseline, "No candidates in the normal search after availability, reservation and duration checks.")
             continue
 
@@ -1375,6 +1449,11 @@ def fill_team_gaps(
             batches = [immediate, same_area, candidates]
         else:
             batches = [candidates]
+
+        priority_index = None
+        if requested_today:
+            priority_index = 0
+            batches.insert(0, requested_today)
 
         wider_index = None
         if has_work and maximise_days:
@@ -1402,7 +1481,7 @@ def fill_team_gaps(
                 if remaining_minutes < expansion_gap_minutes:
                     review["Wider Search"] = f"Not triggered: less than {expansion_gap_minutes:g} minutes left"
                     continue
-            wider_search = maximise_days and (expanded_search or batch_index == wider_index or not has_work)
+            wider_search = maximise_days and (expanded_search or batch_index == priority_index or batch_index == wider_index or not has_work)
             scheduler.minimum_survey_to_travel_ratio = 0.0 if maximise_days else 2.0
             used_here = {item_id(item) for item in best.items} if best is not None else set()
             batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
@@ -1441,7 +1520,8 @@ def fill_team_gaps(
                 continue
             best = trial
             for identity in added_ids:
-                addition_pass[identity] = "Expanded search" if expanded_search else "Normal search"
+                addition_pass[identity] = ("Expanded search" if expanded_search else
+                                           "Requested retry day" if batch_index == priority_index else "Normal search")
             if expanded_search:
                 review["Wider Search Additions"] = len(added)
                 review["Wider Search Survey Minutes"] = round(added_work, 1)

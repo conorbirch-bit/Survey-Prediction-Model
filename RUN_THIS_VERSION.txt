@@ -1,6 +1,6 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.8
-Documentation updated: 8 October 2026
+Current application: 20.12.9
+Updated: 9 October 2026
 
 START HERE
 
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.8. The active route engine remains
+The application should display Version 20.12.9. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,16 +22,43 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.8 code update was incremental over v20.12.7. Both app.py and
-team_scheduler.py must be from that update; all earlier required modules remain
-necessary. The documentation package alone does not install or upgrade the app.
+The v20.12.9 ZIP is an incremental update to v20.12.8. Extract it into the
+existing project folder, replacing the matching files and keeping its tests/
+subfolder. It contains only changed files, not a complete installation.
+All earlier modules, requirements, training data and credentials are still needed.
+
+Replace app.py, team_scheduler.py, scheduler_v20_10.py, retry_planner.py,
+access_rules.py and access_report.py together, then fully restart Streamlit.
+Mixing old and new modules can cause unexpected-keyword/import errors.
 
 If you see:
     fill_team_gaps() got an unexpected keyword argument 'expand_underfilled_days'
 
 the new app is loading an older team_scheduler.py, either from disk or from
-memory. Stop the running process with Ctrl+C, confirm the updated module is in
+memory. The same applies to an unexpected 'surveyor_name' argument after this
+update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
+
+NEW IN 20.12.9
+
+Requested retry weekdays receive first priority in allocation, weekly routing
+and final gap filling. Soft suggestions may fall back if they cannot be used;
+explicit access-only days remain mandatory. Inspect Retry Day Assignments and
+Requested Day Honoured? in Retry Decisions to see the result.
+
+Saturday is an optional availability checkbox, off by default. Tick it for
+people who will work that day. Only cannot-complete retries can go on Saturday.
+
+The 9 October operational review reopens unresolved second/latest failed visits
+by Harrison Grice and latest access-refusal failures recorded by Joe Reynolds
+or Harrison Grice through that date. Another surveyor performs the revisit.
+Original failure counts stay intact. A later failure returns to normal triage.
+Completed work, existing booking exclusions and replacement-SA checks still apply.
+
+Upload a fresh cannot-completes workbook with Resource Name and visit dates
+linked to each failed Service Appointment ID. Names on new appointments do not
+identify the failed-visit surveyor. Incomplete evidence is reported rather than
+used to infer an exception. The standalone access report includes this evidence.
 
 CURRENT FILLING BEHAVIOUR
 
@@ -53,10 +80,9 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.8 update passed 99 offline regression tests, including ten wider-search
-cases, plus syntax and app/export integration checks. That run excluded the
+The v20.12.9 update passed 130 offline regression tests, including requested-day,
+reviewed-revisit and Saturday cases, plus syntax checks. That run excluded the
 Streamlit booking-selector UI tests and made no live routing or AI calls.
 
 README.md explains the project, current rules, inputs, outputs and setup.
-CHANGELOG.md summarises recent changes. This documentation refresh changes no
-Python code, dependencies or scheduling settings.
+CHANGELOG.md summarises recent changes. No dependencies have been added.

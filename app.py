@@ -63,6 +63,7 @@ from team_scheduler import (
     allocations_dataframe,
     fill_team_gaps,
     apply_gap_assignments,
+    prioritise_retry_day_assignments,
 )
 from portfolio_clusterer import (
     add_portfolio_fields,
@@ -80,7 +81,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.8 — automatic wider search for underfilled days")
+st.caption("Version 20.12.9 — requested retry days, reviewed revisits and optional Saturday")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -471,6 +472,7 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "retry_decision_reason": str(
                 site_row.get("Retry Decision Reason", "") or ""
             ),
+            "retry_review_original_surveyor": str(site_row.get("Retry Review Original Surveyor", "") or ""),
             "work_order_number": str(
                 site_row.get("Work Order Number", "") or ""
             ),
@@ -936,13 +938,19 @@ with tab2:
         help=(
             "Two-tab Salesforce workbook: one tab contains Cannot Complete "
             "reasons plus Metro/Customer fault, and the other contains the old "
-            "and replacement Service Appointment IDs, Actual Start and Scheduled Start."
+            "and replacement Service Appointment IDs, Actual Start and Scheduled Start. "
+            "Include Resource Name against each failed appointment for the Harrison/Joe review."
         ),
     )
     st.caption(
         "Retry workflow runs before clustering: deterministic business rules first, "
         "AI only for customer-fault access interpretation, then only approved "
         "retries enter the normal geographic scheduling pipeline."
+    )
+    st.caption(
+        "The 9 October review reopens Harrison's second failed visits and Joe/Harrison "
+        "access refusals recorded by that date for another surveyor. Completed work "
+        "and existing booking exclusions remain protected."
     )
 
     report_source_key = hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
@@ -1096,12 +1104,12 @@ with tab2:
                     st.caption(
                         "Tick the exact dates each person is available in the selected "
                         "week. A surveyor with no dates ticked generates no Google "
-                        "routing calls."
+                        "routing calls. Saturday is optional and accepts cannot-complete retries only."
                     )
 
                     selected_week_dates = [
                         team_week_start + timedelta(days=offset)
-                        for offset in range(5)
+                        for offset in range(6)
                     ]
                     availability_columns = {
                         d: d.strftime("%a %d %b")
@@ -1113,8 +1121,8 @@ with tab2:
                             "Name": "Conor Birch",
                             "Start / Finish Location": "Harpenden Station",
                             **{
-                                label: True
-                                for label in availability_columns.values()
+                                label: day.weekday() < 5
+                                for day, label in availability_columns.items()
                             },
                         },
                         {
@@ -1953,10 +1961,16 @@ with tab2:
                                             )
                                         )
 
+                                        team_shortlists, retry_day_assignments_df = prioritise_retry_day_assignments(
+                                            team_shortlists, team_portfolio,
+                                            active_surveyors, team_home_cluster_matrix,
+                                        )
+
                                         def make_team_scheduler(surveyor):
                                             return DailyTransitScheduler(
                                                 router=team_router,
                                                 home_location=surveyor.start_location,
+                                                surveyor_name=surveyor.name,
                                                 same_postcode_transfer_minutes=int(team_same_postcode),
                                                 travel_leeway_minutes=int(team_travel_leeway),
                                                 pre_survey_buffer_minutes=int(team_pre_buffer),
@@ -3228,6 +3242,9 @@ with tab2:
                                         team_day_filling_review_df.to_excel(
                                             writer, sheet_name="Day Filling Review", index=False,
                                         )
+                                        retry_day_assignments_df.to_excel(
+                                            writer, sheet_name="Retry Day Assignments", index=False,
+                                        )
                                         placed_references = {
                                             str(item.customer_reference).strip()
                                             for result in team_results.values() if result is not None
@@ -3298,7 +3315,10 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.8"},
+                                            {"Setting": "App Version", "Value": "20.12.9"},
+                                            {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
+                                            {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
+                                            {"Setting": "Reviewed Revisits", "Value": "Harrison second failed visits; Joe/Harrison refusals through 9 October 2026; different surveyor"},
                                             {"Setting": "Wider Search Trigger", "Value": "30 minutes left before survey cut-off after normal filling"},
                                             {"Setting": "Wider Search Limit", "Value": "No distance or survey-to-travel ratio limit; time, lunch and access checks retained"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},

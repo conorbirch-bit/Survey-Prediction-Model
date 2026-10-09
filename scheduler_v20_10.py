@@ -68,6 +68,9 @@ class CachedRunRouter:
 
 
 def _site_allowed_today(site, day_date):
+    # Saturday is an optional retry day, never a fresh-building working day.
+    if day_date.weekday() == 5 and not _is_retry_site(site):
+        return False
     if _retry_forbidden_on_date(site, day_date):
         return False
     required = site.get("retry_required_weekdays") or []
@@ -83,6 +86,25 @@ def _site_allowed_today(site, day_date):
         if day_date < preferred:
             return False
     return True
+
+
+def _is_retry_site(site):
+    return str(site.get("is_retry", False)).strip().lower() in {"true", "1", "1.0"}
+
+
+def _site_allowed_for_surveyor(site, surveyor_name):
+    original = str(site.get("retry_review_original_surveyor") or "").strip().casefold()
+    if original in {"nan", "none", "<na>"}:
+        original = ""
+    return not original or bool(surveyor_name and str(surveyor_name).strip().casefold() != original)
+
+
+def _requested_retry_day(site, day_date):
+    if not _is_retry_site(site):
+        return False
+    wanted = (_retry_preferred_weekdays(site.get("retry_preferred_weekdays"))
+              | _retry_preferred_weekdays(site.get("retry_required_weekdays")))
+    return day_date.strftime("%A").lower() in wanted and _site_allowed_today(site, day_date)
 
 
 def _day_area_workloads(sites, available_minutes, buffer_minutes):
@@ -1700,9 +1722,11 @@ class DailyTransitScheduler:
         lunch_window_start_clock=time(11, 45),
         lunch_latest_start_clock=time(13, 0),
         minimum_survey_to_travel_ratio=FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO,
+        surveyor_name="",
     ):
         self.router = router if isinstance(router, CachedRunRouter) else CachedRunRouter(router)
         self.home_location = home_location
+        self.surveyor_name = surveyor_name
         self.max_candidate_checks = max_candidate_checks
         self.same_postcode_transfer_minutes = same_postcode_transfer_minutes
         self.travel_leeway_minutes = travel_leeway_minutes
@@ -1786,7 +1810,9 @@ class DailyTransitScheduler:
         resume_site: Optional[dict] = None,
         local_continuation_only: bool = False,
     ) -> DailyScheduleResult:
-        remaining = [dict(site) for site in sites if _site_allowed_today(site, first_survey_start.date())]
+        remaining = [dict(site) for site in sites
+                     if _site_allowed_today(site, first_survey_start.date())
+                     and _site_allowed_for_surveyor(site, self.surveyor_name)]
 
         # Stage 2 route-sequencing metadata only. This does not change Stage 1
         # cluster membership, eligibility, or the candidate sites supplied to
@@ -2508,12 +2534,16 @@ class DailyTransitScheduler:
                 # Every substantial site-to-site journey is checked, even
                 # inside the same strategic cluster. Proof routes cannot make
                 # another substantial move to inflate their claimed workload.
-                needs_work_proof = (
+                substantial_move = (
                     not is_first_survey
                     and buffered_travel_minutes >= FAR_CLUSTER_TRANSITION_MINUTES
                 )
-                if needs_work_proof and local_continuation_only:
+                if substantial_move and local_continuation_only:
                     continue
+                # Final day filling accepts any positive survey work that fits.
+                # It must also be free to make another long move afterwards;
+                # the local productivity-proof route would otherwise stop it.
+                needs_work_proof = substantial_move and self.minimum_survey_to_travel_ratio > 0
                 proof_candidates = []
                 if needs_work_proof:
                     proof_candidates = _local_work_candidates(site, remaining)
@@ -2837,7 +2867,14 @@ class DailyTransitScheduler:
         remaining = [dict(site) for site in sites]
         days: List[DailyScheduleResult] = []
 
-        for day_date in dates:
+        # Try requested retry days before other days can consume their sites.
+        # A dedicated first pass also keeps geographic ranking from burying a
+        # requested retry underneath a full day of ordinary work.
+        remaining = [site for site in remaining if _site_allowed_for_surveyor(site, self.surveyor_name)]
+        pending_dates = sorted(set(dates), key=lambda d: (
+            not any(_requested_retry_day(site, d) for site in remaining), d))
+        for day_date in list(pending_dates):
+            pending_dates.remove(day_date)
             if not remaining:
                 break
 
@@ -2865,15 +2902,35 @@ class DailyTransitScheduler:
                 site
                 for site in remaining
                 if _site_allowed_today(site, day_date)
+                and (_requested_retry_day(site, day_date)
+                     or not any(_requested_retry_day(site, later) for later in pending_dates))
             ]
             if not day_sites:
                 continue
 
+            priority_sites = [site for site in day_sites if _requested_retry_day(site, day_date)]
+            priority_result = None
+            if priority_sites:
+                old_ratio = self.minimum_survey_to_travel_ratio
+                try:
+                    self.minimum_survey_to_travel_ratio = 0.0
+                    priority_result = self.build_day(
+                        priority_sites, first_survey_dt,
+                        latest_survey_finish_dt, return_deadline_dt)
+                finally:
+                    self.minimum_survey_to_travel_ratio = old_ratio
+            prefix = priority_result if priority_result and priority_result.items else None
+            placed = {_site_identity_for_sequence(vars(item)) for item in prefix.items} if prefix else set()
+            resume_site = next((site for site in day_sites
+                                if prefix and _site_identity_for_sequence(site)
+                                == _site_identity_for_sequence(vars(prefix.items[-1]))), None)
             day_result = self.build_day(
-                sites=day_sites,
+                sites=[site for site in day_sites if _site_identity_for_sequence(site) not in placed],
                 first_survey_start=first_survey_dt,
                 latest_survey_finish=latest_survey_finish_dt,
                 latest_return=return_deadline_dt,
+                resume_from=prefix,
+                resume_site=resume_site,
             )
             days.append(day_result)
 
@@ -2907,6 +2964,6 @@ class DailyTransitScheduler:
             remaining = new_remaining
 
         return WeeklyScheduleResult(
-            days=days,
+            days=sorted(days, key=lambda day: day.first_survey_target or day.start_time),
             unscheduled_sites=remaining,
         )
