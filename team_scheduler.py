@@ -1226,58 +1226,130 @@ def allocations_dataframe(
     return pd.DataFrame([asdict(a) for a in allocations])
 
 
-def prioritise_retry_day_assignments(shortlists, portfolio, surveyors, travel_matrix=None):
-    """Put dated retries with people available on the requested days before routing."""
+def prioritise_retry_day_assignments(shortlists, portfolio, surveyors, travel_matrix=None,
+                                    capacity_by_slot=None, site_buffer_minutes=0.0):
+    """Assign compact requested-day groups together before individual retries.
+
+    Capacity estimates reserve candidate work only. The normal route builder
+    still checks travel, lunch, access and return-home feasibility.
+    """
     updated = {name: frame.copy() for name, frame in shortlists.items()}
-    audit, priority_load = [], {s.name: 0.0 for s in surveyors}
+    audit, priority_load = [], {}
     travel_matrix = travel_matrix or {}
-    for _, row in portfolio.iterrows():
-        if not bool(row.get("Eligible for Selected Week", False)) or str(row.get("Is Retry", False)).lower() not in {"true", "1", "1.0"}:
-            continue
-        site = {"is_retry": True,
+    capacity_by_slot = capacity_by_slot or {}
+
+    def text(value):
+        return "" if value is None or pd.isna(value) else str(value).strip()
+
+    def site_values(row):
+        return {"is_retry": str(row.get("Is Retry", False)).lower() in {"true", "1", "1.0"},
                 "retry_preferred_weekdays": row.get("Retry Preferred Weekdays"),
                 "retry_required_weekdays": row.get("Retry Required Weekdays"),
                 "retry_forbidden_weekday": row.get("Retry Forbidden Weekday Number"),
-                "retry_review_original_surveyor": row.get("Retry Review Original Surveyor")}
-        wanted = (_retry_preferred_weekdays(site["retry_preferred_weekdays"])
-                  | _retry_preferred_weekdays(site["retry_required_weekdays"]))
-        if not wanted and not str(site["retry_review_original_surveyor"] or "").strip():
-            continue
-        reference = str(row.get("Customer Reference", "") or "").strip()
-        wo = str(row.get("Work Order Number", "") or "").strip()
+                "retry_review_original_surveyor": text(row.get("Retry Review Original Surveyor"))}
+
+    def wanted_days(row):
+        return (_retry_preferred_weekdays(row.get("Retry Preferred Weekdays"))
+                | _retry_preferred_weekdays(row.get("Retry Required Weekdays"))
+                | _retry_preferred_weekdays(row.get("Visit Group Preferred Weekdays")))
+
+    def priority_row(row):
+        return bool(wanted_days(row) or text(row.get("Retry Review Original Surveyor"))) and (
+            site_values(row)["is_retry"] or bool(text(row.get("Visit Group"))))
+
+    eligible = [(index, row) for index, row in portfolio.iterrows()
+                if row.get("Eligible for Selected Week") == True]
+    by_area = {}
+    for index, row in eligible:
+        key = text(row.get("Visit Group")) or text(row.get("Planning Cluster"))
+        if key:
+            by_area.setdefault(key, []).append((index, row))
+
+    processed = set()
+
+    def assign(members, group=""):
+        requests = [wanted_days(row) for _, row in members if wanted_days(row)]
+        wanted = set.intersection(*requests) if requests else set()
+        if requests and not wanted:
+            return False  # Conflicting access days must never be merged.
+        work = sum(float(row.get("Planning Duration (Minutes)", 0) or 0)
+                   + site_buffer_minutes for _, row in members)
         options = []
         for surveyor in surveyors:
             dates = [d for d in surveyor.available_dates or []
-                     if _site_allowed_today(site, d) and _site_allowed_for_surveyor(site, surveyor.name)
+                     if all(_site_allowed_today(site_values(row), d)
+                            and _site_allowed_for_surveyor(site_values(row), surveyor.name)
+                            for _, row in members)
                      and (not wanted or d.strftime("%A").lower() in wanted)]
+            if group:
+                dates = [d for d in dates if work + priority_load.get((surveyor.name, d), 0.0)
+                         <= capacity_by_slot.get((surveyor.name, d), 450.0)]
             if not dates:
                 continue
-            commute = travel_matrix.get((surveyor.name, str(row.get("Planning Cluster", ""))))
-            commute = float(commute) if commute is not None and pd.notna(commute) else 120.0
-            options.append((priority_load[surveyor.name] / len(dates) + commute, surveyor.name, dates))
-        record = {"Work Order Number": wo, "Customer Reference": reference,
-                  "Requested Weekdays": ", ".join(sorted(wanted)), "Surveyor": "",
-                  "Available Requested Dates": "", "Assignment Outcome": "No suitable surveyor available for the requested days/review."}
-        if options:
-            _, target, dates = min(options)
-            for name, frame in updated.items():
-                if frame.empty:
-                    continue
-                if wo and "Work Order Number" in frame:
-                    match = frame["Work Order Number"].fillna("").astype(str).str.strip().eq(wo)
-                elif reference and "Customer Reference" in frame:
-                    match = frame["Customer Reference"].fillna("").astype(str).str.strip().eq(reference)
-                else:
-                    match = frame["Building Name"].eq(row.get("Building Name")) & frame["Postcode"].eq(row.get("Postcode"))
-                updated[name] = frame.loc[~match].copy()
-            chosen = row.to_frame().T.copy()
-            chosen["Assigned Surveyor"] = target
-            chosen["Home to Cluster (Minutes)"] = travel_matrix.get((target, str(row.get("Planning Cluster", ""))))
-            updated[target] = pd.concat([updated.get(target, portfolio.head(0)), chosen], ignore_index=True)
-            priority_load[target] += float(row.get("Planning Duration (Minutes)", 0) or 0)
-            record.update({"Surveyor": target, "Available Requested Dates": ", ".join(d.isoformat() for d in dates),
-                           "Assignment Outcome": "Reserved in the candidate pool; route/time feasibility still required."})
-        audit.append(record)
+            commutes = [travel_matrix.get((surveyor.name, text(row.get("Planning Cluster"))))
+                        for _, row in members]
+            known = [float(value) for value in commutes if value is not None and pd.notna(value)
+                     and math.isfinite(float(value))]
+            commute = max(known) if known else 120.0
+            day = min(dates, key=lambda d: (priority_load.get((surveyor.name, d), 0.0), d))
+            options.append((priority_load.get((surveyor.name, day), 0.0) + commute,
+                            surveyor.name, day, dates))
+        if not options and group:
+            return False  # Too large/unavailable: retain per-site feasibility.
+        selected = min(options) if options else None
+        for index, row in members:
+            reference, wo = text(row.get("Customer Reference")), text(row.get("Work Order Number"))
+            record = {"Work Order Number": wo, "Customer Reference": reference,
+                      "Requested Weekdays": ", ".join(sorted(wanted_days(row))), "Surveyor": "",
+                      "Available Requested Dates": "", "Visit Group": group, "Group Sites": len(members),
+                      "Assignment Outcome": "No suitable surveyor available for the requested days/review."}
+            if selected:
+                _, target, day, dates = selected
+                for name, frame in updated.items():
+                    if frame.empty:
+                        continue
+                    if wo and "Work Order Number" in frame:
+                        match = frame["Work Order Number"].astype("string").fillna("").str.strip().eq(wo)
+                    elif reference and "Customer Reference" in frame:
+                        match = frame["Customer Reference"].astype("string").fillna("").str.strip().eq(reference)
+                    else:
+                        match = frame["Building Name"].eq(row.get("Building Name")) & frame["Postcode"].eq(row.get("Postcode"))
+                    updated[name] = frame.loc[~match].copy()
+                chosen = row.to_frame().T.copy()
+                chosen["Assigned Surveyor"] = target
+                chosen["Home to Cluster (Minutes)"] = travel_matrix.get((target, text(row.get("Planning Cluster"))))
+                if group:
+                    chosen["Visit Group"] = group
+                    chosen["Visit Group Preferred Weekdays"] = day.strftime("%A")
+                updated[target] = pd.concat([updated.get(target, portfolio.head(0)), chosen], ignore_index=True)
+                record.update({"Surveyor": target, "Available Requested Dates": ", ".join(d.isoformat() for d in dates),
+                               "Assignment Outcome": (
+                                   f"Keep {len(members)} nearby sites together with {target} on {day.isoformat()}; route/time feasibility still required."
+                                   if group else "Reserved in the candidate pool; route/time feasibility still required.")})
+            audit.append(record)
+            processed.add(index)
+        if selected:
+            priority_load[(selected[1], selected[2])] = priority_load.get((selected[1], selected[2]), 0.0) + work
+        return True
+
+    # Confirmed access groups first, then compact geographic clusters. Never
+    # break these into individual jobs merely to equalise surveyor workloads.
+    groups = sorted(by_area.items(), key=lambda pair: (
+        not any(text(row.get("Visit Group")) for _, row in pair[1]), pair[0]))
+    for group, members in groups:
+        if len(members) < 2 or not any(priority_row(row) for _, row in members):
+            continue
+        explicit = all(text(row.get("Visit Group")) == group for _, row in members)
+        if not explicit:
+            coords = [(row.get("Latitude Clean", row.get("Latitude")),
+                       row.get("Longitude Clean", row.get("Longitude"))) for _, row in members]
+            distances = [haversine_km(*a, *b) for i, a in enumerate(coords) for b in coords[i+1:]]
+            if not distances or any(d is None or not math.isfinite(d) or d > NO_GOOGLE_RADIUS_KM for d in distances):
+                continue
+        assign(members, group)
+    for index, row in eligible:
+        if index not in processed and priority_row(row):
+            assign([(index, row)])
     return updated, pd.DataFrame(audit)
 
 

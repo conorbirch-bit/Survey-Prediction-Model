@@ -1,5 +1,5 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.11
+Current application: 20.12.12
 Updated: 9 October 2026
 
 START HERE
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.11. The active route engine remains
+The application should display Version 20.12.12. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,8 +22,7 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.11 ZIP is an incremental update to v20.12.10, including the
-Assigned Service Resource fix. Extract it into the existing project folder,
+The v20.12.12 ZIP is an incremental update to v20.12.11. Extract it into the existing project folder,
 replacing matching files and retaining the tests/ subfolder. It contains only
 changed files, not a complete installation. Keep all other modules, training
 data, requirements and credentials.
@@ -40,7 +39,20 @@ memory. The same applies to an unexpected 'saturday_time_window' or
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
 
-NEW IN 20.12.11
+NEW IN 20.12.12
+
+The 13 Lavender Crescent/The Hollies sites are a Monday-only visit group.
+Requested-day allocation keeps compact compatible groups with one surveyor
+where capacity allows. With the supplied availability and home-to-area times,
+the AL3 group is assigned to Conor. Retry Day Assignments now shows the group
+and its size. Actual route feasibility still applies; rerun the schedule.
+
+The ten internal holds from the latest output have been approved for another
+visit. They are marked APPROVED_INTERNAL_RETRY with original notes retained.
+The approvals do not bypass completed-work, booking or replacement-SA checks,
+and do not automatically approve a new failed visit.
+
+RETAINED FROM 20.12.11
 
 Check Training source and Accepted completed surveys in the sidebar before
 scheduling. Upload your full completed-survey history if the bundled workbook
@@ -110,9 +122,10 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.10 update passed 140 offline regression tests, including ten new
-Saturday-hours cases, plus syntax checks. That run excluded the
+The v20.12.12 update passed 172 offline regression tests, plus Python
+compilation and an actual-data allocation replay. These checks excluded
 Streamlit booking-selector UI tests and made no live routing or AI calls.
+The route replay uses synthetic times and is not a replacement schedule.
 
 README.md explains the project, current rules, inputs, outputs and setup.
 CHANGELOG.md summarises recent changes. No dependencies have been added.

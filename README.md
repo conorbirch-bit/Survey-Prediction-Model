@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.11** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.12** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -39,6 +39,14 @@ Valid site coordinates are used in Google route and matrix requests. Where coord
 ## Current scheduling rules
 
 The app plans **one selected week at a time**, using `Europe/London` dates. Each surveyor has individually selected working days and a start/finish location. The planner enforces the first-survey target, latest survey finish, latest return home and configured buffers. A 30-minute lunch starts between 11:45 and 13:00 on days extending into the lunch period.
+
+### Compact access groups and approved revisits
+
+Requested-day assignment keeps compact groups (all sites within 400 m of each other) with one surveyor when their access days, reviewer restrictions and candidate capacity allow. Nearby fresh sites can join the group; Saturday still excludes fresh work. The route builder checks actual travel, lunch and return-home feasibility, and final filling remains enabled. `Retry Day Assignments` records the group and site count.
+
+Conor confirmed Monday-only access for the 13 named Lavender Crescent/The Hollies sites in AL3 on 9 October 2026. These specific references are grouped together, including the sites without the office note. This instruction does not apply to unrelated AL3 buildings. If nobody is available on Monday, these visits remain unplaced rather than being moved to an inaccessible day.
+
+Conor also released the ten internal holds identified in the 12 October output. They enter the retry pool as `APPROVED_INTERNAL_RETRY`; original surveyor descriptions and failure counts remain visible. This records permission to revisit, not a claim that the original issue was resolved. Approvals apply only to the reviewed Work Orders/failure histories. Completed appointments and excluded bookings still win, and a fresh failed appointment requires normal reassessment.
 
 ### Requested retry days and Saturday
 

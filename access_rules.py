@@ -2,6 +2,41 @@
 import re
 
 
+# Conor confirmed on 9 October 2026 that this specific St Albans visit group
+# must be done together on Monday. Do not apply this to all AL3 properties.
+ST_ALBANS_MONDAY_REFERENCES = {
+    "LAVE000", "LAVE002", "LAVE004", "LAVE006", "LAVE008", "LAVE012",
+    "LAVE014", "LAVE016", "LAVE018", "LAVE024", "LAVE026", "LAVE028",
+    "HOLI0000-2",
+}
+
+
+def confirmed_visit_group(reference, postcode=""):
+    reference = str(reference or "").strip().upper()
+    postcode = str(postcode or "").strip().upper()
+    if reference in ST_ALBANS_MONDAY_REFERENCES and postcode.startswith("AL3 "):
+        return "St Albans — Lavender Crescent / The Hollies"
+    return ""
+
+
+def apply_confirmed_visit_groups(portfolio):
+    """Add access instructions without changing eligibility or retry decisions."""
+    result = portfolio.copy()
+    for index, row in result.iterrows():
+        group = confirmed_visit_group(row.get("Customer Reference"), row.get("Postcode"))
+        if group:
+            result.loc[index, "Visit Group"] = group
+            result.loc[index, "Visit Group Preferred Weekdays"] = "Monday"
+            result.loc[index, "Retry Required Weekdays"] = "Monday"
+            result.loc[index, "Retry Preferred Weekdays"] = "Monday"
+            result.loc[index, "Access Instruction"] = "Conor confirmed Monday-only access on 9 October 2026; keep this visit group together."
+            # The confirmed access day overrides the generic different-day rule.
+            if str(row.get("Retry Forbidden Weekday", "")).lower() == "monday":
+                result.loc[index, "Retry Forbidden Weekday"] = ""
+                result.loc[index, "Retry Forbidden Weekday Number"] = None
+    return result
+
+
 def requested_access_days(reason):
     """Extract explicit forward-looking day requests, not a past visit date."""
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -40,6 +75,23 @@ RESOLVED_ISSUES = {
 }
 
 
+# These ten specific internal holds were explicitly released for scheduling by
+# Conor on 9 October 2026. This is permission to revisit, not a claim that the
+# drawing/location/power issue has been resolved. Original notes stay visible.
+APPROVED_HOLD_RETRIES = {
+    '01023487': ('TANH0000', '101245', {'08pR5000002clbB'}, 0, 1),
+    '01023568': ('BRAU0000', '101481', {'08pR5000002cloC'}, 1, 0),
+    '01040486': ('POOL0000-2', '101025', {'08pR5000002hLPt'}, 0, 1),
+    '01040798': ('PORP0000-1', '101667', {'08pR5000002hLrY'}, 0, 1),
+    '01041165': ('WESF0088', '102514', {'08pR5000002hM9G'}, 0, 1),
+    '01041568': ('CLAR0002', '101336', {'08pR5000002hM9t'}, 0, 1),
+    '01041594': ('LOCB0000-3', '101426', {'08pR5000002hM3x'}, 0, 1),
+    '01041690': ('PORP0000-2', '101669', {'08pR5000002hMDk'}, 0, 1),
+    '01041713': ('POOL0000-3', '101024', {'08pR5000002hMDD'}, 0, 1),
+    '01042613': ('BIKO0000', '102045', {'08pR5000002hMdU'}, 0, 1),
+}
+
+
 def resolved_issue_decision(work_order, reference, failed_sa_ids,
                             customer_failures, metro_failures):
     """Release only the failure history explicitly reviewed by Conor.
@@ -47,7 +99,8 @@ def resolved_issue_decision(work_order, reference, failed_sa_ids,
     Completion, booking exclusions and replacement-SA validation are still
     enforced by the caller. Historical failure counts are not reset.
     """
-    approval = RESOLVED_ISSUES.get(work_order)
+    approved_hold = work_order in APPROVED_HOLD_RETRIES
+    approval = APPROVED_HOLD_RETRIES.get(work_order) or RESOLVED_ISSUES.get(work_order)
     if approval is None:
         return None
     approved_ref, building, known_failures, customers, metro = approval
@@ -57,9 +110,12 @@ def resolved_issue_decision(work_order, reference, failed_sa_ids,
         return None
     return {
         "Decision": "RETRY",
-        "Reason Category": "ISSUE_RESOLVED",
-        "Decision Source": "Conor approval — 25 September 2026",
+        "Reason Category": "APPROVED_INTERNAL_RETRY" if approved_hold else "ISSUE_RESOLVED",
+        "Decision Source": "Conor approval — 9 October 2026" if approved_hold else "Conor approval — 25 September 2026",
         "Decision Reason": (
+            f"Internal hold released — Conor approved another visit to building {building} on 9 October 2026. "
+            "Original surveyor notes and failure history retained; issue resolution is not assumed."
+            if approved_hold else
             f"Issue resolved — approved to reschedule building {building} by Conor "
             "on 25 September 2026. Previous failure history retained."
         ),
@@ -107,9 +163,10 @@ def classify_access(reason, customer_failures, metro_failures=0, reference=""):
     if re.search(r"cannot find|can't find|not clear on where.*entrance", text):
         return client("ADDRESS_OR_ENTRANCE", "The building or entrance could not be located or confirmed.",
                       "Confirm the building and entrance with access instructions and a marked plan or photo.")
-    if re.search(r"office.*monday|office.*friday", text):
+    office_days, _ = requested_access_days(text)
+    if "office" in text and office_days:
         return answer("RETRY_WITH_CONSTRAINT", "NO_ANSWER", "Retry when the office is staffed.",
-                      **{"Preferred Weekdays": ["Monday", "Friday"], "Required Weekdays": ["Monday", "Friday"]})
+                      **{"Preferred Weekdays": office_days, "Required Weekdays": office_days})
     # Explicit lack of an alternative takes precedence over a no-answer phrase.
     blocked = re.search(r"no (?:working )?intercom|no (?:individual )?(?:buttons|doorbells)|no where.*call|nowhere.*call|no way.*(?:get|enter)|no usable|out of service|manually locked|main gate locked|gate.*key pad|yale key|required.*key|don't have.*keys.*car|no.*key.*car|inside and out|first hallway", text)
     broken = re.search(r"(?:bell|bells|intercom).*(?:don't work|doesn't work|do not work|not work|broken)", text)

@@ -1,6 +1,16 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.11**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.12**.
+
+## v20.12.12 — Keep compact access visits together — 9 October 2026
+
+- Fix requested-day allocation splitting compact groups across surveyors to balance individual retry workloads. Assign compatible groups within the 400 m local-transfer diameter together, including nearby fresh work, before assigning individual retries. Preserve per-site access and reviewer restrictions, and use configured daily capacity estimates before reserving a group.
+- Apply Conor's confirmed Monday-only instruction to the 13 named Lavender Crescent/The Hollies sites. The override is restricted to these references and AL3 postcodes; it does not impose Monday on unrelated St Albans buildings or make excluded work eligible.
+- Include grouped fresh sites in the requested-day routing pass, so the route can finish the group before leaving for ordinary work. Conflicting access days or groups too large for available capacity retain individual feasibility checks.
+- Fix blank reviewer names represented as NaN being mistaken for review requests and unnecessarily reassigned. Show visit group and group size in `Retry Day Assignments`.
+- Extract the actual office weekdays from notes; a Monday-only note no longer invents Friday availability.
+- Release the ten internal holds explicitly approved by Conor: TANH0000, BRAU0000, POOL0000-2, PORP0000-1, WESF0088, CLAR0002, LOCB0000-3, PORP0000-2, POOL0000-3 and BIKO0000. Label them `APPROVED_INTERNAL_RETRY`, preserve notes and counts, and scope approvals to their current Work Orders and failed appointments. A new failed visit returns to normal review; completion, booking and replacement-SA checks still apply.
+- Verified with 172 offline tests, Python compilation and a replay using the supplied October data. The allocation gives all 13 AL3 sites to Conor; the offline route test keeps them as one Monday block. All ten holds become retry eligible. Journey times in this test are synthetic; rerun with live Google routing for the actual schedule.
 
 ## v20.12.11 — Training visibility, retry review and route inputs — 9 October 2026
 

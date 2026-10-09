@@ -108,10 +108,12 @@ def _site_allowed_for_surveyor(site, surveyor_name):
 
 
 def _requested_retry_day(site, day_date):
-    if not _is_retry_site(site):
+    group = str(site.get("visit_group") or "").strip().lower()
+    if not _is_retry_site(site) and group in {"", "nan", "none", "<na>"}:
         return False
     wanted = (_retry_preferred_weekdays(site.get("retry_preferred_weekdays"))
-              | _retry_preferred_weekdays(site.get("retry_required_weekdays")))
+              | _retry_preferred_weekdays(site.get("retry_required_weekdays"))
+              | _retry_preferred_weekdays(site.get("visit_group_preferred_weekdays")))
     return day_date.strftime("%A").lower() in wanted and _site_allowed_today(site, day_date)
 
 

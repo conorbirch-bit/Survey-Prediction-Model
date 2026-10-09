@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from access_rules import classify_access, resolved_issue_decision, requested_access_days
+from access_rules import classify_access, resolved_issue_decision, requested_access_days, confirmed_visit_group
 
 
 # ---------------------------------------------------------------------------
@@ -1055,6 +1055,10 @@ def build_retry_plan(
         row["Preferred Weekdays"] = list(dict.fromkeys((row.get("Preferred Weekdays") or []) + preferred))
         if required:
             row["Required Weekdays"] = required
+        if confirmed_visit_group(row.get("Customer Reference"), row.get("Postcode")):
+            row["Preferred Weekdays"] = ["Monday"]
+            row["Required Weekdays"] = ["Monday"]
+            row["Decision Reason"] += " Conor confirmed Monday-only access for this St Albans visit group on 9 October 2026."
         if row.get("Forbidden Weekday") in row["Preferred Weekdays"]:
             row["Forbidden Weekday"] = ""
             row["Forbidden Weekday Number"] = None

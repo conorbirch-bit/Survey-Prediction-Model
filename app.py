@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import io
 import hashlib
 from access_report import build_access_report
+from access_rules import apply_confirmed_visit_groups
 import os
 
 import pandas as pd
@@ -82,7 +83,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.11 — retry review fixes, duration fallbacks and coordinate routing")
+st.caption("Version 20.12.12 — grouped access visits and approved internal-hold retries")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -496,6 +497,8 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "retry_preferred_period": str(
                 site_row.get("Retry Preferred Period", "") or ""
             ),
+            "visit_group": str(site_row.get("Visit Group", "") or ""),
+            "visit_group_preferred_weekdays": site_row.get("Visit Group Preferred Weekdays", ""),
             "retry_required_weekdays": site_row.get("Retry Required Weekdays", []) or [],
             "retry_preferred_weekdays": str(
                 site_row.get("Retry Preferred Weekdays", "") or ""
@@ -1594,6 +1597,7 @@ with tab2:
                                             target_week_start=team_week_start,
                                             today=today,
                                         )
+                                        team_portfolio = apply_confirmed_visit_groups(team_portfolio)
                                         team_eligible = team_portfolio[
                                             team_portfolio[
                                                 "Eligible for Selected Week"
@@ -2021,6 +2025,14 @@ with tab2:
                                         team_shortlists, retry_day_assignments_df = prioritise_retry_day_assignments(
                                             team_shortlists, team_portfolio,
                                             active_surveyors, team_home_cluster_matrix,
+                                            capacity_by_slot={
+                                                (person.name, day): max(0, (
+                                                    datetime.combine(day, survey_clocks_for_date(day, team_first_survey_clock, team_last_survey_clock, team_return_home_clock, team_saturday_time_window)[1])
+                                                    - datetime.combine(day, survey_clocks_for_date(day, team_first_survey_clock, team_last_survey_clock, team_return_home_clock, team_saturday_time_window)[0])
+                                                ).total_seconds() / 60 - 30)
+                                                for person in active_surveyors for day in person.available_dates
+                                            },
+                                            site_buffer_minutes=int(team_pre_buffer) + int(team_post_buffer),
                                         )
 
                                         def make_team_scheduler(surveyor):
@@ -3381,12 +3393,15 @@ with tab2:
 
                                         training_audit.to_excel(writer, sheet_name="Duration Training", index=False)
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.11"},
+                                            {"Setting": "App Version", "Value": "20.12.12"},
                                             {"Setting": "Duration Training Source", "Value": training_source},
                                             {"Setting": "Duration Training Workbook SHA256", "Value": training_fingerprint},
                                             {"Setting": "Accepted Duration Training Rows", "Value": len(predictor.training_data)},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
                                             {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
+                                            {"Setting": "Compact Visit Groups", "Value": "Keep compatible local groups with one surveyor; capacity and route feasibility apply"},
+                                            {"Setting": "St Albans Access", "Value": "13 named Lavender Crescent/The Hollies sites: Monday only, confirmed by Conor 9 October 2026"},
+                                            {"Setting": "Approved Internal Holds", "Value": "Ten reviewed Work Orders released by Conor 9 October 2026; original notes retained"},
                                             {"Setting": "Reviewed Revisits", "Value": "Harrison second failed visits; Joe/Harrison refusals through 9 October 2026; different surveyor"},
                                             {"Setting": "Wider Search Trigger", "Value": "30 minutes left before survey cut-off after normal filling"},
                                             {"Setting": "Wider Search Limit", "Value": "No distance or survey-to-travel ratio limit; time, lunch and access checks retained"},
