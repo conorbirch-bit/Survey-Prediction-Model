@@ -30,7 +30,7 @@ SMALL_SEGMENT = "4–6 flats"
 STANDARD_SEGMENT = "7+ flats"
 GARAGE_SEGMENT = "Garage"
 FALLBACK_SEGMENT = "Residential fallback (flats missing)"
-MODEL_VERSION = "20.11-segmented-1-3-4-6"
+MODEL_VERSION = "20.12.11-segmented-fallback"
 
 
 @dataclass
@@ -62,7 +62,7 @@ class PredictionResult:
 class DurationPredictor:
     model_version = MODEL_VERSION
     """
-    Version 20.11 segmented duration model.
+    Version 20.12.11 segmented duration model.
 
     Known flat counts select one of four independent model families:
       - 0 flats       -> Garage model
@@ -75,6 +75,10 @@ class DurationPredictor:
     Sovereign Flats. The existing Version 17 fallback rule is preserved:
     whenever Ground Floor Area is missing, a residential prediction uses
     Sovereign Flats only.
+
+    Sparse residential segments use their accepted historical mean. If no
+    segment history exists, use a pooled residential equation/mean and label
+    the estimate low confidence. Garages never enter this fallback.
 
     If the flat count itself is missing, the model cannot determine the size
     family, so it falls back to the original all-residential Height/Area model.
@@ -99,9 +103,8 @@ class DurationPredictor:
         self.planning_buffer_pct = 0.0
         self.planning_round_to = planning_round_to
 
-        # Global residential models are retained only for buildings whose flat
-        # count is missing, because those buildings cannot be assigned to the
-        # 1–3, 4–6 or 7+ family.
+        # Global residential models support missing-flat predictions and the
+        # low-confidence fallback when a residential family has no history.
         self.models: Dict[Tuple[str, ...], Pipeline] = {}
         self.stats: Dict[Tuple[str, ...], ModelStats] = {}
 
@@ -340,7 +343,7 @@ class DurationPredictor:
         )
         self.training_data = df[accepted_mask].copy()
 
-        # Original all-residential family: used only when flat count is missing.
+        # Pooled residential family: missing-flat and absent-segment fallbacks.
         self.models, self.stats = self._fit_models_for_subset(residential, all_keys, min_rows_mode="residential")
         self.segment_models[MICRO_SEGMENT], self.segment_stats[MICRO_SEGMENT] = self._fit_models_for_subset(micro, all_keys, min_rows_mode="residential")
         self.segment_models[SMALL_SEGMENT], self.segment_stats[SMALL_SEGMENT] = self._fit_models_for_subset(small, all_keys, min_rows_mode="residential")
@@ -389,6 +392,7 @@ class DurationPredictor:
             and not self.segment_models[SMALL_SEGMENT]
             and not self.segment_models[STANDARD_SEGMENT]
             and self.garage_mean_minutes is None
+            and not self.training_data[flats_col].gt(0).any()
         ):
             raise ValueError("Not enough completed historical data to train any model.")
 
@@ -464,6 +468,51 @@ class DurationPredictor:
             )
         return self._ranked_compatible(self.models, self.stats, available)
 
+    def _residential_prediction(self, segment, values):
+        """Keep trained segment equations; label sparse-history fallbacks."""
+        try:
+            features = self._choose_residential_segment_model(segment, values)
+        except ValueError:
+            training = self.training_data
+            if training is None or training.empty:
+                raise ValueError(f"No accepted completed surveys for the {segment} duration fallback.")
+            flats = training[FEATURE_COLUMNS["flats"]]
+            masks = {MICRO_SEGMENT: flats.between(1, 3),
+                     SMALL_SEGMENT: flats.between(4, 6),
+                     STANDARD_SEGMENT: flats.ge(7)}
+            sample = training.loc[masks[segment], TARGET_COLUMN].dropna().to_numpy(dtype=float)
+            if len(sample):
+                label = f"{segment} | historical average (sparse segment model)"
+            else:
+                # A compatible pooled residential equation is preferable to
+                # guessing a duration when this size family has no history.
+                available = self._available(values)
+                if "ground_floor_area" not in available:
+                    available = {"flats"}
+                compatible = [f for f in self.models if set(f).issubset(available)]
+                if compatible:
+                    features = self._ranked_compatible(self.models, self.stats, available)
+                    x = np.array([[values[k] for k in features]], dtype=float)
+                    raw = float(self.models[features].predict(x)[0])
+                    original = self.stats[features]
+                    stat = ModelStats(features, original.rows, original.mae_minutes,
+                                      original.rmse_minutes, "Low")
+                    return features, raw, stat, f"{segment} | pooled residential equation (no segment history)"
+                sample = training.loc[flats.gt(0), TARGET_COLUMN].dropna().to_numpy(dtype=float)
+                label = f"{segment} | pooled residential average (no segment history)"
+            if not len(sample):
+                raise ValueError(f"No completed residential surveys for the {segment} duration fallback.")
+            mae = rmse = None
+            if len(sample) > 1:
+                predicted = (sample.sum() - sample) / (len(sample) - 1)
+                mae = float(mean_absolute_error(sample, predicted))
+                rmse = float(math.sqrt(mean_squared_error(sample, predicted)))
+            return (), float(sample.mean()), ModelStats((), len(sample), mae, rmse, "Low"), label
+        model = self.segment_models[segment][features]
+        x = np.array([[values[k] for k in features]], dtype=float)
+        return (features, float(model.predict(x)[0]), self.segment_stats[segment][features],
+                f"{segment} | " + " + ".join(self.pretty_feature(k) for k in features))
+
     def predict(
         self,
         building_height: Optional[float] = None,
@@ -530,35 +579,17 @@ class DurationPredictor:
         # Micro residential: 1–3 flats inclusive.
         elif flats_value is not None and 1 <= flats_value <= 3:
             segment = MICRO_SEGMENT
-            features = self._choose_residential_segment_model(segment, values)
-            model = self.segment_models[segment][features]
-            x = np.array([[values[k] for k in features]], dtype=float)
-            raw = float(model.predict(x)[0])
-            stat = self.segment_stats[segment][features]
-            model_label = f"{segment} | " + " + ".join(self.pretty_feature(k) for k in features)
+            features, raw, stat, model_label = self._residential_prediction(segment, values)
 
         # Small residential: 4–6 flats inclusive.
         elif flats_value is not None and 4 <= flats_value < 7:
             segment = SMALL_SEGMENT
-            features = self._choose_residential_segment_model(segment, values)
-            model = self.segment_models[segment][features]
-            x = np.array([[values[k] for k in features]], dtype=float)
-            raw = float(model.predict(x)[0])
-            stat = self.segment_stats[segment][features]
-            model_label = f"{segment} | " + " + ".join(self.pretty_feature(k) for k in features)
+            features, raw, stat, model_label = self._residential_prediction(segment, values)
 
         # Larger residential: 7 flats and above.
         elif flats_value is not None and flats_value >= 7:
             segment = STANDARD_SEGMENT
-            features = self._choose_residential_segment_model(segment, values)
-            model = self.segment_models[segment][features]
-            x = np.array([[values[k] for k in features]], dtype=float)
-            raw = float(model.predict(x)[0])
-            stat = self.segment_stats[segment][features]
-            model_label = (
-                f"{segment} | "
-                + " + ".join(self.pretty_feature(k) for k in features)
-            )
+            features, raw, stat, model_label = self._residential_prediction(segment, values)
 
         # Flat count missing: preserve Version 19's Height + Area fallback.
         else:

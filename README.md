@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.10** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.11** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -25,6 +25,16 @@ Developed by **Conor Birch** during an operational improvement project at Metro 
 6. **Export and review.** Download the team schedule, Salesforce copy, unplaced work and decision records. Generate the client access report from the same retry rules.
 
 Language models support cluster selection, supported location requests, unfamiliar access descriptions and the final narrative. Python rules and route checks determine whether a visit can be scheduled. Updated training data can be uploaded to refit the duration model; it does not collect new outcomes automatically.
+
+## Duration training checks
+
+The sidebar displays whether training uses an uploaded workbook or the bundled `Predictive Model.xlsx`, plus the accepted completed-survey count. Upload the full completed-survey history for each new session, or keep the bundled workbook current. Both paths now cache by file contents, so replacing a file at the same path triggers retraining.
+
+The export includes `Duration Training` with accepted counts by size group and the source filename/fingerprint. An on-screen warning identifies groups with fewer than five accepted examples. The 12 October output used substantially less history than the 28 September output; the old export did not identify the source, so check that the full workbook is selected before rerunning.
+
+Sparse residential groups use a labelled, low-confidence historical mean; groups with no examples use a pooled residential equation/mean. Existing trained group equations remain the first choice, and garage history is separate. These fallbacks prevent avoidable exclusions but do not replace restoring the full training history. `Prediction Error` preserves the underlying cause if an estimate still fails.
+
+Valid site coordinates are used in Google route and matrix requests. Where coordinates are unavailable, routing uses a cleaned building address/postcode. Journey times still come from Google and must fit the configured day and return-home deadline.
 
 ## Current scheduling rules
 

@@ -1,6 +1,16 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.10**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.11**.
+
+## v20.12.11 — Training visibility, retry review and route inputs — 9 October 2026
+
+- Fix Joe/Harrison refusal review matching to use the audited access classifier, including “would not let me in”, “turned away” and spelling variants. Replay of the 9 October source reopens 17 additional review cases (9 Joe, 8 Harrison). Completed/booking protections and the different-reviewer rule remain.
+- Cache duration training by workbook contents for both uploaded and bundled files. Display the source and accepted row count; export `Duration Training` and source/fingerprint settings. Warn when a residential size group cannot train its flats-only equation.
+- Add low-confidence residential fallbacks: accepted same-size historical mean for sparse groups; otherwise pooled residential equation/mean. Preserve existing trained equations and keep garage history separate. Include the actual prediction error when no estimate is possible.
+- Use valid building coordinates in individual and matrix Google requests, including home-to-area and special-request comparisons. Clean the asset prefix and duplicated postcode when falling back to addresses. Keep actual Google journey durations and deadlines.
+- Investigation: the 28 September output had 494 / 214 / 270 examples for its 1–3 / 4–6 / 7+ flats-only models. The 5 and 12 October outputs show no usable 1–3 model, 7 examples for 4–6, and 47 for 7+. The exact training source was not recorded. Restore the full completed-survey workbook; fallbacks do not restore missing history.
+- The 12 October output excluded 94 buildings at duration prediction. Saturday exhausted its usable retry pool. Monday's 236-minute St Albans-to-Harpenden return requires a live rerun with corrected routing inputs; its actual replacement duration is not established offline.
+- Verified with 158 offline regression tests and Python compilation. No live Google or full Streamlit schedule rerun was performed.
 
 ## v20.12.10 — Separate Saturday hours — 9 October 2026
 

@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
-from google_routes import GoogleTransitRouter, GoogleRoutesError
+from google_routes import GoogleTransitRouter, GoogleRoutesError, site_route_location
 from scheduler_v20_10 import CachedRunRouter, DailyTransitScheduler, postcode_district, survey_clocks_for_date
 from coordinate_clustering import (
     GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM,
@@ -82,7 +82,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.10 — separate Saturday hours, requested retry days and reviewed revisits")
+st.caption("Version 20.12.11 — retry review fixes, duration fallbacks and coordinate routing")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -107,12 +107,6 @@ with st.sidebar:
         "Planning duration now equals the raw model prediction; no survey-duration "
         "percentage uplift is applied."
     )
-
-@st.cache_resource(show_spinner=False)
-def train_from_path_v20_11(path: str, min_duration: int):
-    return DurationPredictor(
-        min_completed_duration=min_duration,
-    ).load_excel(path)
 
 def read_completed_training_excel(source, sheet_name=0):
     """
@@ -181,7 +175,7 @@ def read_completed_training_excel(source, sheet_name=0):
 
 
 @st.cache_resource(show_spinner=False)
-def train_from_bytes_v20_11(file_bytes: bytes, min_duration: int):
+def train_from_bytes_v20_12_11(file_bytes: bytes, min_duration: int):
     df = read_completed_training_excel(io.BytesIO(file_bytes))
     return DurationPredictor(
         min_completed_duration=min_duration,
@@ -189,27 +183,59 @@ def train_from_bytes_v20_11(file_bytes: bytes, min_duration: int):
 
 try:
     if training_file is not None:
-        predictor = train_from_bytes_v20_11(
-            training_file.getvalue(), min_duration
-        )
+        training_bytes = training_file.getvalue()
+        training_source = f"Uploaded: {training_file.name}"
     else:
-        predictor = train_from_path_v20_11(
-            str(DEFAULT_FILE), min_duration
-        )
+        training_bytes = DEFAULT_FILE.read_bytes()
+        training_source = f"Bundled: {DEFAULT_FILE.name}"
+    # Cache by workbook contents for both sources, so replacing the bundled
+    # file at the same path cannot silently reuse the previous model.
+    training_fingerprint = hashlib.sha256(training_bytes).hexdigest()
+    predictor = train_from_bytes_v20_12_11(training_bytes, min_duration)
 except Exception as exc:
     st.error(f"Could not train duration model: {exc}")
     st.stop()
 
 # Fail loudly rather than silently reusing an older cached/unsegmented predictor.
-if getattr(predictor, "model_version", None) != "20.11-segmented-1-3-4-6":
+if getattr(predictor, "model_version", None) != "20.12.11-segmented-fallback":
     st.error(
         "Old duration predictor detected. Replace duration_predictor_height.py "
-        "and app.py with the Version 20.12 files, then reboot the Streamlit app."
+        "and app.py with the Version 20.12.11 files, then reboot the Streamlit app."
     )
     st.stop()
 
 with st.sidebar:
-    st.success("Active model: v20.11 segmented (Garage / 1–3 flats / 4–6 flats / 7+ flats)")
+    st.success("Active model: v20.12.11 segmented with sparse-data fallbacks (Garage / 1–3 flats / 4–6 flats / 7+ flats)")
+    st.caption(f"Training source: {training_source}")
+    st.caption(f"Accepted completed surveys: {len(predictor.training_data):,}")
+    if training_file is None:
+        st.info("Using the bundled training workbook. To use your latest completed-survey history, upload it above.")
+
+training_flats = pd.to_numeric(predictor.training_data[FEATURE_COLUMNS["flats"]], errors="coerce")
+training_audit = pd.DataFrame([
+    {"Size Group": label, "Accepted Completed Surveys": int(mask.sum()),
+     "Flats-only Equation Available": (("flats",) in predictor.segment_models[label]) if label != "Garage" else "Not applicable"}
+    for label, mask in [
+        ("1–3 flats", training_flats.between(1, 3)),
+        ("4–6 flats", training_flats.between(4, 6)),
+        ("7+ flats", training_flats.ge(7)),
+        ("Garage", training_flats.eq(0)),
+    ]
+])
+training_audit["Training Source"] = training_source
+training_audit["Workbook SHA256"] = training_fingerprint
+training_audit["Minimum Duration Setting"] = min_duration
+sparse_families = training_audit.loc[
+    training_audit["Flats-only Equation Available"].eq(False), "Size Group"
+].tolist()
+if sparse_families:
+    st.warning(
+        "The selected training workbook has fewer than five usable completed examples for: "
+        + ", ".join(sparse_families)
+        + ". Low-confidence fallback estimates will be used for these groups. "
+        "If your full history contains more examples, upload that completed-survey workbook before scheduling."
+    )
+
 
 
 def optional_number(value):
@@ -291,18 +317,20 @@ def predict_upcoming(df: pd.DataFrame) -> pd.DataFrame:
                 "Prediction Training Rows": p.training_rows,
                 "Prediction Feature Count": p.feature_count,
                 "Prediction Status": "Predicted",
+                "Prediction Error": "",
             })
-        except ValueError:
+        except ValueError as exc:
             rows.append({
                 "Predicted Survey Duration (Minutes)": None,
                 "Planning Duration (Minutes)": None,
                 "Prediction Confidence": "None",
-                "Prediction Model Used": "No usable input data",
+                "Prediction Model Used": "No compatible duration estimate",
                 "Validation MAE (Minutes)": None,
                 "Validation RMSE (Minutes)": None,
                 "Prediction Training Rows": None,
                 "Prediction Feature Count": None,
                 "Prediction Status": "Could not predict",
+                "Prediction Error": str(exc),
             })
 
     return pd.concat(
@@ -391,8 +419,10 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
     for _, site_row in df.iterrows():
         building_name = str(site_row.get("Building Name", "")).strip()
         postcode = str(site_row.get("Postcode", "")).strip()
-        route_location = (
-            f"{building_name}, {postcode}" if building_name else postcode
+        route_location = site_route_location(
+            building_name, postcode,
+            site_row.get("Latitude Clean", site_row.get("Latitude")),
+            site_row.get("Longitude Clean", site_row.get("Longitude")),
         )
 
         special_date = site_row.get("Special Request Date")
@@ -3349,8 +3379,12 @@ with tab2:
                                                 index=False,
                                             )
 
+                                        training_audit.to_excel(writer, sheet_name="Duration Training", index=False)
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.10"},
+                                            {"Setting": "App Version", "Value": "20.12.11"},
+                                            {"Setting": "Duration Training Source", "Value": training_source},
+                                            {"Setting": "Duration Training Workbook SHA256", "Value": training_fingerprint},
+                                            {"Setting": "Accepted Duration Training Rows", "Value": len(predictor.training_data)},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
                                             {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
                                             {"Setting": "Reviewed Revisits", "Value": "Harrison second failed visits; Joe/Harrison refusals through 9 October 2026; different surveyor"},
@@ -3417,6 +3451,8 @@ with tab2:
 
 
 with tab3:
+    st.subheader("Duration training data")
+    st.dataframe(training_audit, use_container_width=True, hide_index=True)
     st.subheader("Duration fallback models")
     st.dataframe(
         predictor.model_summary(),

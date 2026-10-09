@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 
 from portfolio_clusterer import _site_sort_frame
+from google_routes import site_route_location
 
 
 @dataclass
@@ -41,8 +42,10 @@ def all_cluster_representatives(
         row = ranked.iloc[0]
         building = str(row.get("Building Name", "")).strip()
         postcode = str(row.get("Postcode", "")).strip()
-        route_location = (
-            f"{building}, {postcode}" if building else postcode
+        route_location = site_route_location(
+            building, postcode,
+            row.get("Latitude Clean", row.get("Latitude")),
+            row.get("Longitude Clean", row.get("Longitude")),
         )
         reps.append({
             "cluster": cluster,

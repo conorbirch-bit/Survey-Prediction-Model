@@ -83,11 +83,15 @@ def _quality_review_evidence(work_order, all_history, appointments, recorded_fai
     if pd.Timestamp(latest["when"]).date() > QUALITY_REVIEW_CUTOFF:
         return result, None
     person = _review_person(latest["name"])
+    # Use the same interpretation as the client-access classifier, including
+    # 'turned away', 'would not let me in' and spelling/apostrophe variants.
+    # Counts are deliberately zero here: this is the approved review exception,
+    # while the original recorded counts remain on the final decision.
+    access_reason = classify_access(latest["reason"], 0, 0) or {}
     basis = ""
     if len(visits) == 2 and person == "Harrison Grice":
         basis = "Second failed visit by Harrison Grice: revisit requested for operational review."
-    elif person in {"Joe Reynolds", "Harrison Grice"} and re.search(
-            r"refus\w*[^.;]*access|access[^.;]*refus|resident[^.;]*refus|denied access", latest["reason"], re.I):
+    elif person in {"Joe Reynolds", "Harrison Grice"} and access_reason.get("Reason Category") == "ACCESS_REFUSED":
         basis = f"Access refusal recorded by {person}: revisit requested for operational review."
     if not basis:
         return result, None
@@ -1688,8 +1692,8 @@ def sense_check_retry_outputs(
         "Eligible retries scheduled this week",
         "WARN" if unscheduled_retries else "PASS",
         (
-            f"Eligible retries not selected/placed this week: {unscheduled_retries}. "
-            "They remain valid future work rather than being forced into an inefficient week."
+            f"Retry-approved Work Orders not scheduled: {unscheduled_retries}. "
+            "Check duration predictions, portfolio eligibility and route feasibility."
         ),
     )
 

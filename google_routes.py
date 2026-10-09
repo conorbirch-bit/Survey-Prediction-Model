@@ -4,11 +4,44 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Sequence
 from zoneinfo import ZoneInfo
+import math
+import re
 
 import requests
 
 
 LONDON_TZ = ZoneInfo("Europe/London")
+
+
+def _valid_coordinates(latitude, longitude):
+    try:
+        lat, lon = float(latitude), float(longitude)
+    except (TypeError, ValueError):
+        return None
+    if (math.isfinite(lat) and math.isfinite(lon)
+            and -90 <= lat <= 90 and -180 <= lon <= 180
+            and (lat, lon) != (0.0, 0.0)):
+        return lat, lon
+    return None
+
+
+def site_route_location(building_name, postcode, latitude=None, longitude=None):
+    """Stable cache key using the site's coordinates, or its cleaned address."""
+    coords = _valid_coordinates(latitude, longitude)
+    if coords is not None:
+        return f"geo:{coords[0]:.7f},{coords[1]:.7f}"
+    building = str(building_name or "").strip()
+    code = str(postcode or "").strip()
+    if building.lower() in {"nan", "none", "<na>"}:
+        building = ""
+    if code.lower() in {"nan", "none", "<na>"}:
+        code = ""
+    building = re.sub(r"^\d+\s*\|\s*", "", building)
+    if not building:
+        return code
+    if code and not re.sub(r"\s+", "", building).upper().endswith(re.sub(r"\s+", "", code).upper()):
+        return f"{building}, {code}"
+    return building
 
 
 class GoogleRoutesError(RuntimeError):
@@ -103,6 +136,12 @@ class GoogleTransitRouter:
         text = str(address).strip()
         if not text:
             raise ValueError("Route waypoint cannot be blank.")
+        if text.startswith("geo:"):
+            parts = text[4:].split(",")
+            coords = _valid_coordinates(*parts) if len(parts) == 2 else None
+            if coords is None:
+                raise ValueError("Route waypoint has invalid coordinates.")
+            return {"location": {"latLng": {"latitude": coords[0], "longitude": coords[1]}}}
         if "united kingdom" not in text.lower() and ", uk" not in text.lower():
             text = f"{text}, UK"
         return {"address": text}

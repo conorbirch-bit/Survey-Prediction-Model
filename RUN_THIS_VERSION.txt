@@ -1,5 +1,5 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.10
+Current application: 20.12.11
 Updated: 9 October 2026
 
 START HERE
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.10. The active route engine remains
+The application should display Version 20.12.11. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,15 +22,14 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.10 ZIP is an incremental update to v20.12.9. Install the preceding
-v20.12.9 update first if needed, then extract this ZIP into the
-existing project folder, replacing the matching files and keeping its tests/
-subfolder. It contains only changed files, not a complete installation.
-All earlier modules, requirements, training data and credentials are still needed.
+The v20.12.11 ZIP is an incremental update to v20.12.10, including the
+Assigned Service Resource fix. Extract it into the existing project folder,
+replacing matching files and retaining the tests/ subfolder. It contains only
+changed files, not a complete installation. Keep all other modules, training
+data, requirements and credentials.
 
-Replace app.py, team_scheduler.py and scheduler_v20_10.py together, then fully
-restart Streamlit. Retain the retry/access modules supplied with v20.12.9.
-Mixing old and new modules can cause unexpected-keyword/import errors.
+Replace every matching file in this ZIP together and fully restart Streamlit.
+Do not replace your completed-survey workbook with test or sample data.
 
 If you see:
     fill_team_gaps() got an unexpected keyword argument 'expand_underfilled_days'
@@ -41,7 +40,24 @@ memory. The same applies to an unexpected 'saturday_time_window' or
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
 
-NEW IN 20.12.10
+NEW IN 20.12.11
+
+Check Training source and Accepted completed surveys in the sidebar before
+scheduling. Upload your full completed-survey history if the bundled workbook
+is out of date. Duration Training in the export records the selected source,
+fingerprint and accepted counts by building size. The previous exports showed
+a sharp drop in training history; this update cannot recover missing data.
+
+Training caches now use workbook contents. Sparse residential models have
+labelled low-confidence fallbacks; original equations remain first choice.
+Joe/Harrison refusal matching now recognises the audited wording variations.
+Building coordinates are used for Google journeys where valid; fallback
+addresses have asset identifiers and duplicate postcodes removed.
+
+Rerun the schedule with your full training workbook. A live Google rerun is
+needed to verify the unusual return-home journey and resulting day lengths.
+
+RETAINED FROM 20.12.10
 
 The Saturday hours section has separate first-survey-start, last-survey-finish
 and return-home dropdowns. Defaults are 10:00 / 13:00 / 14:00; adjust all three
