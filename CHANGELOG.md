@@ -1,6 +1,14 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.9**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.10**.
+
+## v20.12.10 — Separate Saturday hours — 9 October 2026
+
+- Add separate Saturday first-survey, last-survey-finish and return-home dropdowns, defaulting to 10:00 / 13:00 / 14:00.
+- Apply the selected Saturday window to weekly planning, priority retries, weekly-note reroutes, empty-day filling and extensions of existing routes.
+- Keep Monday–Friday hours unchanged and retain Saturday's retry-only restriction and existing lunch/access checks.
+- Use Saturday's shorter window in capacity calculations and record its three time settings in the export.
+- Verified with 140 offline regression tests, including ten Saturday-hours cases, plus syntax checks. No live routing or end-to-end Streamlit run was performed.
 
 ## v20.12.9 — Requested retry days and operational revisits — 9 October 2026
 

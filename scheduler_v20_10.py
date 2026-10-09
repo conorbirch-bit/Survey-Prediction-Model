@@ -67,6 +67,14 @@ class CachedRunRouter:
         return [self.matrix[key] for key in keys]
 
 
+def survey_clocks_for_date(day_date, first_survey_clock, latest_survey_clock,
+                           latest_return_clock, saturday_time_window=None):
+    """Use the optional Saturday window without changing weekday hours."""
+    if day_date.weekday() == 5 and saturday_time_window is not None:
+        return tuple(saturday_time_window)
+    return first_survey_clock, latest_survey_clock, latest_return_clock
+
+
 def _site_allowed_today(site, day_date):
     # Saturday is an optional retry day, never a fresh-building working day.
     if day_date.weekday() == 5 and not _is_retry_site(site):
@@ -2856,6 +2864,7 @@ class DailyTransitScheduler:
         latest_survey_finish_clock,
         latest_return_clock,
         timezone,
+        saturday_time_window=None,
     ) -> WeeklyScheduleResult:
         """
         Build a multi-day schedule.
@@ -2878,19 +2887,23 @@ class DailyTransitScheduler:
             if not remaining:
                 break
 
+            first_clock, finish_clock, return_clock = survey_clocks_for_date(
+                day_date, first_survey_start_clock, latest_survey_finish_clock,
+                latest_return_clock, saturday_time_window,
+            )
             first_survey_dt = datetime.combine(
                 day_date,
-                first_survey_start_clock,
+                first_clock,
                 tzinfo=timezone,
             )
             latest_survey_finish_dt = datetime.combine(
                 day_date,
-                latest_survey_finish_clock,
+                finish_clock,
                 tzinfo=timezone,
             )
             return_deadline_dt = datetime.combine(
                 day_date,
-                latest_return_clock,
+                return_clock,
                 tzinfo=timezone,
             )
 

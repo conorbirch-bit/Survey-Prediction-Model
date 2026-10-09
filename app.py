@@ -12,7 +12,7 @@ import streamlit as st
 
 from duration_predictor_height import DurationPredictor, FEATURE_COLUMNS
 from google_routes import GoogleTransitRouter, GoogleRoutesError
-from scheduler_v20_10 import CachedRunRouter, DailyTransitScheduler, postcode_district
+from scheduler_v20_10 import CachedRunRouter, DailyTransitScheduler, postcode_district, survey_clocks_for_date
 from coordinate_clustering import (
     GEOGRAPHIC_CLUSTER_MAX_DIAMETER_KM,
     NO_GOOGLE_RADIUS_KM,
@@ -23,14 +23,15 @@ _REQUIRED_BUILD_WEEK_ARGS = {
     "first_survey_start_clock",
     "latest_survey_finish_clock",
     "latest_return_clock",
+    "saturday_time_window",
 }
 _build_week_args = set(
     inspect.signature(DailyTransitScheduler.build_week).parameters
 )
 if not _REQUIRED_BUILD_WEEK_ARGS.issubset(_build_week_args):
     raise RuntimeError(
-        "Version 20.10 scheduler mismatch: replace scheduler_v20_10.py and "
-        "the other Version 20.10 changed files, then reboot the app."
+        "Version 20.12.10 scheduler mismatch: replace scheduler_v20_10.py and "
+        "the other Version 20.12.10 changed files, then reboot the app."
     )
 
 from ai_planner import OpenAISchedulePlanner
@@ -81,7 +82,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.9 — requested retry days, reviewed revisits and optional Saturday")
+st.caption("Version 20.12.10 — separate Saturday hours, requested retry days and reviewed revisits")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1089,6 +1090,42 @@ with tab2:
                             ),
                         )
 
+                    st.caption("The times above apply Monday–Friday. Saturday uses the separate times below.")
+                    st.markdown("#### Saturday hours")
+                    sat1, sat2, sat3 = st.columns(3)
+                    with sat1:
+                        team_saturday_first_survey_clock = st.selectbox(
+                            "Saturday first survey starts at",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(10, 0)),
+                            format_func=time_format,
+                            key="team_saturday_first_survey_clock",
+                            help="Earliest Saturday survey start; the journey from home happens before this.",
+                        )
+                    with sat2:
+                        team_saturday_last_survey_clock = st.selectbox(
+                            "Saturday last survey finishes no later than",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(13, 0)),
+                            format_func=time_format,
+                            key="team_saturday_last_survey_clock",
+                            help="Hard deadline for Saturday surveys, including visits added during gap filling.",
+                        )
+                    with sat3:
+                        team_saturday_return_home_clock = st.selectbox(
+                            "Saturday return home no later than",
+                            schedule_time_options,
+                            index=schedule_time_options.index(time(14, 0)),
+                            format_func=time_format,
+                            key="team_saturday_return_home_clock",
+                            help="Latest Saturday home arrival; a long journey can require an earlier final survey.",
+                        )
+                    team_saturday_time_window = (
+                        team_saturday_first_survey_clock,
+                        team_saturday_last_survey_clock,
+                        team_saturday_return_home_clock,
+                    )
+
                     team_excluded_booking_weeks, booking_exclusion_error = booking_exclusion_controls(
                         retry_file, current_monday, team_week_start,
                     )
@@ -1193,6 +1230,10 @@ with tab2:
                         hide_index=True,
                         use_container_width=True,
                         column_config=availability_config,
+                    )
+                    team_saturday_selected = any(
+                        edited_surveyors[label].fillna(False).astype(bool).any()
+                        for day, label in availability_columns.items() if day.weekday() == 5
                     )
 
                     st.info(
@@ -1363,6 +1404,10 @@ with tab2:
                                 "Return-home deadline must be after the last-survey "
                                 "finish deadline."
                             )
+                        elif team_saturday_selected and team_saturday_last_survey_clock <= team_saturday_first_survey_clock:
+                            st.error("Saturday's last survey finish must be after its first survey start.")
+                        elif team_saturday_selected and team_saturday_return_home_clock <= team_saturday_last_survey_clock:
+                            st.error("Saturday's return-home deadline must be after its last survey finish.")
                         else:
                             active_surveyors = []
                             invalid_active_rows = []
@@ -1741,47 +1786,25 @@ with tab2:
                                         # survey workload to fill all selected person-days,
                                         # plus a reserve. Every eligible site inside those
                                         # retained clusters remains available.
-                                        window_start_dt = datetime.combine(
-                                            team_week_start,
-                                            team_first_survey_clock,
-                                        )
-                                        window_end_dt = datetime.combine(
-                                            team_week_start,
-                                            team_last_survey_clock,
-                                        )
-                                        per_day_survey_window_minutes = max(
-                                            60.0,
-                                            (
-                                                window_end_dt
-                                                - window_start_dt
-                                            ).total_seconds()
-                                            / 60.0,
-                                        )
-
-                                        lunch_overlap = (
-                                            team_first_survey_clock
-                                            <= time(13, 0)
-                                            and team_last_survey_clock
-                                            >= time(11, 45)
-                                        )
-                                        if lunch_overlap:
-                                            per_day_survey_window_minutes = max(
-                                                60.0,
-                                                per_day_survey_window_minutes
-                                                - 30.0,
+                                        survey_minutes_by_date = {}
+                                        for available_date in all_available_dates:
+                                            first_clock, finish_clock, _ = survey_clocks_for_date(
+                                                available_date, team_first_survey_clock,
+                                                team_last_survey_clock, team_return_home_clock,
+                                                team_saturday_time_window,
                                             )
-
-                                        team_person_days = sum(
-                                            len(
-                                                surveyor.available_dates
-                                                or []
-                                            )
+                                            window_minutes = max(60.0, (
+                                                datetime.combine(available_date, finish_clock)
+                                                - datetime.combine(available_date, first_clock)
+                                            ).total_seconds() / 60.0)
+                                            if first_clock <= time(13, 0) and finish_clock >= time(11, 45):
+                                                window_minutes = max(60.0, window_minutes - 30.0)
+                                            survey_minutes_by_date[available_date] = window_minutes
+                                        per_day_survey_window_minutes = max(survey_minutes_by_date.values())
+                                        available_team_survey_minutes = sum(
+                                            survey_minutes_by_date[day]
                                             for surveyor in active_surveyors
-                                        )
-
-                                        available_team_survey_minutes = (
-                                            per_day_survey_window_minutes
-                                            * max(1, team_person_days)
+                                            for day in surveyor.available_dates or []
                                         )
 
                                         team_cluster_choices = (
@@ -1904,7 +1927,11 @@ with tab2:
                                         allocation_departure = (
                                             datetime.combine(
                                                 min(all_available_dates),
-                                                team_first_survey_clock,
+                                                survey_clocks_for_date(
+                                                    min(all_available_dates), team_first_survey_clock,
+                                                    team_last_survey_clock, team_return_home_clock,
+                                                    team_saturday_time_window,
+                                                )[0],
                                                 tzinfo=LONDON_TZ,
                                             )
                                             - timedelta(minutes=90)
@@ -2030,6 +2057,7 @@ with tab2:
                                                         team_return_home_clock
                                                     ),
                                                     timezone=LONDON_TZ,
+                                                    saturday_time_window=team_saturday_time_window,
                                                 )
                                             )
 
@@ -2195,7 +2223,11 @@ with tab2:
                                                         request.location
                                                     ),
                                                     requested_date=requested_date,
-                                                    start_clock=team_first_survey_clock,
+                                                    start_clock=survey_clocks_for_date(
+                                                        requested_date, team_first_survey_clock,
+                                                        team_last_survey_clock, team_return_home_clock,
+                                                        team_saturday_time_window,
+                                                    )[0],
                                                     timezone=LONDON_TZ,
                                                     representatives=(
                                                         request_representatives
@@ -2332,6 +2364,7 @@ with tab2:
                                                             team_return_home_clock
                                                         ),
                                                         timezone=LONDON_TZ,
+                                                        saturday_time_window=team_saturday_time_window,
                                                     )
                                                 )
 
@@ -2416,6 +2449,7 @@ with tab2:
                                             expand_underfilled_days=True,
                                             expansion_gap_minutes=30,
                                             diagnostics=team_day_filling_review,
+                                            saturday_time_window=team_saturday_time_window,
                                         )
                                         team_day_filling_review_df = pd.DataFrame(team_day_filling_review)
                                         team_shortlists = apply_gap_assignments(
@@ -2426,6 +2460,7 @@ with tab2:
                                         team_capacity_review_df = capacity_review(
                                             team_portfolio, active_surveyors, team_results,
                                             per_day_survey_window_minutes,
+                                            survey_minutes_by_date=survey_minutes_by_date,
                                         )
                                         st.dataframe(team_capacity_review_df, use_container_width=True)
                                         with st.expander("Day filling and wider-search results"):
@@ -3315,7 +3350,7 @@ with tab2:
                                             )
 
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.9"},
+                                            {"Setting": "App Version", "Value": "20.12.10"},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
                                             {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
                                             {"Setting": "Reviewed Revisits", "Value": "Harrison second failed visits; Joe/Harrison refusals through 9 October 2026; different surveyor"},
@@ -3331,6 +3366,9 @@ with tab2:
                                             {"Setting": "First Survey", "Value": str(team_first_survey_clock)},
                                             {"Setting": "Last Survey Finish", "Value": str(team_last_survey_clock)},
                                             {"Setting": "Return Home Deadline", "Value": str(team_return_home_clock)},
+                                            {"Setting": "Saturday First Survey", "Value": str(team_saturday_first_survey_clock)},
+                                            {"Setting": "Saturday Last Survey Finish", "Value": str(team_saturday_last_survey_clock)},
+                                            {"Setting": "Saturday Return Home Deadline", "Value": str(team_saturday_return_home_clock)},
                                             {"Setting": "Portfolio Sites", "Value": len(team_portfolio)},
                                             {"Setting": "Sites with Coordinates", "Value": coordinate_count},
                                             {"Setting": "Retry Sites", "Value": retry_coordinate_total},

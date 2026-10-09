@@ -19,6 +19,7 @@ from scheduler_v20_10 import (
     _requested_retry_day,
     _retry_preferred_weekdays,
     _site_allowed_for_surveyor,
+    survey_clocks_for_date,
 )
 
 
@@ -1282,6 +1283,7 @@ def fill_team_gaps(
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
     travel_matrix=None, reserve_sites=None, maximise_days=False,
     expand_underfilled_days=False, expansion_gap_minutes=30, diagnostics=None,
+    saturday_time_window=None,
 ):
     """Append globally unbooked work to available days without moving bookings.
 
@@ -1333,8 +1335,12 @@ def fill_team_gaps(
         } if result is not None else {}
         for day_date in sorted(set(surveyor.available_dates or [])):
             day = by_date.get(day_date)
-            first = datetime.combine(day_date, first_survey_clock, tzinfo=timezone)
-            finish = datetime.combine(day_date, latest_survey_clock, tzinfo=timezone)
+            first_clock, finish_clock, _ = survey_clocks_for_date(
+                day_date, first_survey_clock, latest_survey_clock,
+                latest_return_clock, saturday_time_window,
+            )
+            first = datetime.combine(day_date, first_clock, tzinfo=timezone)
+            finish = datetime.combine(day_date, finish_clock, tzinfo=timezone)
             has_work = day is not None and bool(day.items)
             gap = (finish - (day.return_departure if has_work else first)).total_seconds() / 60
             if gap > 0:
@@ -1354,9 +1360,13 @@ def fill_team_gaps(
     for _, _, day_date, name, surveyor, baseline in slots:
         for choices in untried_requested_slots.values():
             choices.discard((name, day_date))
-        first = datetime.combine(day_date, first_survey_clock, tzinfo=timezone)
-        finish = datetime.combine(day_date, latest_survey_clock, tzinfo=timezone)
-        deadline = datetime.combine(day_date, latest_return_clock, tzinfo=timezone)
+        first_clock, finish_clock, return_clock = survey_clocks_for_date(
+            day_date, first_survey_clock, latest_survey_clock,
+            latest_return_clock, saturday_time_window,
+        )
+        first = datetime.combine(day_date, first_clock, tzinfo=timezone)
+        finish = datetime.combine(day_date, finish_clock, tzinfo=timezone)
+        deadline = datetime.combine(day_date, return_clock, tzinfo=timezone)
         scheduler = scheduler_factory(surveyor)
         has_work = baseline is not None and bool(baseline.items)
         review = {
@@ -1600,12 +1610,15 @@ def apply_gap_assignments(shortlists, additions, travel_matrix, reserve_portfoli
     return updated
 
 
-def capacity_review(portfolio, surveyors, results, survey_minutes_per_day):
+def capacity_review(portfolio, surveyors, results, survey_minutes_per_day,
+                    survey_minutes_by_date=None):
     """Distinguish a workload shortage from work left unplaced by routing."""
     eligible = portfolio.loc[portfolio["Eligible for Selected Week"].eq(True)]
     available = float(pd.to_numeric(eligible["Planning Duration (Minutes)"], errors="coerce").fillna(0).sum())
     days = sum(len(s.available_dates or []) for s in surveyors)
-    window = float(survey_minutes_per_day) * days
+    survey_minutes_by_date = survey_minutes_by_date or {}
+    window = sum(float(survey_minutes_by_date.get(day, survey_minutes_per_day))
+                 for surveyor in surveyors for day in surveyor.available_dates or [])
     scheduled = sum(r.total_survey_minutes for r in results.values() if r is not None)
     return pd.DataFrame([
         {"Measure": "Eligible buildings", "Value": len(eligible), "Meaning": "After status, access and booking gates."},

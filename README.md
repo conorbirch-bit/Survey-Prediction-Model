@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.9** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.10** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -30,11 +30,13 @@ Language models support cluster selection, supported location requests, unfamili
 
 The app plans **one selected week at a time**, using `Europe/London` dates. Each surveyor has individually selected working days and a start/finish location. The planner enforces the first-survey target, latest survey finish, latest return home and configured buffers. A 30-minute lunch starts between 11:45 and 13:00 on days extending into the lunch period.
 
-### Requested retry days and Saturday in v20.12.9
+### Requested retry days and Saturday
 
 Retries with suggested weekdays are assigned to surveyors available on those days and planned before ordinary work. Final team filling also tries the requested days first, including candidates outside the usual 15 km area. A suggestion can fall back to another feasible day when the requested day cannot be used; instructions such as **only available Friday** remain hard constraints. Explicit requests take precedence over the generic different-weekday rule for no-answer retries.
 
 Saturday is available as an optional checkbox for each surveyor and is off by default. **Only cannot-complete retries can be scheduled on Saturday**, including during final filling. Fresh buildings remain restricted to the selected weekdays.
+
+Saturday has separate dropdowns for **first survey start**, **last survey finish** and **latest return home**, defaulting to **10:00 / 13:00 / 14:00**. These adjustable times apply to initial planning, requested-day priority, weekly-note reroutes and final filling. Monday–Friday use the original time controls. Capacity calculations use the shorter Saturday window, and all three Saturday settings appear in `Run Settings`. The existing lunch and travel checks still apply.
 
 All portfolio Work Types and Statuses are considered. Eligibility still depends on usable location and duration data, drawing/date readiness and access checks. A linked **Completed Service Appointment** resolves its Work Order in the retry workflow; a portfolio label such as **Work Done** is not the same completion signal.
 
@@ -148,7 +150,7 @@ In **Weekly scheduling**, upload the relevant files, select the week and availab
 | `tfl_client.py` / `metoffice_client.py` | Optional disruption and weather context. |
 | `tests/` | Routing, retry, booking, report and filling regression cases. |
 
-The application version and module filename differ: **v20.12.9 still imports `scheduler_v20_10.py`**. Older scheduler modules are retained in the project but are not the app's active route engine.
+The application version and module filename differ: **v20.12.10 still imports `scheduler_v20_10.py`**. Older scheduler modules are retained in the project but are not the app's active route engine.
 
 ## Validation and limits
 
@@ -158,7 +160,7 @@ With the dependencies installed, run:
 python -m unittest discover -s tests -v
 ```
 
-The v20.12.9 change passed **130 offline regression tests**, including requested-day priority, reviewed revisits and Saturday restrictions, plus syntax checks. That run excluded the Streamlit booking-selector UI tests; it did not exercise live Google/OpenAI calls or an end-to-end Streamlit schedule.
+The v20.12.10 change passed **140 offline regression tests**, including ten separate-Saturday-hours cases alongside requested-day priority, reviewed revisits and Saturday restrictions, plus syntax checks. That run excluded the Streamlit booking-selector UI tests; it did not exercise live Google/OpenAI calls or an end-to-end Streamlit schedule.
 
 The planner uses heuristics rather than a proof of the best possible team schedule. Predictions depend on the supplied survey history; missing inputs and small training segments reduce reliability. Nearby transfers can use configured local assumptions rather than measured journeys. Short days can remain because of transit, return-home limits, access days or insufficient feasible work. Use the diagnostic worksheets to distinguish these cases.
 
