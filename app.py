@@ -83,7 +83,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.12 — grouped access visits and approved internal-hold retries")
+st.caption("Version 20.12.13 — Saturday priority for buildings with 1–5 flats")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1125,6 +1125,7 @@ with tab2:
 
                     st.caption("The times above apply Monday–Friday. Saturday uses the separate times below.")
                     st.markdown("#### Saturday hours")
+                    st.caption("Saturday strongly prioritises retries at buildings with 1–5 flats. Larger buildings remain eligible to fill the day; access rules and local grouping still apply.")
                     sat1, sat2, sat3 = st.columns(3)
                     with sat1:
                         team_saturday_first_survey_clock = st.selectbox(
@@ -3393,11 +3394,12 @@ with tab2:
 
                                         training_audit.to_excel(writer, sheet_name="Duration Training", index=False)
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.12"},
+                                            {"Setting": "App Version", "Value": "20.12.13"},
                                             {"Setting": "Duration Training Source", "Value": training_source},
                                             {"Setting": "Duration Training Workbook SHA256", "Value": training_fingerprint},
                                             {"Setting": "Accepted Duration Training Rows", "Value": len(predictor.training_data)},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
+                                            {"Setting": "Saturday Size Priority", "Value": "Strong soft preference for 1–5 flats; larger/unknown sizes and garages remain eligible without this bonus. Access, local grouping and time limits apply."},
                                             {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
                                             {"Setting": "Compact Visit Groups", "Value": "Keep compatible local groups with one surveyor; capacity and route feasibility apply"},
                                             {"Setting": "St Albans Access", "Value": "13 named Lavender Crescent/The Hollies sites: Monday only, confirmed by Conor 9 October 2026"},

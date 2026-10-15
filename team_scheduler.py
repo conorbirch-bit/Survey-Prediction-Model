@@ -20,6 +20,7 @@ from scheduler_v20_10 import (
     _requested_retry_day,
     _retry_preferred_weekdays,
     _site_allowed_for_surveyor,
+    _saturday_small_flat_preferred,
     survey_clocks_for_date,
 )
 
@@ -1512,7 +1513,10 @@ def fill_team_gaps(
                         distance = (haversine_km(*home, site.get("latitude"), site.get("longitude"))
                                     if home else None)
                         area_scores[area] = workloads.get(area, 0) - (2 * distance if distance is not None else 60)
-            selected_areas = sorted(area_scores, key=lambda area: (-area_scores[area], area))[:3]
+            preferred_areas = {_planning_cluster_key(site) for site in candidates
+                               if _saturday_small_flat_preferred(site, day_date)}
+            selected_areas = sorted(area_scores, key=lambda area: (
+                area not in preferred_areas, -area_scores[area], area))[:3]
             candidates = [site for site in candidates if _planning_cluster_key(site) in selected_areas]
         requested_today = [site for site in all_candidates if _requested_retry_day(site, day_date)]
         if not candidates and not requested_today and not (maximise_days and (has_work or expand_underfilled_days)):

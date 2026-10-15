@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.12** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.13** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -53,6 +53,8 @@ Conor also released the ten internal holds identified in the 12 October output. 
 Retries with suggested weekdays are assigned to surveyors available on those days and planned before ordinary work. Final team filling also tries the requested days first, including candidates outside the usual 15 km area. A suggestion can fall back to another feasible day when the requested day cannot be used; instructions such as **only available Friday** remain hard constraints. Explicit requests take precedence over the generic different-weekday rule for no-answer retries.
 
 Saturday is available as an optional checkbox for each surveyor and is off by default. **Only cannot-complete retries can be scheduled on Saturday**, including during final filling. Fresh buildings remain restricted to the selected weekdays.
+
+Saturday strongly favours eligible retries at buildings with **1–5 flats**. This is a ranking preference, not an eligibility cutoff: buildings with 6+ flats, garages and unknown flat counts can still fill the day. Explicit access-day requests, current-road continuity, lunch and time limits remain in force. The preference applies to routing shortlists, visit selection and empty-day filling; weekdays do not receive this preference. It does not reserve small buildings away from weekday work.
 
 Saturday has separate dropdowns for **first survey start**, **last survey finish** and **latest return home**, defaulting to **10:00 / 13:00 / 14:00**. These adjustable times apply to initial planning, requested-day priority, weekly-note reroutes and final filling. Monday–Friday use the original time controls. Capacity calculations use the shorter Saturday window, and all three Saturday settings appear in `Run Settings`. The existing lunch and travel checks still apply.
 

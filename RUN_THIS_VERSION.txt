@@ -1,6 +1,6 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.12
-Updated: 9 October 2026
+Current application: 20.12.13
+Updated: 14 October 2026
 
 START HERE
 
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.12. The active route engine remains
+The application should display Version 20.12.13. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,7 +22,7 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.12 ZIP is an incremental update to v20.12.11. Extract it into the existing project folder,
+The v20.12.13 ZIP is an incremental update to v20.12.12. Extract it into the existing project folder,
 replacing matching files and retaining the tests/ subfolder. It contains only
 changed files, not a complete installation. Keep all other modules, training
 data, requirements and credentials.
@@ -39,7 +39,16 @@ memory. The same applies to an unexpected 'saturday_time_window' or
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
 
-NEW IN 20.12.12
+NEW IN 20.12.13
+
+Saturday now strongly favours cannot-complete retries with 1-5 flats. This is
+a soft ranking preference: larger buildings, garages and unknown flat counts
+remain eligible to fill available time. Six flats is not in the preferred group.
+The rule applies in route selection and empty-day filling. Explicit access-day
+requests and current-road continuity keep their priority. Saturday remains
+retry-only and uses its separate hours; weekday ranking is unchanged.
+
+RETAINED FROM 20.12.12
 
 The 13 Lavender Crescent/The Hollies sites are a Monday-only visit group.
 Requested-day allocation keeps compact compatible groups with one surveyor
@@ -122,10 +131,9 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.12 update passed 172 offline regression tests, plus Python
-compilation and an actual-data allocation replay. These checks excluded
-Streamlit booking-selector UI tests and made no live routing or AI calls.
-The route replay uses synthetic times and is not a replacement schedule.
+The v20.12.13 update passed 184 offline regression tests and Python compilation.
+These checks excluded Streamlit booking-selector UI tests and made no live
+routing or AI calls. Regenerate the schedule after installing this update.
 
 README.md explains the project, current rules, inputs, outputs and setup.
 CHANGELOG.md summarises recent changes. No dependencies have been added.

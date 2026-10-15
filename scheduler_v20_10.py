@@ -100,6 +100,17 @@ def _is_retry_site(site):
     return str(site.get("is_retry", False)).strip().lower() in {"true", "1", "1.0"}
 
 
+def _saturday_small_flat_preferred(site, day_date):
+    """Strong ranking preference only: 1–5 flats, excluding garages/unknowns."""
+    if day_date.weekday() != 5 or not _is_retry_site(site):
+        return False
+    try:
+        flats = float(site.get("flats"))
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(flats) and 1 <= flats < 6
+
+
 def _site_allowed_for_surveyor(site, surveyor_name):
     original = str(site.get("retry_review_original_surveyor") or "").strip().casefold()
     if original in {"nan", "none", "<na>"}:
@@ -1137,6 +1148,7 @@ def _select_google_groups_for_decision(
     fallback_groups: int = GOOGLE_FALLBACK_GROUPS_PER_DECISION,
     first_area_scores: Optional[Dict[str, float]] = None,
     requested_areas: Optional[set] = None,
+    preferred_indices: Optional[set] = None,
 ) -> List[dict]:
     """
     Choose the small set of disconnected local-group representatives that
@@ -1157,6 +1169,32 @@ def _select_google_groups_for_decision(
     groups = list(proximity_groups)
     if not groups:
         return []
+
+    if preferred_indices:
+        # Ensure the small-building preference reaches Google selection, not
+        # just the final sort after a large-building shortlist was queried.
+        # Explicit dated areas remain ahead of the Saturday size preference.
+        requested, continuing_road, preferred, other = [], [], [], []
+        for group in groups:
+            if current_site is None and _planning_cluster_key(sites[group["representative_idx"]]) in (requested_areas or set()):
+                requested.append(group)
+            elif current_site is not None and any(_same_confident_road(current_site, sites[idx]) for idx in group["indices"]):
+                continuing_road.append(group)
+            elif preferred_indices.intersection(group["indices"]):
+                preferred.append(group)
+            else:
+                other.append(group)
+        selected = []
+        for batch in (requested, continuing_road, preferred, other):
+            slots = max(1, int(max_groups)) - len(selected)
+            if batch and slots > 0:
+                selected.extend(_select_google_groups_for_decision(
+                    batch, sites, current_site, current_planning_cluster,
+                    remaining_cluster_proximity, route_site_rank,
+                    max_groups=slots, fallback_groups=fallback_groups,
+                    first_area_scores=first_area_scores, requested_areas=requested_areas,
+                ))
+        return selected
 
     max_groups = max(1, int(max_groups))
     fallback_groups = max(
@@ -2126,6 +2164,8 @@ class DailyTransitScheduler:
                 ),
                 first_area_scores=first_area_scores,
                 requested_areas=requested_areas,
+                preferred_indices={idx for idx, site in enumerate(remaining)
+                                   if _saturday_small_flat_preferred(site, first_survey_start.date())},
             )
 
             google_representative_indices = {
@@ -2436,6 +2476,7 @@ class DailyTransitScheduler:
                 key=lambda x: (
                     x[3],  # avoid component/road A -> B -> A re-entry
                     x[6],  # finish the current confident road before leaving it
+                    not _saturday_small_flat_preferred(remaining[x[11]], first_survey_start.date()),
                     x[2],  # nearest remaining local component
                     x[0],  # current strategic cluster only as a tie-break
                     x[1],  # then nearest strategic-cluster proximity
@@ -2450,6 +2491,7 @@ class DailyTransitScheduler:
             if not scheduled:
                 ranked.sort(key=lambda row: (
                     0 if _planning_cluster_key(remaining[row[11]]) in requested_areas else 1,
+                    not _saturday_small_flat_preferred(remaining[row[11]], first_survey_start.date()),
                     -(day_area_workloads.get(_planning_cluster_key(remaining[row[11]]), 0.0)
                       - 2 * (row[12] + self.travel_leeway_minutes)),
                     row[9], row[10], row[11],

@@ -1,6 +1,14 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.12**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.13**.
+
+## v20.12.13 — Saturday preference for 1–5 flats — 14 October 2026
+
+- Add a strong soft Saturday preference for retry sites with 1–5 flats, using the existing Sovereign Flat input. Six flats is outside the preferred group; garages and missing/invalid counts do not receive the preference.
+- Apply it before Google's bounded shortlist, in feasible visit ranking and in empty-day area selection. Preserve explicit dated requests and current-road continuity.
+- Keep larger and unknown-size sites available when they fit. Do not reserve small buildings away from weekdays, admit fresh Saturday work, or relax access, lunch or time limits.
+- Show the rule beside Saturday hours and record it in `Run Settings`.
+- Verified with 184 offline tests, including 12 new cutoff, fallback, routing-shortlist, weekly-planning and gap-filling cases, plus Python compilation. No live API or Streamlit UI run was performed.
 
 ## v20.12.12 — Keep compact access visits together — 9 October 2026
 
