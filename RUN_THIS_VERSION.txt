@@ -1,6 +1,6 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.13
-Updated: 14 October 2026
+Current application: 20.12.14
+Updated: 15 October 2026
 
 START HERE
 
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.13. The active route engine remains
+The application should display Version 20.12.14. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,7 +22,7 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.13 ZIP is an incremental update to v20.12.12. Extract it into the existing project folder,
+The v20.12.14 ZIP is an incremental update to v20.12.13. Extract it into the existing project folder,
 replacing matching files and retaining the tests/ subfolder. It contains only
 changed files, not a complete installation. Keep all other modules, training
 data, requirements and credentials.
@@ -34,19 +34,29 @@ If you see:
     fill_team_gaps() got an unexpected keyword argument 'expand_underfilled_days'
 
 the new app is loading an older team_scheduler.py, either from disk or from
-memory. The same applies to an unexpected 'saturday_time_window' or
-'surveyor_name' argument after this
+memory. The same applies to an unexpected 'saturday_time_window', 'saturday_small_only_dates',
+'saturday_candidate_pool' or 'surveyor_name' argument after this
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
 
-NEW IN 20.12.13
+NEW IN 20.12.14
 
-Saturday now strongly favours cannot-complete retries with 1-5 flats. This is
-a soft ranking preference: larger buildings, garages and unknown flat counts
-remain eligible to fill available time. Six flats is not in the preferred group.
-The rule applies in route selection and empty-day filling. Explicit access-day
-requests and current-road continuity keep their priority. Saturday remains
-retry-only and uses its separate hours; weekday ranking is unchanged.
+Saturday is now restricted to cannot-complete retries with 1-5 flats while any
+eligible small retries remain unbooked across the team, including outside the
+initial shortlists. Six flats, garages and unknown counts are outside this group.
+Other sizes are allowed only after the whole Saturday-eligible small pool has
+been scheduled. A small site that is too far away, unreachable or too long to
+fit remains outstanding and does not unlock larger work.
+
+Initial routing, requested-day passes, weekly-note trials and gap filling use
+this rule. Once the last small retry is booked, a further Saturday pass can fill
+earlier gaps with other sizes. Access/reviewer restrictions, Saturday-only hours,
+lunch, finish and return deadlines remain unchanged. Saturday still excludes
+fresh buildings; weekday rules are unchanged. This can leave Saturday time
+unused while small retries remain unplaced.
+
+Day Filling Review shows Saturday Size Rule, Saturday Small Retries Remaining
+and Saturday Fallback Additions. Run Settings records the strict rule.
 
 RETAINED FROM 20.12.12
 
@@ -131,7 +141,7 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.13 update passed 184 offline regression tests and Python compilation.
+The v20.12.14 update passed 194 offline regression tests and Python compilation.
 These checks excluded Streamlit booking-selector UI tests and made no live
 routing or AI calls. Regenerate the schedule after installing this update.
 

@@ -101,7 +101,7 @@ def _is_retry_site(site):
 
 
 def _saturday_small_flat_preferred(site, day_date):
-    """Strong ranking preference only: 1–5 flats, excluding garages/unknowns."""
+    """Identify the Saturday trial group: 1–5 flats, not garages/unknowns."""
     if day_date.weekday() != 5 or not _is_retry_site(site):
         return False
     try:
@@ -1857,6 +1857,66 @@ class DailyTransitScheduler:
         resume_from: Optional[DailyScheduleResult] = None,
         resume_site: Optional[dict] = None,
         local_continuation_only: bool = False,
+        saturday_candidate_pool: Optional[List[dict]] = None,
+    ) -> DailyScheduleResult:
+        """Exhaust eligible small Saturday retries before allowing other sizes.
+
+        The team filler supplies its whole unbooked pool, including sites outside
+        this routing batch. A small site that cannot fit is still outstanding;
+        a failed route, duration check or local shortlist never opens fallback.
+        """
+        day_date = first_survey_start.date()
+        if day_date.weekday() != 5:
+            return self._build_day_route(
+                sites, first_survey_start, latest_survey_finish, latest_return,
+                resume_from=resume_from, resume_site=resume_site,
+                local_continuation_only=local_continuation_only,
+            )
+        eligible = [site for site in sites if _site_allowed_today(site, day_date)
+                    and _site_allowed_for_surveyor(site, self.surveyor_name)]
+        prefix_ids = {_site_identity_for_sequence(vars(item))
+                      for item in resume_from.items} if resume_from else set()
+        eligible = [site for site in eligible
+                    if _site_identity_for_sequence(site) not in prefix_ids]
+        pool = eligible if saturday_candidate_pool is None else [*saturday_candidate_pool, *eligible]
+        small_ids = {_site_identity_for_sequence(site) for site in pool
+                     if _saturday_small_flat_preferred(site, day_date)
+                     and _site_allowed_today(site, day_date)} - prefix_ids
+        result = resume_from
+        anchor = resume_site
+        if small_ids:
+            result = self._build_day_route(
+                [site for site in eligible if _saturday_small_flat_preferred(site, day_date)],
+                first_survey_start, latest_survey_finish, latest_return,
+                resume_from=resume_from, resume_site=resume_site,
+                local_continuation_only=local_continuation_only,
+            )
+            placed = {_site_identity_for_sequence(vars(item)) for item in result.items}
+            remaining = [site for site in eligible if _site_identity_for_sequence(site) not in placed]
+            result.unscheduled_count = len(remaining)
+            if small_ids - placed or not remaining:
+                return result
+            # Every eligible small retry in the supplied pool is now booked.
+            # Continue the same route with other sizes, preserving its prefix.
+            anchor = next(site for site in eligible if _site_identity_for_sequence(site)
+                          == _site_identity_for_sequence(vars(result.items[-1])))
+            eligible = remaining
+        return self._build_day_route(
+            eligible, first_survey_start, latest_survey_finish, latest_return,
+            resume_from=result, resume_site=anchor,
+            local_continuation_only=local_continuation_only,
+        )
+
+    def _build_day_route(
+        self,
+        sites: List[dict],
+        first_survey_start: datetime,
+        latest_survey_finish: datetime,
+        latest_return: datetime,
+        *,
+        resume_from: Optional[DailyScheduleResult] = None,
+        resume_site: Optional[dict] = None,
+        local_continuation_only: bool = False,
     ) -> DailyScheduleResult:
         remaining = [dict(site) for site in sites
                      if _site_allowed_today(site, first_survey_start.date())
@@ -2909,6 +2969,7 @@ class DailyTransitScheduler:
         latest_return_clock,
         timezone,
         saturday_time_window=None,
+        saturday_small_only_dates=None,
     ) -> WeeklyScheduleResult:
         """
         Build a multi-day schedule.
@@ -2962,6 +3023,12 @@ class DailyTransitScheduler:
                 and (_requested_retry_day(site, day_date)
                      or not any(_requested_retry_day(site, later) for later in pending_dates))
             ]
+            # Team planning defers fallback until the final shared-pool pass.
+            # This prevents one person's large-only shortlist consuming their
+            # Saturday before another person's small retries can be shared.
+            if day_date in (saturday_small_only_dates or ()):
+                day_sites = [site for site in day_sites
+                             if _saturday_small_flat_preferred(site, day_date)]
             if not day_sites:
                 continue
 
@@ -2973,7 +3040,8 @@ class DailyTransitScheduler:
                     self.minimum_survey_to_travel_ratio = 0.0
                     priority_result = self.build_day(
                         priority_sites, first_survey_dt,
-                        latest_survey_finish_dt, return_deadline_dt)
+                        latest_survey_finish_dt, return_deadline_dt,
+                        saturday_candidate_pool=day_sites)
                 finally:
                     self.minimum_survey_to_travel_ratio = old_ratio
             prefix = priority_result if priority_result and priority_result.items else None

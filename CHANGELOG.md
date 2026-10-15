@@ -1,6 +1,14 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.13**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.14**.
+
+## v20.12.14 — Strict Saturday small-building trial — 15 October 2026
+
+- Restrict Saturday to eligible 1–5-flat retries while any remain unbooked across the team. Release other sizes only after the entire Saturday-eligible small pool has been scheduled; shortlists, distance, failed routes and duration limits cannot enable fallback.
+- Apply the gate to initial routes, requested-day priority, weekly-note trials and all gap-filling batches. Defer initial larger bookings when the shared portfolio contains eligible small retries, so another person's shortlist cannot bypass the rule.
+- Revisit earlier Saturday gaps after the team has placed the last small retry, allowing other sizes within the existing access, reviewer, lunch and working-hour limits. Keep fresh buildings excluded and weekday behaviour unchanged.
+- Explain the strict rule beside Saturday hours and in Run Settings. Add remaining-small counts and larger-fallback addition counts to Day Filling Review.
+- Verified with 194 offline regression tests and Python compilation. Tests cover the 5/6-flat boundary, unfit/unreachable small sites, requested access days, road continuity, team-wide exhaustion, earlier-slot fallback and weekday-booked sites. No live routing, AI or Streamlit UI run was performed.
 
 ## v20.12.13 — Saturday preference for 1–5 flats — 14 October 2026
 

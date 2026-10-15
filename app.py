@@ -66,6 +66,7 @@ from team_scheduler import (
     fill_team_gaps,
     apply_gap_assignments,
     prioritise_retry_day_assignments,
+    saturday_small_retry_dates,
 )
 from portfolio_clusterer import (
     add_portfolio_fields,
@@ -83,7 +84,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.13 — Saturday priority for buildings with 1–5 flats")
+st.caption("Version 20.12.14 — Saturday restricted to 1–5 flats until the small-retry pool is exhausted")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1125,7 +1126,7 @@ with tab2:
 
                     st.caption("The times above apply Monday–Friday. Saturday uses the separate times below.")
                     st.markdown("#### Saturday hours")
-                    st.caption("Saturday strongly prioritises retries at buildings with 1–5 flats. Larger buildings remain eligible to fill the day; access rules and local grouping still apply.")
+                    st.caption("Saturday is restricted to cannot-complete retries with 1–5 flats while any eligible small retries remain unbooked across the team. Other sizes are allowed only when that pool is exhausted. Distance or insufficient time does not unlock the fallback; access and time limits still apply.")
                     sat1, sat2, sat3 = st.columns(3)
                     with sat1:
                         team_saturday_first_survey_clock = st.selectbox(
@@ -2050,6 +2051,11 @@ with tab2:
 
                                         team_results = {}
                                         combined_candidate_frames = []
+                                        team_saturday_small_only_dates = saturday_small_retry_dates(
+                                            site_dataframe_to_dicts(team_portfolio[
+                                                team_portfolio["Eligible for Selected Week"].eq(True)]),
+                                            active_surveyors,
+                                        )
 
                                         for surveyor in active_surveyors:
                                             surveyor_df = team_shortlists.get(
@@ -2101,6 +2107,7 @@ with tab2:
                                                     ),
                                                     timezone=LONDON_TZ,
                                                     saturday_time_window=team_saturday_time_window,
+                                                    saturday_small_only_dates=team_saturday_small_only_dates,
                                                 )
                                             )
 
@@ -2408,6 +2415,7 @@ with tab2:
                                                         ),
                                                         timezone=LONDON_TZ,
                                                         saturday_time_window=team_saturday_time_window,
+                                                        saturday_small_only_dates=team_saturday_small_only_dates,
                                                     )
                                                 )
 
@@ -3399,7 +3407,7 @@ with tab2:
                                             {"Setting": "Duration Training Workbook SHA256", "Value": training_fingerprint},
                                             {"Setting": "Accepted Duration Training Rows", "Value": len(predictor.training_data)},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
-                                            {"Setting": "Saturday Size Priority", "Value": "Strong soft preference for 1–5 flats; larger/unknown sizes and garages remain eligible without this bonus. Access, local grouping and time limits apply."},
+                                            {"Setting": "Saturday Size Rule", "Value": "Strict 1–5-flat retries while any remain eligible and unbooked across the team; other sizes only after that pool is exhausted. Distance, shortlists and duration do not trigger fallback. Access and time limits apply."},
                                             {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
                                             {"Setting": "Compact Visit Groups", "Value": "Keep compatible local groups with one surveyor; capacity and route feasibility apply"},
                                             {"Setting": "St Albans Access", "Value": "13 named Lavender Crescent/The Hollies sites: Monday only, confirmed by Conor 9 October 2026"},

@@ -1354,12 +1354,23 @@ def prioritise_retry_day_assignments(shortlists, portfolio, surveyors, travel_ma
     return updated, pd.DataFrame(audit)
 
 
+def saturday_small_retry_dates(sites, surveyors):
+    """Dates requiring small-only initial routes before shared-pool filling."""
+    return {day for person in surveyors for day in person.available_dates or []
+            if day.weekday() == 5 and any(
+                _saturday_small_flat_preferred(site, day)
+                and _site_allowed_today(site, day)
+                and _site_allowed_for_surveyor(site, person.name)
+                for site in sites)}
+
+
 def fill_team_gaps(
     team_results, surveyors, sites_by_surveyor, scheduler_factory,
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
     travel_matrix=None, reserve_sites=None, maximise_days=False,
     expand_underfilled_days=False, expansion_gap_minutes=30, diagnostics=None,
     saturday_time_window=None,
+    _saturday_fallback_pass=False,
 ):
     """Append globally unbooked work to available days without moving bookings.
 
@@ -1402,6 +1413,19 @@ def fill_team_gaps(
         item_id(item) for result in results.values() if result is not None
         for day in result.days for item in day.items
     }
+
+    def saturday_pool(day_date):
+        # Availability is team-wide, before geography or duration pruning.
+        # Booked visits anywhere in the selected week have already left the pool.
+        people = [person for person in surveyors if day_date in (person.available_dates or [])]
+        return [site for identity, site in site_by_id.items()
+                if identity not in booked and _site_allowed_today(site, day_date)
+                and any(_site_allowed_for_surveyor(site, person.name)
+                        and (site.get("special_request_date") is None
+                             or pd.isna(site.get("special_request_date"))
+                             or owner_by_id[identity] == person.name)
+                        for person in people)]
+
     slots = []
     for surveyor in surveyors:
         result = results.get(surveyor.name)
@@ -1410,6 +1434,9 @@ def fill_team_gaps(
             for day in result.days
         } if result is not None else {}
         for day_date in sorted(set(surveyor.available_dates or [])):
+            if _saturday_fallback_pass and (day_date.weekday() != 5 or any(
+                    _saturday_small_flat_preferred(site, day_date) for site in saturday_pool(day_date))):
+                continue
             day = by_date.get(day_date)
             first_clock, finish_clock, _ = survey_clocks_for_date(
                 day_date, first_survey_clock, latest_survey_clock,
@@ -1445,18 +1472,35 @@ def fill_team_gaps(
         deadline = datetime.combine(day_date, return_clock, tzinfo=timezone)
         scheduler = scheduler_factory(surveyor)
         has_work = baseline is not None and bool(baseline.items)
+        saturday_candidates = saturday_pool(day_date) if day_date.weekday() == 5 else None
+        small_ids = {_site_identity_for_sequence(site) for site in saturday_candidates or []
+                     if _saturday_small_flat_preferred(site, day_date)}
         review = {
             "Surveyor": name, "Date": day_date.isoformat(),
+            "Filling Pass": "Saturday fallback" if _saturday_fallback_pass else "Main filling",
             "Before Filling Survey End": baseline.items[-1].survey_end.strftime("%H:%M") if has_work else "",
             "After Local Filling Survey End": "",
             "Minutes Left After Local Filling": None,
             "Wider Search Candidates": 0, "Candidates Beyond 15 km": 0,
             "Wider Search": "Disabled", "Wider Search Additions": 0,
             "Wider Search Survey Minutes": 0.0,
+            "Saturday Size Rule": ("1–5 flats only" if small_ids else
+                                   "Other sizes allowed: no eligible small retries remain") if day_date.weekday() == 5 else "",
+            "Saturday Small Retries Remaining": len(small_ids) if day_date.weekday() == 5 else "",
+            "Saturday Fallback Additions": 0,
         }
 
         def record_review(final_day, outcome):
             if diagnostics is not None:
+                if day_date.weekday() == 5:
+                    final_ids = {item_id(item) for item in final_day.items} if final_day else set()
+                    prefix_ids = {item_id(item) for item in baseline.items} if has_work else set()
+                    review["Saturday Small Retries Remaining"] = len(small_ids - final_ids)
+                    review["Saturday Fallback Additions"] = sum(
+                        not _saturday_small_flat_preferred(site_by_id[identity], day_date)
+                        for identity in final_ids - prefix_ids)
+                    if small_ids - final_ids:
+                        outcome += " Larger/unknown-size retries remain blocked while eligible 1–5-flat retries are unbooked."
                 review.update({
                     "Final Survey End": final_day.items[-1].survey_end.strftime("%H:%M") if final_day and final_day.items else "",
                     "Return Home": final_day.return_time.strftime("%H:%M") if final_day and final_day.items else "",
@@ -1469,6 +1513,8 @@ def fill_team_gaps(
         for identity, site in site_by_id.items():
             if (identity in booked or not _site_allowed_today(site, day_date)
                     or not _site_allowed_for_surveyor(site, name)):
+                continue
+            if small_ids and not _saturday_small_flat_preferred(site, day_date):
                 continue
             if not _requested_retry_day(site, day_date) and untried_requested_slots.get(identity):
                 continue
@@ -1593,6 +1639,7 @@ def fill_team_gaps(
                 resume_from=best,
                 resume_site=site_by_id[item_id(best.items[-1])] if best is not None else None,
                 local_continuation_only=has_work and not wider_search,
+                saturday_candidate_pool=saturday_candidates,
             )
             prefix = best.items if best is not None else []
             added = trial.items[len(prefix):]
@@ -1657,7 +1704,22 @@ def fill_team_gaps(
                 site for site in sites_by_surveyor.get(name, [])
                 if _site_identity_for_sequence(site) not in booked
             ])
-    return results, pd.DataFrame(additions)
+    additions_df = pd.DataFrame(additions)
+    if not _saturday_fallback_pass and any(
+            day.weekday() == 5 for person in surveyors for day in person.available_dates or []):
+        # The final small retry may have been placed by a later surveyor/slot.
+        # Revisit earlier Saturday gaps only after the shared pool is exhausted.
+        results, fallback_additions = fill_team_gaps(
+            results, surveyors, sites_by_surveyor, scheduler_factory,
+            first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
+            travel_matrix=travel_matrix, reserve_sites=reserve_sites,
+            maximise_days=maximise_days, expand_underfilled_days=expand_underfilled_days,
+            expansion_gap_minutes=expansion_gap_minutes, diagnostics=diagnostics,
+            saturday_time_window=saturday_time_window, _saturday_fallback_pass=True,
+        )
+        if not fallback_additions.empty:
+            additions_df = pd.concat([additions_df, fallback_additions], ignore_index=True)
+    return results, additions_df
 
 
 def apply_gap_assignments(shortlists, additions, travel_matrix, reserve_portfolio=None):
