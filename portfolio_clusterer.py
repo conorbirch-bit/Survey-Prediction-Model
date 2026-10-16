@@ -1102,6 +1102,9 @@ def deterministic_cluster_choices(
 
 def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFrame:
     result = group.copy()
+    result["_first_visit_rank"] = ~result.get(
+        "Never Visited", pd.Series(False, index=result.index)
+    ).fillna(False).astype(bool)
 
     if "Planned Start" in result.columns:
         result["_planned"] = result["Planned Start"].apply(_parse_date)
@@ -1182,6 +1185,7 @@ def _site_sort_frame(group: pd.DataFrame, target_week_start: date) -> pd.DataFra
 
     return result.sort_values(
         [
+            "_first_visit_rank",
             "_endgame_anchor",
             "_micro_density_sort",
             "_near_density_sort",

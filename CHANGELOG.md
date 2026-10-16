@@ -1,6 +1,15 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.14**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.15**.
+
+## v20.12.15 — First visits before efficiency — 16 October 2026
+
+- Match visit evidence by building reference across Work Orders and appointments. Retain prepared failure and appointment history in the retry plan; include completed-survey training evidence. Unstarted/cancelled bookings alone are not visits, and missing history is explicitly unverified.
+- Reserve initial weekday routes for first visits. Run a full-portfolio team first-visit pass before retry filling, bypassing distance, home-fit, gap-threshold and travel-to-survey efficiency restrictions while retaining actual access and time limits. Favour lower incremental time among feasible first visits to improve coverage.
+- Keep first visits ahead of requested-day retries, protect already planned first visits in weekly-note trials, and preserve Saturday's strict 1–5-flat retry policy.
+- Raise the ordinary wider-search trigger from 30 to 60 minutes after local filling. Nearby work can fill shorter gaps; first visits remain exempt from the trigger.
+- Add First Visit Review and Unvisited Remaining to the export, with visit evidence, placement and observed exclusion/route reasons. Update the on-screen guidance and Run Settings.
+- Verified with 221 offline regression tests, Python compilation and a replay of the supplied historical October data. All 40 first-visit candidates were placed without duplicate bookings using synthetic routes. Live Google/AI and the Streamlit UI were not exercised; regenerate the schedule with current inputs.
 
 ## v20.12.14 — Strict Saturday small-building trial — 15 October 2026
 

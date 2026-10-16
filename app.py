@@ -39,6 +39,7 @@ from ai_planner import OpenAISchedulePlanner
 from tfl_client import TfLClient
 from metoffice_client import MetOfficeClient
 from salesforce_master import read_salesforce_or_standard_excel
+from first_visit_priority import annotate_first_visits, build_first_visit_review, retains_first_visits
 from retry_planner import (
     build_retry_plan,
     available_booking_weeks,
@@ -84,7 +85,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.14 — Saturday restricted to 1–5 flats until the small-retry pool is exhausted")
+st.caption("Version 20.12.15 — First visits take weekday priority; wider gap filling starts at 60 minutes")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -488,7 +489,8 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
                 site_row.get("Special Request Target Cluster", "") or ""
             ),
             "special_request_bonus_minutes": 75.0,
-            "is_retry": bool(site_row.get("Is Retry", False)),
+            "is_retry": str(site_row.get("Is Retry", False)).strip().lower() in {"true", "1", "1.0"},
+            "never_visited": str(site_row.get("Never Visited", False)).strip().lower() in {"true", "1", "1.0"},
             "retry_failure_type": str(
                 site_row.get("Retry Failure Type", "") or ""
             ),
@@ -981,6 +983,11 @@ with tab2:
         "Retry workflow runs before clustering: deterministic business rules first, "
         "AI only for customer-fault access interpretation, then only approved "
         "retries enter the normal geographic scheduling pipeline."
+    )
+    st.caption(
+        "Monday–Friday prioritises buildings with no recorded visit, even when travel is inefficient. "
+        "Upload current cannot-complete and appointment history to identify these reliably. "
+        "Unstarted or cancelled bookings alone do not count as visits."
     )
     st.caption(
         "The 9 October review reopens Harrison's second failed visits and Joe/Harrison "
@@ -1588,6 +1595,23 @@ with tab2:
                                                 f"{retry_apply_stats.get('appended_missing', 0)}."
                                             )
 
+                                        team_first_visit_source = annotate_first_visits(
+                                            team_predictions, retry_plan, predictor.training_data,
+                                        )
+                                        team_predictions_for_run = annotate_first_visits(
+                                            team_predictions_for_run, retry_plan, predictor.training_data,
+                                        )
+                                        team_portfolio_input_for_run = team_predictions_for_run.loc[
+                                            team_predictions_for_run["Postcode"].notna()
+                                            & team_predictions_for_run["Postcode"].astype(str).str.strip().ne("")
+                                        ].copy()
+                                        if retry_plan is None:
+                                            st.warning(
+                                                "No visit-history workbook was supplied. Buildings without visit evidence "
+                                                "are marked Unverified and do not receive first-visit priority. Upload the "
+                                                "current cannot-complete/appointment report to enable this priority."
+                                            )
+
                                         if team_portfolio_input_for_run.empty:
                                             raise ValueError(
                                                 "No schedulable portfolio rows remain after "
@@ -2037,6 +2061,7 @@ with tab2:
                                             site_buffer_minutes=int(team_pre_buffer) + int(team_post_buffer),
                                         )
 
+                                        team_first_visit_attempts = []
                                         def make_team_scheduler(surveyor):
                                             return DailyTransitScheduler(
                                                 router=team_router,
@@ -2047,6 +2072,7 @@ with tab2:
                                                 pre_survey_buffer_minutes=int(team_pre_buffer),
                                                 post_survey_buffer_minutes=int(team_post_buffer),
                                                 ai_priority_weight_minutes=15.0,
+                                                first_visit_diagnostics=team_first_visit_attempts,
                                             )
 
                                         team_results = {}
@@ -2108,8 +2134,34 @@ with tab2:
                                                     timezone=LONDON_TZ,
                                                     saturday_time_window=team_saturday_time_window,
                                                     saturday_small_only_dates=team_saturday_small_only_dates,
+                                                    first_visits_only_weekdays=True,
                                                 )
                                             )
+
+                                        # Share the full eligible first-visit pool before
+                                        # weekday retries or optional notes can consume it.
+                                        team_day_filling_review = []
+                                        team_results, team_first_visit_additions = fill_team_gaps(
+                                            team_results, active_surveyors,
+                                            {name: site_dataframe_to_dicts(frame)
+                                             for name, frame in team_shortlists.items()},
+                                            make_team_scheduler,
+                                            team_first_survey_clock, team_last_survey_clock,
+                                            team_return_home_clock, LONDON_TZ,
+                                            travel_matrix=team_home_cluster_matrix,
+                                            reserve_sites=site_dataframe_to_dicts(team_eligible),
+                                            maximise_days=True, _first_visit_phase=True,
+                                            diagnostics=team_day_filling_review,
+                                            saturday_time_window=team_saturday_time_window,
+                                        )
+                                        team_shortlists = apply_gap_assignments(
+                                            team_shortlists, team_first_visit_additions,
+                                            team_home_cluster_matrix, reserve_portfolio=team_portfolio,
+                                        )
+                                        first_visit_references = set(
+                                            team_eligible.loc[team_eligible["Never Visited"].eq(True),
+                                                              "Customer Reference"].astype(str).str.strip().str.upper()
+                                        )
 
                                         # Optional weekly notes are transactional:
                                         # the baseline schedule above remains the fallback.
@@ -2416,6 +2468,11 @@ with tab2:
                                                         timezone=LONDON_TZ,
                                                         saturday_time_window=team_saturday_time_window,
                                                         saturday_small_only_dates=team_saturday_small_only_dates,
+                                                        first_visits_only_weekdays=bool(first_visit_references - {
+                                                            str(item.customer_reference).strip().upper()
+                                                            for result in team_results.values() if result is not None
+                                                            for day in result.days for item in day.items
+                                                        }),
                                                     )
                                                 )
 
@@ -2423,6 +2480,9 @@ with tab2:
                                                     trial_result,
                                                     requested_date,
                                                     target_cluster,
+                                                ) and retains_first_visits(
+                                                    team_results.get(surveyor.name), trial_result,
+                                                    first_visit_references,
                                                 ):
                                                     # Transaction commits only here.
                                                     team_results[
@@ -2471,6 +2531,7 @@ with tab2:
                                                                 "The request could not be fitted on the "
                                                                 "requested date while preserving the "
                                                                 "existing return-time and scheduling rules. "
+                                                                "A note also cannot remove a prioritised first visit. "
                                                                 "The baseline schedule was kept."
                                                             ),
                                                         )
@@ -2478,9 +2539,9 @@ with tab2:
 
                                         # Share only globally unbooked selected-week sites.
                                         # Existing bookings and accepted notes remain fixed.
-                                        team_day_filling_review = []
                                         st.caption(
-                                            "Filling nearby work first. If at least 30 minutes remain "
+                                            "First visits are checked across all distances before retries. "
+                                            "For ordinary gap filling, if at least 60 minutes remain "
                                             "before the survey cut-off, the search expands beyond 15 km. "
                                             "All access, lunch and return-time limits still apply. "
                                             "The wider search may take longer and use more Google requests."
@@ -2498,7 +2559,7 @@ with tab2:
                                             ),
                                             maximise_days=True,
                                             expand_underfilled_days=True,
-                                            expansion_gap_minutes=30,
+                                            expansion_gap_minutes=60,
                                             diagnostics=team_day_filling_review,
                                             saturday_time_window=team_saturday_time_window,
                                         )
@@ -2508,6 +2569,28 @@ with tab2:
                                             team_home_cluster_matrix,
                                             reserve_portfolio=team_portfolio,
                                         )
+                                        team_gap_filling_df = pd.concat(
+                                            [team_first_visit_additions, team_gap_filling_df], ignore_index=True,
+                                        )
+                                        team_first_visit_review_df = build_first_visit_review(
+                                            team_first_visit_source, team_portfolio, team_results,
+                                            active_surveyors, retry_plan, team_first_visit_attempts,
+                                        )
+                                        team_unvisited_remaining_df = team_first_visit_review_df.loc[
+                                            team_first_visit_review_df["Never Visited"].eq(True)
+                                            & team_first_visit_review_df["Outcome"].ne("Scheduled")
+                                        ].copy()
+                                        first_visit_scheduled = int((
+                                            team_first_visit_review_df["Never Visited"].eq(True)
+                                            & team_first_visit_review_df["Outcome"].eq("Scheduled")
+                                        ).sum())
+                                        st.caption(
+                                            f"First visits scheduled: {first_visit_scheduled}. "
+                                            f"Unvisited buildings remaining: {len(team_unvisited_remaining_df)} "
+                                            "(including exclusions explained in the review)."
+                                        )
+                                        with st.expander("First-visit coverage and unplaced buildings"):
+                                            st.dataframe(team_first_visit_review_df, use_container_width=True)
                                         team_capacity_review_df = capacity_review(
                                             team_portfolio, active_surveyors, team_results,
                                             per_day_survey_window_minutes,
@@ -3343,6 +3426,12 @@ with tab2:
                                         unplaced_eligible.to_excel(
                                             writer, sheet_name="Unplaced Eligible", index=False,
                                         )
+                                        team_first_visit_review_df.to_excel(
+                                            writer, sheet_name="First Visit Review", index=False,
+                                        )
+                                        team_unvisited_remaining_df.to_excel(
+                                            writer, sheet_name="Unvisited Remaining", index=False,
+                                        )
                                         if not team_gap_filling_df.empty:
                                             team_gap_filling_df.to_excel(
                                                 writer, sheet_name="Gap Filling", index=False,
@@ -3402,18 +3491,22 @@ with tab2:
 
                                         training_audit.to_excel(writer, sheet_name="Duration Training", index=False)
                                         pd.DataFrame([
-                                            {"Setting": "App Version", "Value": "20.12.13"},
+                                            {"Setting": "App Version", "Value": "20.12.15"},
                                             {"Setting": "Duration Training Source", "Value": training_source},
                                             {"Setting": "Duration Training Workbook SHA256", "Value": training_fingerprint},
                                             {"Setting": "Accepted Duration Training Rows", "Value": len(predictor.training_data)},
                                             {"Setting": "Saturday", "Value": "Optional; cannot-complete retries only"},
                                             {"Setting": "Saturday Size Rule", "Value": "Strict 1–5-flat retries while any remain eligible and unbooked across the team; other sizes only after that pool is exhausted. Distance, shortlists and duration do not trigger fallback. Access and time limits apply."},
-                                            {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors and planned before ordinary work"},
+                                            {"Setting": "Requested Retry Days", "Value": "Assigned to available surveyors; after weekday first-visit priority and before other retries"},
                                             {"Setting": "Compact Visit Groups", "Value": "Keep compatible local groups with one surveyor; capacity and route feasibility apply"},
                                             {"Setting": "St Albans Access", "Value": "13 named Lavender Crescent/The Hollies sites: Monday only, confirmed by Conor 9 October 2026"},
                                             {"Setting": "Approved Internal Holds", "Value": "Ten reviewed Work Orders released by Conor 9 October 2026; original notes retained"},
                                             {"Setting": "Reviewed Revisits", "Value": "Harrison second failed visits; Joe/Harrison refusals through 9 October 2026; different surveyor"},
-                                            {"Setting": "Wider Search Trigger", "Value": "30 minutes left before survey cut-off after normal filling"},
+                                            {"Setting": "Wider Search Trigger", "Value": "60 minutes left before survey cut-off after normal filling; first visits bypass this trigger"},
+                                            {"Setting": "Weekday First-Visit Priority", "Value": "Buildings with no recorded visit first across the full eligible pool; no distance cap or minimum survey-to-travel ratio. Retries fill remaining gaps."},
+                                            {"Setting": "First-Visit Identification", "Value": "Building reference matched to failed/started/completed appointments and completed-survey training history; replacement appointments are not fresh visits. Missing history is Unverified."},
+                                            {"Setting": "First Visits Scheduled", "Value": first_visit_scheduled},
+                                            {"Setting": "Unvisited Buildings Remaining", "Value": len(team_unvisited_remaining_df)},
                                             {"Setting": "Wider Search Limit", "Value": "No distance or survey-to-travel ratio limit; time, lunch and access checks retained"},
                                             {"Setting": "Week Start", "Value": str(team_week_start)},
                                             {"Setting": "Booking Exclusion Weeks", "Value": ", ".join(

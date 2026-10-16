@@ -21,6 +21,7 @@ from scheduler_v20_10 import (
     _retry_preferred_weekdays,
     _site_allowed_for_surveyor,
     _saturday_small_flat_preferred,
+    _is_first_visit_site,
     survey_clocks_for_date,
 )
 
@@ -1368,9 +1369,10 @@ def fill_team_gaps(
     team_results, surveyors, sites_by_surveyor, scheduler_factory,
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
     travel_matrix=None, reserve_sites=None, maximise_days=False,
-    expand_underfilled_days=False, expansion_gap_minutes=30, diagnostics=None,
+    expand_underfilled_days=False, expansion_gap_minutes=60, diagnostics=None,
     saturday_time_window=None,
     _saturday_fallback_pass=False,
+    _first_visit_phase=False,
 ):
     """Append globally unbooked work to available days without moving bookings.
 
@@ -1409,6 +1411,19 @@ def fill_team_gaps(
     def item_id(item):
         return _site_identity_for_sequence(vars(item))
 
+    priority_additions = pd.DataFrame()
+    if not _first_visit_phase and not _saturday_fallback_pass and any(
+            _is_first_visit_site(site) for site in site_by_id.values()):
+        # Route the complete eligible first-visit pool across every weekday
+        # slot before ordinary retries can consume those remaining hours.
+        results, priority_additions = fill_team_gaps(
+            results, surveyors, sites_by_surveyor, scheduler_factory,
+            first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
+            travel_matrix=travel_matrix, reserve_sites=reserve_sites,
+            maximise_days=True, diagnostics=diagnostics,
+            saturday_time_window=saturday_time_window, _first_visit_phase=True,
+        )
+
     booked = {
         item_id(item) for result in results.values() if result is not None
         for day in result.days for item in day.items
@@ -1434,6 +1449,8 @@ def fill_team_gaps(
             for day in result.days
         } if result is not None else {}
         for day_date in sorted(set(surveyor.available_dates or [])):
+            if _first_visit_phase and day_date.weekday() >= 5:
+                continue
             if _saturday_fallback_pass and (day_date.weekday() != 5 or any(
                     _saturday_small_flat_preferred(site, day_date) for site in saturday_pool(day_date))):
                 continue
@@ -1455,6 +1472,7 @@ def fill_team_gaps(
                    if (s.name, d) in available_slots and _requested_retry_day(site, d)
                    and _site_allowed_for_surveyor(site, s.name)}
         for identity, site in site_by_id.items() if identity not in booked
+        and (not _first_visit_phase or _is_first_visit_site(site))
     }
     slots.sort(key=lambda row: (
         not any((row[3], row[2]) in choices for choices in untried_requested_slots.values()),
@@ -1477,7 +1495,8 @@ def fill_team_gaps(
                      if _saturday_small_flat_preferred(site, day_date)}
         review = {
             "Surveyor": name, "Date": day_date.isoformat(),
-            "Filling Pass": "Saturday fallback" if _saturday_fallback_pass else "Main filling",
+            "Filling Pass": ("First visits — all distances" if _first_visit_phase else
+                             "Saturday fallback" if _saturday_fallback_pass else "Main filling"),
             "Before Filling Survey End": baseline.items[-1].survey_end.strftime("%H:%M") if has_work else "",
             "After Local Filling Survey End": "",
             "Minutes Left After Local Filling": None,
@@ -1514,6 +1533,8 @@ def fill_team_gaps(
             if (identity in booked or not _site_allowed_today(site, day_date)
                     or not _site_allowed_for_surveyor(site, name)):
                 continue
+            if _first_visit_phase and not _is_first_visit_site(site):
+                continue
             if small_ids and not _saturday_small_flat_preferred(site, day_date):
                 continue
             if not _requested_retry_day(site, day_date) and untried_requested_slots.get(identity):
@@ -1522,6 +1543,12 @@ def fill_team_gaps(
             if reserved is not None and not pd.isna(reserved) and owner_by_id[identity] != name:
                 continue
             if float(site["planning_minutes"]) + scheduler.pre_survey_buffer_minutes > available_minutes:
+                if _is_first_visit_site(site) and scheduler.first_visit_diagnostics is not None:
+                    scheduler.first_visit_diagnostics.append({
+                        "Customer Reference": site.get("customer_reference", ""),
+                        "Surveyor": name, "Date": day_date.isoformat(),
+                        "Reason": "Survey duration exceeds the remaining survey window",
+                    })
                 continue
             candidate = dict(site)
             candidate["home_to_cluster_minutes"] = travel_matrix.get((name, _planning_cluster_key(site)))
@@ -1529,7 +1556,13 @@ def fill_team_gaps(
 
         all_candidates = list(candidates)
         anchor = None
-        if has_work:
+        if _first_visit_phase:
+            # No local area, home-fit, 15 km or 60-minute trigger veto.
+            anchor = site_by_id.get(item_id(baseline.items[-1])) if has_work else None
+            if has_work and anchor is None:
+                record_review(baseline, "Last scheduled building missing from the candidate data; cannot extend its route.")
+                continue
+        elif has_work:
             anchor = site_by_id.get(item_id(baseline.items[-1]))
             if anchor is None:
                 record_review(baseline, "Last scheduled building missing from the candidate data; cannot extend its route.")
@@ -1569,7 +1602,9 @@ def fill_team_gaps(
             record_review(baseline, "No candidates in the normal search after availability, reservation and duration checks.")
             continue
 
-        if has_work:
+        if _first_visit_phase:
+            batches = [all_candidates]
+        elif has_work:
             # New jobs on a previously visited road must not lose to a wider
             # detour solely because the baseline already left that road.
             immediate = []
@@ -1591,7 +1626,7 @@ def fill_team_gaps(
             batches.insert(0, requested_today)
 
         wider_index = None
-        if has_work and maximise_days:
+        if has_work and maximise_days and not _first_visit_phase:
             wider = []
             for site in all_candidates:
                 distance = haversine_km(anchor.get("latitude"), anchor.get("longitude"),
@@ -1603,7 +1638,7 @@ def fill_team_gaps(
                 batches.append(wider)
         best = baseline if has_work else None
         expansion_index = None
-        if maximise_days and expand_underfilled_days:
+        if maximise_days and expand_underfilled_days and not _first_visit_phase:
             expansion_index = len(batches)
             batches.append(all_candidates)
         addition_pass = {}
@@ -1616,8 +1651,8 @@ def fill_team_gaps(
                 if remaining_minutes < expansion_gap_minutes:
                     review["Wider Search"] = f"Not triggered: less than {expansion_gap_minutes:g} minutes left"
                     continue
-            wider_search = maximise_days and (expanded_search or batch_index == priority_index or batch_index == wider_index or not has_work)
-            scheduler.minimum_survey_to_travel_ratio = 0.0 if maximise_days else 2.0
+            wider_search = _first_visit_phase or (maximise_days and (expanded_search or batch_index == priority_index or batch_index == wider_index or not has_work))
+            scheduler.minimum_survey_to_travel_ratio = 0.0 if maximise_days or _first_visit_phase else 2.0
             used_here = {item_id(item) for item in best.items} if best is not None else set()
             batch = [site for site in batch if _site_identity_for_sequence(site) not in used_here]
             if expanded_search:
@@ -1657,12 +1692,16 @@ def fill_team_gaps(
             best = trial
             for identity in added_ids:
                 addition_pass[identity] = ("Expanded search" if expanded_search else
+                                           "First-visit priority" if _first_visit_phase else
                                            "Requested retry day" if batch_index == priority_index else "Normal search")
             if expanded_search:
                 review["Wider Search Additions"] = len(added)
                 review["Wider Search Survey Minutes"] = round(added_work, 1)
 
-        if review["Wider Search"] == "Searched all distances":
+        if _first_visit_phase:
+            review["Wider Search"] = "First visits searched at all distances without a gap threshold"
+            outcome = "First-visit pass completed within access, lunch, survey and return-home limits."
+        elif review["Wider Search"] == "Searched all distances":
             outcome = ("Added work using the wider search within the survey, lunch and return-home limits."
                        if review["Wider Search Additions"] else
                        "Wider search found no additional feasible extension of this route within the time and lunch limits.")
@@ -1704,8 +1743,8 @@ def fill_team_gaps(
                 site for site in sites_by_surveyor.get(name, [])
                 if _site_identity_for_sequence(site) not in booked
             ])
-    additions_df = pd.DataFrame(additions)
-    if not _saturday_fallback_pass and any(
+    additions_df = pd.concat([priority_additions, pd.DataFrame(additions)], ignore_index=True)
+    if not _first_visit_phase and not _saturday_fallback_pass and any(
             day.weekday() == 5 for person in surveyors for day in person.available_dates or []):
         # The final small retry may have been placed by a later surveyor/slot.
         # Revisit earlier Saturday gaps only after the shared pool is exhausted.

@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.14** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.15** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -20,8 +20,8 @@ Developed by **Conor Birch** during an operational improvement project at Metro 
 1. **Import and predict.** Normalise Excel/Salesforce reports and estimate survey durations using scikit-learn Ridge regression. Model families cover garages, 1–3 flats, 4–6 flats and 7+ flats, with fallbacks for missing inputs.
 2. **Apply operational rules.** Check drawing/date readiness, completed appointments, existing bookings and failed-visit decisions before adding work to the scheduling pool.
 3. **Group and allocate.** Use coordinates and postcodes to identify working areas, then allocate candidates using surveyor availability, workload and home-to-area journey estimates. Optional AI advice considers current work and future nearby demand.
-4. **Build daily routes.** Evaluate public-transport journeys against the survey window, lunch and return-home deadline. Configurable local-transfer assumptions avoid unnecessary Google calls for nearby buildings.
-5. **Fill remaining time.** Share globally unbooked eligible work across the team, including buildings outside the original shortlists. Try nearby work first, then widen the search for underfilled days.
+4. **Prioritise first visits.** Build Monday–Friday routes from buildings with no recorded visit, then try the full eligible first-visit portfolio across remaining team capacity, including outside the initial geographic shortlist. Long journeys and low survey-to-travel ratios do not veto these visits; actual journey, lunch and deadline checks still apply.
+5. **Fill remaining time.** After the first-visit pass, add eligible retries and other work to remaining gaps. Ordinary filling tries nearby work first, then searches beyond 15 km when at least 60 minutes remain before the survey cut-off.
 6. **Export and review.** Download the team schedule, Salesforce copy, unplaced work and decision records. Generate the client access report from the same retry rules.
 
 Language models support cluster selection, supported location requests, unfamiliar access descriptions and the final narrative. Python rules and route checks determine whether a visit can be scheduled. Updated training data can be uploaded to refit the duration model; it does not collect new outcomes automatically.
@@ -40,6 +40,16 @@ Valid site coordinates are used in Google route and matrix requests. Where coord
 
 The app plans **one selected week at a time**, using `Europe/London` dates. Each surveyor has individually selected working days and a start/finish location. The planner enforces the first-survey target, latest survey finish, latest return home and configured buffers. A 30-minute lunch starts between 11:45 and 13:00 on days extending into the lunch period.
 
+### Never-visited buildings first
+
+Monday–Friday prioritises buildings with **no recorded visit**, even where travel is inefficient. Match the building reference to failed/started/completed Service Appointments, cannot-complete history and completed-survey training data. Work Orders bridge history rows that omit the reference; another Work Order or replacement appointment does not reset the building's history. Unstarted or cancelled bookings alone do not count as visits. Without the current cannot-complete/appointment workbook, unmatched buildings are labelled **Unverified** and do not receive first-visit priority; explicit visit evidence still counts.
+
+Initial weekday routing contains first visits only. A dedicated team pass then checks the entire eligible first-visit portfolio before ordinary retries can use the remaining weekday capacity. First visits bypass the 15 km boundary, home-fit allocation preferences, the 60-minute expansion trigger and minimum survey-to-travel ratios. Confirmed access dates, reviewer restrictions, existing-booking exclusions, completed-work exclusions, lunch, buffers and actual survey/return deadlines remain enforced. Shorter feasible first visits are favoured to improve coverage; routing remains a heuristic, not a guarantee of the mathematically maximum number of visits.
+
+Weekly-note trials must retain previously planned first visits. Requested retry days retain priority within the later retry pass, subject to the first-visit objective. Saturday's retry-only small-building rule is unchanged. First visits are not held back as future geographic anchors: the full-portfolio first-visit pass includes them even if the strategic shortlist left them out.
+
+`First Visit Review` shows classification, evidence, scheduled dates and reasons for exclusions or unplaced work. `Unvisited Remaining` filters the confirmed no-recorded-visit rows still unscheduled, including booking, missing-data and access exclusions. Route explanations report observed failures in the tested routes; they do not prove that every possible rearrangement is infeasible. Use fresh, complete history exports so absent evidence is meaningful.
+
 ### Compact access groups and approved revisits
 
 Requested-day assignment keeps compact groups (all sites within 400 m of each other) with one surveyor when their access days, reviewer restrictions and candidate capacity allow. Nearby fresh sites can join the group; Saturday still excludes fresh work. The route builder checks actual travel, lunch and return-home feasibility, and final filling remains enabled. `Retry Day Assignments` records the group and site count.
@@ -50,7 +60,7 @@ Conor also released the ten internal holds identified in the 12 October output. 
 
 ### Requested retry days and Saturday
 
-Retries with suggested weekdays are assigned to surveyors available on those days and planned before ordinary work. Final team filling also tries the requested days first, including candidates outside the usual 15 km area. A suggestion can fall back to another feasible day when the requested day cannot be used; instructions such as **only available Friday** remain hard constraints. Explicit requests take precedence over the generic different-weekday rule for no-answer retries.
+After weekday first-visit priority, retries with suggested weekdays are assigned to surveyors available on those days and planned before other retries. Final team filling also tries the requested days first, including candidates outside the usual 15 km area. A suggestion can fall back to another feasible day when the requested day cannot be used; instructions such as **only available Friday** remain hard constraints. Explicit requests take precedence over the generic different-weekday rule for no-answer retries.
 
 Saturday is available as an optional checkbox for each surveyor and is off by default. **Only cannot-complete retries can be scheduled on Saturday**, including during final filling. Fresh buildings remain restricted to the selected weekdays.
 
@@ -64,7 +74,7 @@ All portfolio Work Types and Statuses are considered. Eligibility still depends 
 
 ### Fuller days in v20.12.8
 
-Normal filling tries nearby work, including candidates within 15 km. If **at least 30 minutes remain before the survey cut-off**, a final pass considers remaining eligible buildings without a distance cap. Final filling has **no minimum survey-to-travel ratio**; initial route planning retains its efficiency preference.
+Normal filling tries nearby work, including candidates within 15 km. If **at least 60 minutes remain before the survey cut-off**, a final pass considers remaining eligible buildings without a distance cap. Final filling has **no minimum survey-to-travel ratio**; initial retry route planning retains its efficiency preference. First-visit routing bypasses that preference and the gap threshold.
 
 The wider pass appends visits while preserving already placed visits and all hard constraints. It can increase routing requests and run time. It cannot guarantee a full day when no feasible additional visit fits, and it does not globally reorder existing routes.
 
@@ -103,6 +113,7 @@ The weekly workbook includes:
 | --- | --- |
 | Team Summary / Full Team Schedule | Team totals and scheduled visits, lunch and return journeys. |
 | Salesforce Copy | The configured 10-column Field Service import layout, excluding lunch/return rows. |
+| First Visit Review / Unvisited Remaining | Building-level visit evidence, first-visit coverage and reasons for unscheduled buildings. |
 | Capacity Review / Unplaced Eligible | Available workload and eligible buildings left out of the schedule. |
 | Day Filling Review / Gap Filling | Wider-search decisions and additional visits; Gap Filling appears when work was added. |
 | Retry Day Assignments | Candidate assignments to surveyors available on requested weekdays; final placement still depends on route feasibility. |
@@ -162,6 +173,7 @@ In **Weekly scheduling**, upload the relevant files, select the week and availab
 | `app.py` | Streamlit interface, workflow coordination and weekly exports. |
 | `duration_predictor_height.py` | Segmented duration models and prediction diagnostics. |
 | `coordinate_clustering.py` / `portfolio_clusterer.py` | Geographic grouping, readiness and portfolio planning. |
+| `first_visit_priority.py` | Building-level visit classification, note protection and first-visit coverage reporting. |
 | `team_scheduler.py` | Team allocation, workload repair and final gap filling. |
 | `scheduler_v20_10.py` | Active daily/weekly route engine and feasibility checks. |
 | `google_routes.py` | Google transit routes and route-matrix requests. |

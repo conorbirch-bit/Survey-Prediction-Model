@@ -117,6 +117,8 @@ class RetryPlan:
     stats: Dict[str, int]
     booking_exclusions: pd.DataFrame = field(default_factory=pd.DataFrame)
     report_decisions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    visit_history: pd.DataFrame = field(default_factory=pd.DataFrame)
+    appointment_history: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _clean_text(value) -> str:
@@ -1099,6 +1101,8 @@ def build_retry_plan(
             stats={"work_orders": int(len(latest)), "bookings_excluded": len(excluded_work_orders)},
             booking_exclusions=booking_exclusions,
             report_decisions=pd.DataFrame(booked_report_rows),
+            visit_history=all_history.copy(),
+            appointment_history=sa_mapping.copy(),
         )
 
     mapping_ok = decisions["Mapping Status"].astype(str).str.startswith("OK")
@@ -1150,6 +1154,8 @@ def build_retry_plan(
         stats=stats,
         booking_exclusions=booking_exclusions,
         report_decisions=pd.concat([decisions, pd.DataFrame(booked_report_rows)], ignore_index=True),
+        visit_history=all_history.copy(),
+        appointment_history=sa_mapping.copy(),
     )
 
 

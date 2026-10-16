@@ -100,6 +100,11 @@ def _is_retry_site(site):
     return str(site.get("is_retry", False)).strip().lower() in {"true", "1", "1.0"}
 
 
+def _is_first_visit_site(site):
+    return (str(site.get("never_visited", False)).strip().lower() in {"true", "1", "1.0"}
+            and not _is_retry_site(site))
+
+
 def _saturday_small_flat_preferred(site, day_date):
     """Identify the Saturday trial group: 1–5 flats, not garages/unknowns."""
     if day_date.weekday() != 5 or not _is_retry_site(site):
@@ -1771,10 +1776,12 @@ class DailyTransitScheduler:
         lunch_latest_start_clock=time(13, 0),
         minimum_survey_to_travel_ratio=FAR_CLUSTER_MIN_SURVEY_TO_TRAVEL_RATIO,
         surveyor_name="",
+        first_visit_diagnostics=None,
     ):
         self.router = router if isinstance(router, CachedRunRouter) else CachedRunRouter(router)
         self.home_location = home_location
         self.surveyor_name = surveyor_name
+        self.first_visit_diagnostics = first_visit_diagnostics
         self.max_candidate_checks = max_candidate_checks
         self.same_postcode_transfer_minutes = same_postcode_transfer_minutes
         self.travel_leeway_minutes = travel_leeway_minutes
@@ -1867,6 +1874,29 @@ class DailyTransitScheduler:
         """
         day_date = first_survey_start.date()
         if day_date.weekday() != 5:
+            # First visits get the full geographic pool before any ordinary
+            # retry. Long journeys are allowed, but actual time limits remain.
+            first_sites = [site for site in sites if _is_first_visit_site(site)]
+            if first_sites:
+                old_ratio = self.minimum_survey_to_travel_ratio
+                try:
+                    self.minimum_survey_to_travel_ratio = 0.0
+                    priority = self._build_day_route(
+                        first_sites, first_survey_start, latest_survey_finish, latest_return,
+                        resume_from=resume_from, resume_site=resume_site,
+                        local_continuation_only=False,
+                    )
+                finally:
+                    self.minimum_survey_to_travel_ratio = old_ratio
+                used = {_site_identity_for_sequence(vars(item)) for item in priority.items}
+                sites = [site for site in sites if _site_identity_for_sequence(site) not in used]
+                if not sites or all(_is_first_visit_site(site) for site in sites):
+                    return priority
+                if priority.items:
+                    last_id = _site_identity_for_sequence(vars(priority.items[-1]))
+                    resume_site = next((site for site in first_sites
+                                        if _site_identity_for_sequence(site) == last_id), resume_site)
+                    resume_from = priority
             return self._build_day_route(
                 sites, first_survey_start, latest_survey_finish, latest_return,
                 resume_from=resume_from, resume_site=resume_site,
@@ -1921,6 +1951,14 @@ class DailyTransitScheduler:
         remaining = [dict(site) for site in sites
                      if _site_allowed_today(site, first_survey_start.date())
                      and _site_allowed_for_surveyor(site, self.surveyor_name)]
+
+        def rejected(site, reason):
+            if self.first_visit_diagnostics is not None and _is_first_visit_site(site):
+                self.first_visit_diagnostics.append({
+                    "Customer Reference": site.get("customer_reference", ""),
+                    "Surveyor": self.surveyor_name,
+                    "Date": first_survey_start.date().isoformat(), "Reason": reason,
+                })
 
         # Stage 2 route-sequencing metadata only. This does not change Stage 1
         # cluster membership, eligibility, or the candidate sites supplied to
@@ -2225,7 +2263,8 @@ class DailyTransitScheduler:
                 first_area_scores=first_area_scores,
                 requested_areas=requested_areas,
                 preferred_indices={idx for idx, site in enumerate(remaining)
-                                   if _saturday_small_flat_preferred(site, first_survey_start.date())},
+                                   if _saturday_small_flat_preferred(site, first_survey_start.date())
+                                   or _is_first_visit_site(site)},
             )
 
             google_representative_indices = {
@@ -2269,6 +2308,8 @@ class DailyTransitScheduler:
                 ):
                     for idx in group["indices"]:
                         travel_by_index[idx] = minutes
+                        if minutes is None:
+                            rejected(remaining[idx], "No public-transport route returned from the tested departure")
 
             ranked = []
             for idx, site in enumerate(remaining):
@@ -2564,6 +2605,16 @@ class DailyTransitScheduler:
             # max_candidate_checks is retained in the constructor for callers
             # using the old API; Google group batches remain bounded separately.
             candidate_pool = ranked
+            # Among available first visits, prefer the lower incremental time
+            # cost to improve coverage. Preserve confirmed requested-day groups.
+            if first_survey_start.weekday() < 5:
+                candidate_pool = sorted(ranked, key=lambda row: (
+                    not _is_first_visit_site(remaining[row[11]]),
+                    not _requested_retry_day(remaining[row[11]], first_survey_start.date())
+                    if _is_first_visit_site(remaining[row[11]]) else False,
+                    (float(remaining[row[11]]["planning_minutes"]) + (row[12] if scheduled else 0))
+                    if _is_first_visit_site(remaining[row[11]]) else 0,
+                ))
 
             chosen = None
             approved_block = None
@@ -2589,6 +2640,7 @@ class DailyTransitScheduler:
                 first_site_start = max(first_survey_start, current_time)
                 earliest_start = first_site_start if is_first_survey else current_time
                 if earliest_start + timedelta(minutes=float(site["planning_minutes"])) > latest_survey_finish:
+                    rejected(site, "Survey duration exceeds the remaining survey window")
                     continue
 
                 if is_first_survey:
@@ -2610,6 +2662,7 @@ class DailyTransitScheduler:
                             estimated_departure,
                         )
                     except GoogleNoRouteError:
+                        rejected(site, "No public-transport route from home")
                         continue
 
                     buffered_travel_minutes = (
@@ -2650,12 +2703,13 @@ class DailyTransitScheduler:
                     not is_first_survey
                     and buffered_travel_minutes >= FAR_CLUSTER_TRANSITION_MINUTES
                 )
-                if substantial_move and local_continuation_only:
+                if substantial_move and local_continuation_only and not _is_first_visit_site(site):
                     continue
                 # Final day filling accepts any positive survey work that fits.
                 # It must also be free to make another long move afterwards;
                 # the local productivity-proof route would otherwise stop it.
-                needs_work_proof = substantial_move and self.minimum_survey_to_travel_ratio > 0
+                needs_work_proof = (substantial_move and self.minimum_survey_to_travel_ratio > 0
+                                    and not _is_first_visit_site(site))
                 proof_candidates = []
                 if needs_work_proof:
                     proof_candidates = _local_work_candidates(site, remaining)
@@ -2676,6 +2730,7 @@ class DailyTransitScheduler:
                 # Independent hard deadline: the final survey itself cannot end
                 # after the user's selected cut-off, regardless of the journey home.
                 if survey_end > latest_survey_finish:
+                    rejected(site, "Travel plus survey would exceed the survey finish deadline")
                     continue
 
                 ready_to_leave = survey_end + timedelta(
@@ -2692,6 +2747,7 @@ class DailyTransitScheduler:
                     and ready_to_leave > lunch_latest_start
                 ):
                     lunch_blocked_candidate = True
+                    rejected(site, "Visit would prevent the required lunch break")
                     continue
 
                 # If this survey finishes during the lunch-start window, include
@@ -2718,12 +2774,15 @@ class DailyTransitScheduler:
                         return_departure_for_check,
                     )
                 except GoogleNoRouteError:
+                    rejected(site, "No public-transport route home")
                     continue
 
                 return_time = return_departure_for_check + timedelta(
                     minutes=return_route.duration_minutes
                     + self.travel_leeway_minutes
                 )
+                if return_time > latest_return:
+                    rejected(site, "Return journey would exceed the home-arrival deadline")
 
                 if return_time <= latest_return:
                     if needs_work_proof:
@@ -2970,6 +3029,7 @@ class DailyTransitScheduler:
         timezone,
         saturday_time_window=None,
         saturday_small_only_dates=None,
+        first_visits_only_weekdays=False,
     ) -> WeeklyScheduleResult:
         """
         Build a multi-day schedule.
@@ -3023,6 +3083,8 @@ class DailyTransitScheduler:
                 and (_requested_retry_day(site, day_date)
                      or not any(_requested_retry_day(site, later) for later in pending_dates))
             ]
+            if first_visits_only_weekdays and day_date.weekday() < 5:
+                day_sites = [site for site in day_sites if _is_first_visit_site(site)]
             # Team planning defers fallback until the final shared-pool pass.
             # This prevents one person's large-only shortlist consuming their
             # Saturday before another person's small retries can be shared.
@@ -3033,6 +3095,8 @@ class DailyTransitScheduler:
                 continue
 
             priority_sites = [site for site in day_sites if _requested_retry_day(site, day_date)]
+            if day_date.weekday() < 5 and any(_is_first_visit_site(site) for site in day_sites):
+                priority_sites = [site for site in priority_sites if _is_first_visit_site(site)]
             priority_result = None
             if priority_sites:
                 old_ratio = self.minimum_survey_to_travel_ratio

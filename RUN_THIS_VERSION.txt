@@ -1,6 +1,6 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.14
-Updated: 15 October 2026
+Current application: 20.12.15
+Updated: 16 October 2026
 
 START HERE
 
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.14. The active route engine remains
+The application should display Version 20.12.15. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,7 +22,7 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.14 ZIP is an incremental update to v20.12.13. Extract it into the existing project folder,
+The v20.12.15 ZIP is an incremental update to v20.12.14. Extract it into the existing project folder,
 replacing matching files and retaining the tests/ subfolder. It contains only
 changed files, not a complete installation. Keep all other modules, training
 data, requirements and credentials.
@@ -39,7 +39,34 @@ memory. The same applies to an unexpected 'saturday_time_window', 'saturday_smal
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
 
-NEW IN 20.12.14
+NEW IN 20.12.15
+
+Monday-Friday now prioritises buildings with no recorded visit, even when
+travel is inefficient. Building references match the supplied failed, started
+and completed appointment history and completed-survey training data. A new
+Work Order or replacement appointment does not reset the building's history.
+A scheduled or cancelled booking without a visit does not count as a visit.
+
+Upload the current cannot-complete/appointment workbook. Without it, unmatched
+buildings are marked Unverified, not assumed never visited. Keep the new
+first_visit_priority.py beside app.py; it is required by this update.
+
+Initial weekday routes contain first visits only. The shared team pass checks
+all eligible first visits before retries, including outside the initial
+shortlists. First visits have no distance cap, minimum survey-to-travel ratio
+or minimum gap trigger. Actual survey, lunch and home-arrival limits still apply.
+Weekly notes cannot remove previously planned first visits. Ordinary retries
+then fill remaining gaps, with their access-day preferences retained.
+
+The ordinary wider search now starts at 60 minutes remaining after nearby
+filling, instead of 30. Nearby work can still fill shorter gaps. First visits
+bypass this threshold. Saturday's small-retry restriction remains unchanged.
+
+First Visit Review and Unvisited Remaining show coverage and exclusion reasons.
+Run Settings records the priority, threshold and first-visit counts. Routing
+remains heuristic: an unplaced row is not proof no alternative route exists.
+
+RETAINED FROM 20.12.14
 
 Saturday is now restricted to cannot-complete retries with 1-5 flats while any
 eligible small retries remain unbooked across the team, including outside the
@@ -102,8 +129,8 @@ Capacity Review uses the actual shorter window; Run Settings records the times.
 
 RETAINED FROM 20.12.9
 
-Requested retry weekdays receive first priority in allocation, weekly routing
-and final gap filling. Soft suggestions may fall back if they cannot be used;
+Requested retry weekdays receive priority within the retry pass, after the
+weekday first-visit pass. Soft suggestions may fall back if they cannot be used;
 explicit access-only days remain mandatory. Inspect Retry Day Assignments and
 Requested Day Honoured? in Retry Decisions to see the result.
 
@@ -124,7 +151,7 @@ used to infer an exception. The standalone access report includes this evidence.
 CURRENT FILLING BEHAVIOUR
 
 Nearby work is tried first, including the normal 15 km search. If at least
-30 minutes remain before the survey cut-off, the final pass tries remaining
+60 minutes remain before the survey cut-off, the final pass tries remaining
 eligible buildings without a distance limit. Final filling has no minimum
 survey-to-travel ratio; initial planning retains its efficiency preference.
 
@@ -141,7 +168,7 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.14 update passed 194 offline regression tests and Python compilation.
+The v20.12.15 update passed 221 offline regression tests and Python compilation.
 These checks excluded Streamlit booking-selector UI tests and made no live
 routing or AI calls. Regenerate the schedule after installing this update.
 
