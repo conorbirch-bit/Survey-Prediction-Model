@@ -846,6 +846,68 @@ Return JSON only:
         return results
 
 
+def _saturday_third_attempt(base, all_history, sa_mapping):
+    """Narrow no-answer exception: third visit, 1–5 flats, Saturday.
+
+    Salesforce can supply one visit description with a failure roll-up, even
+    after another failed appointment. Require two distinct failed appointments,
+    no-answer in the supplied descriptions and no known contrary reason;
+    disclose missing prose instead of claiming it describes both visits.
+    Count known work orders for the building too: never create a fourth visit.
+    """
+    if base["Customer Failure Count"] != 2 or base["Metro Failure Count"] != 0:
+        return None
+    try:
+        flats = float(base.get("Source Sovereign Flat"))
+    except (ValueError, TypeError):
+        return None
+    if not math.isfinite(flats) or not 1 <= flats < 6:
+        return None
+    reference = _clean_text(base.get("Customer Reference")).casefold()
+    match = all_history["Work Order Number"].eq(base["Work Order Number"])
+    if reference:
+        match |= all_history["Customer Reference Code"].map(
+            lambda value: _clean_text(value).casefold()).eq(reference)
+    history = all_history.loc[match].drop_duplicates("Old Service Appointment ID")
+    failed_ids = set(history["Old Service Appointment ID"])
+    if not failed_ids or not all(failed_ids):
+        return None
+    appointments = sa_mapping[sa_mapping["Work Order Number"].isin(history["Work Order Number"])]
+    if appointments["_sa_status"].eq("completed").any():
+        return None
+    failed_appointments = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
+    known_failed_ids = failed_ids | set(failed_appointments["Service Appointment ID"])
+    if len(known_failed_ids) != 2:
+        return None
+    evidence = "Both failed-visit descriptions checked."
+    if len(failed_ids) < 2:
+        if len(failed_appointments) != 2:
+            return None
+        evidence = "Two failed appointments verified; only one failed-visit description is supplied (no answer). The other visit's description is unavailable."
+    for _, visit in history.iterrows():
+        if (visit["Failure Type"] != "Customer" or _as_int(visit.get("Customer Failure Count")) > 2
+                or _as_int(visit.get("Metro Failure Count")) > 0):
+            return None
+        reason = (_clean_text(visit.get("Failure Reason")) or "No answer at door")
+        reason += " " + _clean_text(visit.get("Reason Not Complete"))
+        # Ignore the count only while checking the underlying access reason.
+        access = classify_access(reason, 0, 0, base["Customer Reference"]) or {}
+        if access.get("Reason Category") != "NO_ANSWER":
+            return None
+        # Generic 'no access' is not evidence of an unanswered door.
+        if not re.search(r"no answer|no response|no one home|no one in|none in|not home|at work|no residents|did not answer|did not get an answer|no one else is in|unable to get responses|gotten no|ad no answer|not in all day|won't be in", reason, re.I):
+            return None
+        _, required = requested_access_days(reason)
+        if (required and "Saturday" not in required) or confirmed_visit_group(
+                visit.get("Customer Reference Code"), base["Postcode"]):
+            return None
+    return {"Decision": "RETRY_WITH_CONSTRAINT", "Reason Category": "SATURDAY_THIRD_NO_ANSWER",
+            "Decision Source": "Saturday no-answer trial — 23 October 2026",
+            "Decision Reason": "Third attempt — Saturday only: two customer failures; no-answer case; 1–5 flats. No automatic fourth attempt. " + evidence,
+            "Required Weekdays": ["Saturday"], "Preferred Weekdays": ["Saturday"],
+            "Recommended Client Action": ""}
+
+
 def build_retry_plan(
     file_bytes: bytes,
     openai_api_key: str = "",
@@ -972,6 +1034,8 @@ def build_retry_plan(
                 rule = review_rule
             if rule is None:
                 rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
+            if rule and rule.get("Reason Category") == "REPEATED_CUSTOMER_FAILURE":
+                rule = _saturday_third_attempt(base, all_history, sa_mapping) or rule
             if rule:
                 base.update(rule)
                 if base["Decision"] in {"RETRY", "RETRY_WITH_CONSTRAINT"}:
@@ -1055,7 +1119,7 @@ def build_retry_plan(
             continue
         preferred, required = requested_access_days(row.get("Failure Reason", ""))
         row["Preferred Weekdays"] = list(dict.fromkeys((row.get("Preferred Weekdays") or []) + preferred))
-        if required:
+        if required and row.get("Reason Category") != "SATURDAY_THIRD_NO_ANSWER":
             row["Required Weekdays"] = required
         if confirmed_visit_group(row.get("Customer Reference"), row.get("Postcode")):
             row["Preferred Weekdays"] = ["Monday"]

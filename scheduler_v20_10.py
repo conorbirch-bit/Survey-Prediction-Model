@@ -76,6 +76,9 @@ def survey_clocks_for_date(day_date, first_survey_clock, latest_survey_clock,
 
 
 def _site_allowed_today(site, day_date):
+    if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER":
+        if day_date.weekday() != 5 or not _saturday_small_flat_preferred(site, day_date):
+            return False
     # Saturday is an optional retry day, never a fresh-building working day.
     if day_date.weekday() == 5 and not _is_retry_site(site):
         return False
@@ -1515,6 +1518,8 @@ class ScheduledSurvey:
     building_height: Optional[float] = None
     flats: Optional[float] = None
     ground_floor_area: Optional[float] = None
+    balancing_buffer_minutes: float = 0.0
+    visit_note: str = ""
 
 
 @dataclass
@@ -1610,6 +1615,8 @@ class DailyScheduleResult:
                 "Internal Ground Floor Area (m2)": item.ground_floor_area,
                 "Prediction Confidence": item.confidence,
                 "Prediction Model": item.model_used,
+                "Additional Balancing Buffer (Minutes)": item.balancing_buffer_minutes,
+                "Visit Note": item.visit_note,
             })
 
             if (
@@ -1721,6 +1728,7 @@ class WeeklyScheduleResult:
                 "Return Harpenden": day.return_time.strftime("%H:%M"),
                 "Survey Time (Minutes)": day.survey_minutes,
                 "Travel Time (Minutes)": day.travel_minutes,
+                "Additional Balancing Buffer (Minutes)": sum(i.balancing_buffer_minutes for i in day.items),
             })
 
         return pd.DataFrame(rows)
@@ -2798,6 +2806,7 @@ class DailyTransitScheduler:
                             confidence=str(site.get("confidence", "")), model_used=str(site.get("model_used", "")),
                             building_height=site.get("building_height"), flats=site.get("flats"),
                             ground_floor_area=site.get("ground_floor_area"),
+                            visit_note=("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
                         )
                         prefix = DailyScheduleResult(
                             items=scheduled + [first_item], start_location=self.home_location,
@@ -2925,6 +2934,7 @@ class DailyTransitScheduler:
                     building_height=site.get("building_height"),
                     flats=site.get("flats"),
                     ground_floor_area=site.get("ground_floor_area"),
+                    visit_note=("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
                 )
             )
 

@@ -36,6 +36,8 @@ def action_group(row):
             return 'Already booked in excluded week'
         if not str(row.get('Mapping Status', '')).startswith('OK'):
             return 'Replacement appointment check'
+        if row.get('Reason Category') == 'SATURDAY_THIRD_NO_ANSWER':
+            return 'Third attempt — Saturday only'
         return 'Routine retry'
     return 'Internal review / hold'
 
@@ -100,7 +102,8 @@ def build_access_report(plan, source_name='', generated_on=None):
         summary.append([name, count])
     summary.append([])
     for note in [
-        'Client help: two customer failures, or a clear access barrier after one visit, unless that history has a specific reviewed-revisit exception. Metro failures do not count towards the customer limit.',
+        'Client help: two customer failures, or a clear access barrier after one visit, unless eligible for the small-building Saturday third attempt or a reviewed-revisit exception. Metro failures do not count towards the customer limit.',
+        'Saturday trial: 1–5 flats, two recorded customer failures, exactly two known failed visits and no-answer in supplied descriptions. No automatic fourth attempt. Missing visit descriptions are disclosed in the decision; known access barriers stay with the client.',
         'The 9 October review reopens verified Harrison second failed visits and Joe/Harrison access refusals recorded by that date. Completed work stays resolved; original failure counts are retained. A later failure returns to normal triage.',
         'Any linked Completed service appointment resolves the Work Order and removes it from the client tab.',
         'Booking-week exclusions affect scheduling only; they do not hide client access issues.',

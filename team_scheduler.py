@@ -40,7 +40,9 @@ SURVEYOR_HOME_COORDINATES = {
     "harrison grice": (51.441346, 0.366643),  # Gravesend Station
     "joe reynolds": (51.742, -0.491),          # Hemel Hempstead
     "rod harrison": (52.379, -1.250),          # Rugby
-    "toby lawal": (51.567956, 0.129558),       # Chadwell Heath
+    # National Rail Grove Park station map (Baring Road entrance), checked 23 Oct 2026:
+    # https://www.nationalrail.co.uk/stations/grove-park/
+    "toby lawal": (51.43044575, 0.022578266),  # Grove Park, SE12 0DZ
 }
 
 # If an available surveyor is more than this many Google-transit minutes worse

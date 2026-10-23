@@ -1,6 +1,15 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.15**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.16**.
+
+## v20.12.16 — Saturday trials and final-week balancing — 23 October 2026
+
+- Update Toby’s station address to Grove Park and allocation coordinates to the National Rail station map location (51.43044575, 0.022578266).
+- Add the narrow Saturday third-attempt exception for 1–5-flat no-answer cases with exactly two customer failures and two distinct known failed visits. Support single-row Salesforce roll-ups with two failed appointments; disclose when only one visit description is supplied, including notes linked to the first failure. Check all supplied reasons and known failures; retain completion, booking, replacement and access restrictions. No automatic fourth attempt.
+- Carry Saturday-only eligibility and the trial label through the portfolio, route engine, schedules and access report. Keep ordinary Saturday small-first/fallback rules and existing review exceptions.
+- Add an optional final workload pass after normal filling. Cover empty selected days, balance real survey workload, then add separately labelled 5–30-minute inter-building allowance only to underfilled days. Recalculate travel at the new times; retain all original visits exactly once and reject infeasible trials. Keep explicit groups, accepted notes, requested access days, reviewer restrictions, lunch and daily deadlines.
+- Export Workload Balancing before/after review, buffer columns and settings. Disabled by default; normal scheduling and the 60-minute wider-search trigger are retained. Version the standalone report cache so an old report is not reused after this rules update.
+- Verified with 255 offline regression tests, Python compilation and a historical replay using synthetic routes. The replay retained all 166 scheduled buildings, including 40 first visits. Live Google/AI and the Streamlit UI were not exercised; rerun with current inputs.
 
 ## v20.12.15 — First visits before efficiency — 16 October 2026
 

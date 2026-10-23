@@ -1,6 +1,6 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.15
-Updated: 16 October 2026
+Current application: 20.12.16
+Updated: 23 October 2026
 
 START HERE
 
@@ -13,7 +13,7 @@ Use Python 3.10 or newer. Provide completed-survey training through the sidebar
 or as Predictive Model.xlsx beside app.py. Configure API keys through environment
 variables or .streamlit/secrets.toml; see README.md for names and optional features.
 
-The application should display Version 20.12.15. The active route engine remains
+The application should display Version 20.12.16. The active route engine remains
 scheduler_v20_10.py; its filename is not the application's release number.
 
 UPDATING AN EXISTING INSTALLATION
@@ -22,7 +22,7 @@ Stop Streamlit completely before replacing matching project files, then restart.
 Keep exact Python filenames so imports work. Keep your training data and secrets.
 For a hosted Streamlit app, deploy the matching files and reboot the application.
 
-The v20.12.15 ZIP is an incremental update to v20.12.14. Extract it into the existing project folder,
+The v20.12.16 ZIP is an incremental update to v20.12.15. Extract it into the existing project folder,
 replacing matching files and retaining the tests/ subfolder. It contains only
 changed files, not a complete installation. Keep all other modules, training
 data, requirements and credentials.
@@ -38,6 +38,37 @@ memory. The same applies to an unexpected 'saturday_time_window', 'saturday_smal
 'saturday_candidate_pool' or 'surveyor_name' argument after this
 update. Stop the running process with Ctrl+C, confirm the updated module is in
 the same project folder as app.py, and restart. A browser refresh is insufficient.
+
+NEW IN 20.12.16
+
+Toby's new base is Grove Park Station, Baring Road, London SE12 0DZ.
+The verified station coordinates are 51.43044575, 0.022578266.
+
+Small no-answer cases (1-5 flats) with exactly two recorded customer failures
+and two distinct known failed visits can receive a third attempt on Saturday
+only. Single-row Salesforce roll-ups are supported: appointment history must
+verify two failures; supplied descriptions must indicate no answer. The note
+may refer to the first visit; the audit states when the other description is
+unavailable, without claiming both reasons are known. Known access
+barriers, completed work, booking exclusions and replacement-SA gates remain.
+There is no automatic fourth attempt. Include Sovereign Flat and SA status /
+Actual Start in the current cannot-complete report. Larger ordinary retries
+retain the existing Saturday fallback; larger third attempts are not allowed.
+
+Keep the new workload_balancer.py beside app.py. The optional checkbox
+'Spread work across all selected days' is OFF by default. It runs after normal
+filling, first trying to redistribute suitable work across selected days, then
+adding 5-minute steps of separate allowance between visits on short days,
+up to 30 minutes per gap. It preserves every scheduled building exactly once,
+access groups, note dates/owners, Saturday rules, lunch and all time limits.
+Full days receive no added allowance. Routing is recalculated; survey durations
+and travel estimates are not inflated. No allowance before the first or after
+the last visit. It stops within 5 minutes of the survey/return limit or reports
+the remaining shortfall. Extra route checks can increase Google usage.
+
+Use Workload Balancing for before/after results. Additional Balancing Buffer
+(Minutes) is shown separately in schedules and summaries. Re-run with current
+source data after installing; these files do not book or upload appointments.
 
 NEW IN 20.12.15
 
@@ -168,7 +199,7 @@ CHECKS AND DOCUMENTATION
 With dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.15 update passed 221 offline regression tests and Python compilation.
+The v20.12.16 update passed 255 offline regression tests and Python compilation.
 These checks excluded Streamlit booking-selector UI tests and made no live
 routing or AI calls. Regenerate the schedule after installing this update.
 

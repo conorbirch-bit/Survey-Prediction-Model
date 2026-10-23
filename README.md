@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.15** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.16** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -22,7 +22,8 @@ Developed by **Conor Birch** during an operational improvement project at Metro 
 3. **Group and allocate.** Use coordinates and postcodes to identify working areas, then allocate candidates using surveyor availability, workload and home-to-area journey estimates. Optional AI advice considers current work and future nearby demand.
 4. **Prioritise first visits.** Build Monday–Friday routes from buildings with no recorded visit, then try the full eligible first-visit portfolio across remaining team capacity, including outside the initial geographic shortlist. Long journeys and low survey-to-travel ratios do not veto these visits; actual journey, lunch and deadline checks still apply.
 5. **Fill remaining time.** After the first-visit pass, add eligible retries and other work to remaining gaps. Ordinary filling tries nearby work first, then searches beyond 15 km when at least 60 minutes remain before the survey cut-off.
-6. **Export and review.** Download the team schedule, Salesforce copy, unplaced work and decision records. Generate the client access report from the same retry rules.
+6. **Optionally spread remaining work.** After all normal filling, select `Spread work across all selected days` to redistribute suitable visits and add explicitly reported allowance only to days that remain short.
+7. **Export and review.** Download the team schedule, Salesforce copy, unplaced work and decision records. Generate the client access report from the same retry rules.
 
 Language models support cluster selection, supported location requests, unfamiliar access descriptions and the final narrative. Python rules and route checks determine whether a visit can be scheduled. Updated training data can be uploaded to refit the duration model; it does not collect new outcomes automatically.
 
@@ -72,6 +73,20 @@ Saturday has separate dropdowns for **first survey start**, **last survey finish
 
 All portfolio Work Types and Statuses are considered. Eligibility still depends on usable location and duration data, drawing/date readiness and access checks. A linked **Completed Service Appointment** resolves its Work Order in the retry workflow; a portfolio label such as **Work Done** is not the same completion signal.
 
+### Toby’s base
+
+Toby now starts and finishes at **Grove Park Station, Baring Road, London SE12 0DZ**. Area allocation uses **51.43044575, 0.022578266**, from the [National Rail station map](https://www.nationalrail.co.uk/stations/grove-park/), verified 23 October 2026. Outbound and return journeys use the new station address. Salesforce resource IDs and CRM resource labels are separate from routing bases.
+
+### Optional final-week balancing
+
+`Spread work across all selected days` is **off by default**. It runs only after normal scheduling, first-visit placement, weekly notes and all gap-filling passes. The normal 60-minute wider-search trigger remains unchanged.
+
+The final pass first tries to give each selected contractor day some work, then balances survey workload relative to each day’s window, including Saturday’s shorter hours. It tries whole nearby groups before splitting ordinary groups if needed; explicit access groups, accepted note dates/owners and honoured requested days are protected. All previously scheduled buildings must remain scheduled exactly once. It adds no unapproved sites and does not relax access, reviewer, lunch, survey-finish or return-home limits.
+
+Days that still finish short can receive **5-minute increments of additional allowance between buildings, up to 30 minutes per gap**. There is none before the first visit or after the last. Days already at the survey/return limit receive none. Changed routes are recalculated at the new times; a partial or infeasible trial is discarded. Survey predictions and journey estimates are never inflated. `Additional Balancing Buffer (Minutes)` appears separately in daily schedules and summaries; `Workload Balancing` records before/after workload and remaining shortfalls. Five minutes is the stopping tolerance. A one-building day cannot be stretched through inter-building allowance.
+
+This is a local improvement pass, not a guarantee that every day can be filled. It may move suitable work from fuller days and can increase routing usage. If work or access constraints prevent a full week, the review states the shortfall. Switching the option off retains the existing scheduling process.
+
 ### Fuller days in v20.12.8
 
 Normal filling tries nearby work, including candidates within 15 km. If **at least 60 minutes remain before the survey cut-off**, a final pass considers remaining eligible buildings without a distance cap. Final filling has **no minimum survey-to-travel ratio**; initial retry route planning retains its efficiency preference. First-visit routing bypasses that preference and the gap threshold.
@@ -85,13 +100,18 @@ The access rules were refined through a manual audit of approximately **100 buil
 | Situation | Current treatment |
 | --- | --- |
 | A linked Service Appointment is Completed | Resolve the Work Order and exclude it from retry/client-help work. |
-| Two or more recorded customer failures | Require client help unless the history qualifies for an approved resolution or the operational revisit review below. |
+| Two or more recorded customer failures | Require client help unless eligible for the Saturday no-answer trial, an approved resolution or the operational revisit review below. |
+| Exactly two customer failures, no-answer case, 1–5 flats | Allow a third attempt on Saturday only after verifying two distinct known failed visits; no automatic fourth attempt. |
 | Clear access barrier after a failed visit | Request client help even below the two-customer-failure threshold; examples include refused access, an unusable entry system or a required appointment/escort. |
 | Blank failure description | Assess as “No answer at door”; retain the original source text unchanged in the report. |
 | Routine no-answer below the customer limit | Retry on a different weekday unless an explicit requested day says otherwise, with a preference for the opposite morning/afternoon period. |
 | Operational failure attributed to Metro | Track separately from customer failures; a routine operational retry has no automatic weekday ban. |
 | Known access days or unresolved technical/instruction issues | Enforce the access days, or hold the work for internal review. |
 | Approved resolved issue | Reopen only the reviewed failure history; a fresh failure goes through the normal checks. |
+
+The Saturday third-attempt check supports both detailed per-visit rows and Salesforce’s latest-row failure roll-up. With only one description, it requires two distinct failed Service Appointments and a no-answer case in the supplied prose. Salesforce may link that description to the first visit even when the roll-up is two; the decision explicitly states that the other description is unavailable, without claiming both reasons are known. All supplied reasons are checked: known refusal, entry-system, appointment or incompatible access-day restrictions block this exception. Blank descriptions still mean no answer; generic “no access” alone does not qualify. A count alone without enough appointment evidence is insufficient. A known third failure, completed work, excluded booking or unsafe replacement mapping keeps the building out.
+
+These cases are labelled **Third attempt — Saturday only** in the access register and schedule. Larger ordinary retries retain the existing fallback only when the small Saturday pool is exhausted; larger buildings never qualify through this new third-attempt exception. Existing approved resolution and quality-review exceptions retain their own rules.
 
 Unrecognised descriptions can use AI triage. Cases without a valid decision remain on hold. Scheduling a retry also requires a usable, unambiguous replacement Service Appointment.
 
@@ -162,7 +182,7 @@ Use `.xlsx` files. The importers support ordinary tables and the Salesforce repo
 | --- | --- |
 | Completed-surveys training | `Building Height`, `Internal Ground Floor Area (m2)`, `Sovereign Flat`, `Primary Service Appointment: Actual Duration (Minutes)`. These columns must exist; missing values use the supported model fallbacks where possible. |
 | Master portfolio | Building/reference identifiers, `Postcode`, building characteristics, drawing/date readiness and the Work Order/Service Appointment IDs needed for Salesforce export. Latitude/longitude improve geographic grouping. |
-| Optional cannot-completes workbook | Two tabs: failure history with reasons, customer/Metro counts and failed-visit `Resource Name`; appointment mapping with Work Order number, Service Appointment ID, appointment status, `Actual Start`, `Scheduled Start` and location data. |
+| Optional cannot-completes workbook | Two tabs: failure history with reasons, customer/Metro counts, `Sovereign Flat` and failed-visit `Resource Name`; appointment mapping with Work Order number, Service Appointment ID, appointment status, `Actual Start`, `Scheduled Start` and location data. |
 
 In **Weekly scheduling**, upload the relevant files, select the week and available surveyors, set the time windows and booking exclusions, then generate and review the schedule. To produce just the access report, upload the retry workbook and select **Generate cannot-completes report**.
 
