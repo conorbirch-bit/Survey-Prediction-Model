@@ -112,6 +112,8 @@ def _saturday_small_flat_preferred(site, day_date):
     """Identify the Saturday trial group: 1–5 flats, not garages/unknowns."""
     if day_date.weekday() != 5 or not _is_retry_site(site):
         return False
+    if site.get('saturday_size_exception') is True:
+        return True
     try:
         flats = float(site.get("flats"))
     except (TypeError, ValueError):
@@ -2806,7 +2808,7 @@ class DailyTransitScheduler:
                             confidence=str(site.get("confidence", "")), model_used=str(site.get("model_used", "")),
                             building_height=site.get("building_height"), flats=site.get("flats"),
                             ground_floor_area=site.get("ground_floor_area"),
-                            visit_note=("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
+                            visit_note=site.get('audit_instruction') or ("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
                         )
                         prefix = DailyScheduleResult(
                             items=scheduled + [first_item], start_location=self.home_location,
@@ -2934,7 +2936,7 @@ class DailyTransitScheduler:
                     building_height=site.get("building_height"),
                     flats=site.get("flats"),
                     ground_floor_area=site.get("ground_floor_area"),
-                    visit_note=("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
+                    visit_note=site.get('audit_instruction') or ("Third attempt — Saturday only" if site.get("retry_reason_category") == "SATURDAY_THIRD_NO_ANSWER" else ""),
                 )
             )
 

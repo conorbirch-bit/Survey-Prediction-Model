@@ -11,6 +11,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import pandas as pd
 
 from access_rules import classify_access, resolved_issue_decision, requested_access_days, confirmed_visit_group
+from audited_decisions import load_decisions, saved_decision, linked_appointments, outstanding_bookings
+from visit_evidence import failed_visits, latest_issue_rule, evidenced_saturday_retry
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +418,7 @@ def _existing_booking_exclusions(sa_mapping, latest, all_history, excluded_week_
     # existing booking cannot be bypassed by choosing a different/newer SA.
     candidates = sa_mapping[
         sa_mapping["_actual_start_dt"].isna()
+        & ~sa_mapping["_sa_status"].isin(["completed", "cannot complete", "cancelled", "canceled"])
         & ~sa_mapping["Service Appointment ID"].isin(failed_ids)
         & sa_mapping["Work Order Number"].isin(latest["Work Order Number"])
     ].copy()
@@ -572,6 +575,7 @@ def _resolve_replacement_sa(
     latest_event: pd.Series,
     all_history: pd.DataFrame,
     sa_mapping: pd.DataFrame,
+    choose_duplicate: bool = False,
 ) -> Dict[str, object]:
     wo = _normalise_work_order(latest_event.get("Work Order Number"))
     old_sa = _normalise_sa_id(latest_event.get("Old Service Appointment ID"))
@@ -635,7 +639,13 @@ def _resolve_replacement_sa(
                 replacement = ordered.iloc[0]
                 status = "OK - newest unstarted replacement selected"
             else:
-                status = "Multiple possible replacement SAs"
+                if choose_duplicate:
+                    # One audited building explicitly permits a deterministic tie-break.
+                    ordered = ordered.sort_values(["_created_dt", "Service Appointment ID"], ascending=[False, True], na_position="last")
+                    replacement = ordered.iloc[0]
+                    status = "OK - audited duplicate replacement tie-break"
+                else:
+                    status = "Multiple possible replacement SAs"
         else:
             status = "Multiple possible replacement SAs"
     elif len(candidates) > 0:
@@ -855,7 +865,7 @@ def _saturday_third_attempt(base, all_history, sa_mapping):
     disclose missing prose instead of claiming it describes both visits.
     Count known work orders for the building too: never create a fourth visit.
     """
-    if base["Customer Failure Count"] != 2 or base["Metro Failure Count"] != 0:
+    if base["Customer Failure Count"] != 2:
         return None
     try:
         flats = float(base.get("Source Sovereign Flat"))
@@ -876,6 +886,18 @@ def _saturday_third_attempt(base, all_history, sa_mapping):
     if appointments["_sa_status"].eq("completed").any():
         return None
     failed_appointments = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
+    evidence_visits = failed_visits(appointments, history)
+    evidenced = evidenced_saturday_retry(evidence_visits, base)
+    if evidenced is not None:
+        preferred, required = requested_access_days(base.get("Failure Reason", ""))
+        if not evidenced or (required and "Saturday" not in required) or confirmed_visit_group(base.get("Customer Reference"), base.get("Postcode")):
+            return None
+        return {"Decision": "RETRY_WITH_CONSTRAINT", "Reason Category": "SATURDAY_THIRD_NO_ANSWER",
+                "Decision Source": "Appointment-level no-answer history",
+                "Decision Reason": "Two customer no-answer attempts, 1–5 flats: one further customer attempt on Saturday. Technical failures do not consume the customer allowance.",
+                "Required Weekdays": ["Saturday"], "Preferred Weekdays": ["Saturday"]}
+    if base["Metro Failure Count"] != 0:
+        return None
     known_failed_ids = failed_ids | set(failed_appointments["Service Appointment ID"])
     if len(known_failed_ids) != 2:
         return None
@@ -913,14 +935,33 @@ def build_retry_plan(
     openai_api_key: str = "",
     openai_model: str = "gpt-5.6",
     excluded_week_starts: Optional[Sequence] = None,
+    audit_records=None,
+    protect_outstanding_bookings=False,
 ) -> RetryPlan:
     sa_raw, failures_raw = _detect_retry_tabs(file_bytes)
     sa_mapping = _prepare_sa_mapping(sa_raw)
     latest = _prepare_failure_history(failures_raw)
     all_history = latest.attrs.get("all_history", pd.DataFrame()).copy()
+    audit_records = load_decisions() if audit_records is None else audit_records
     booking_exclusions = _existing_booking_exclusions(
         sa_mapping, latest, all_history, excluded_week_starts,
     )
+    if protect_outstanding_bookings:
+        protected = []
+        failed_ids = set(all_history['Old Service Appointment ID']) | set(sa_mapping.loc[sa_mapping['_sa_status'].eq('cannot complete'), 'Service Appointment ID'])
+        active = outstanding_bookings(sa_mapping, failed_ids)
+        for _, event in latest.iterrows():
+            group = active.loc[active['Work Order Number'].eq(event['Work Order Number'])]
+            for _, appointment in group.iterrows():
+                protected.append({'Work Order Number': event['Work Order Number'],
+                    'Customer Reference': _clean_text(event.get('Customer Reference Code')),
+                    'Building Name': _clean_text(event.get('Building Name')),
+                    'Replacement SA ID': appointment['Service Appointment ID'],
+                    'Scheduled Start': appointment.get('Scheduled Start'),
+                    'Excluded Week Commencing': 'All outstanding bookings',
+                    'Reason': 'Outstanding retry appointment: do not create a duplicate booking.'})
+        if protected:
+            booking_exclusions = pd.concat([booking_exclusions,pd.DataFrame(protected)],ignore_index=True).drop_duplicates(['Work Order Number','Replacement SA ID'])
     excluded_work_orders = set(booking_exclusions["Work Order Number"])
 
     rows: List[dict] = []
@@ -929,12 +970,14 @@ def build_retry_plan(
     warnings: List[str] = []
 
     for _, event in latest.iterrows():
+        audit_record = audit_records.get(_clean_text(event.get("Customer Reference Code")).casefold())
         # Filter before business/AI triage. These work orders are accounted for
         # separately in the booking audit, never sent back to the retry pool.
         mapping = _resolve_replacement_sa(
             event,
             all_history=all_history,
             sa_mapping=sa_mapping,
+            choose_duplicate=bool(audit_record and audit_record.get("select_duplicate_replacement")),
         )
         previous_visit = mapping.get("Previous Visit")
         previous_period = _period_from_datetime(previous_visit)
@@ -1011,10 +1054,28 @@ def build_retry_plan(
         base["Linked Appointment Statuses"] = ", ".join(sorted(set(appointments["_sa_status"])))
         completed = appointments[appointments["_sa_status"].eq("completed")]
         visits = appointments[appointments["_sa_status"].eq("cannot complete")].drop_duplicates("Service Appointment ID")
+        evidence_visits = failed_visits(appointments, all_history.loc[all_history["Work Order Number"].eq(base["Work Order Number"])])
+        for index, visit in enumerate(evidence_visits, 1):
+            base[f"Visit {index} AI Issue"] = visit['issue']
+            base[f"Visit {index} Surveyor"] = visit['resource']
         visit_dates = sorted(pd.to_datetime(visits["_actual_start_dt"], errors="coerce").dropna().tolist())
         for index, value in enumerate(visit_dates, 1):
             base[f"Visit {index} Date"] = value.date().isoformat()
-        if not completed.empty:
+        audited_rule = saved_decision(base, audit_record, sa_mapping, all_history) if audit_record else None
+        if audited_rule is not None:
+            base.update(audited_rule)
+            if base.get("Reason Category") == "ALREADY_BOOKED":
+                linked = linked_appointments(audit_record, sa_mapping, base['Work Order Number'])
+                booked = outstanding_bookings(linked, audit_record['failed_appointment_ids'])
+                extra = []
+                for _, appointment in booked.iterrows():
+                    extra.append({"Work Order Number": base['Work Order Number'], "Customer Reference": base['Customer Reference'],
+                                  "Building Name": base['Building Name'], "Replacement SA ID": appointment['Service Appointment ID'],
+                                  "Scheduled Start": appointment.get('Scheduled Start'), "Excluded Week Commencing": "All outstanding bookings",
+                                  "Reason": "Outstanding appointment supersedes saved audit decision."})
+                booking_exclusions = pd.concat([booking_exclusions, pd.DataFrame(extra)], ignore_index=True).drop_duplicates(['Work Order Number', 'Replacement SA ID'])
+                excluded_work_orders.add(base['Work Order Number'])
+        elif not completed.empty:
             base.update(Decision="RESOLVED", **{
                 "Decision Source": "Completed service appointment",
                 "Reason Category": "COMPLETED", "Decision Reason": "A linked service appointment is Completed.",
@@ -1032,6 +1093,8 @@ def build_retry_plan(
             )
             if rule is None:
                 rule = review_rule
+            if rule is None:
+                rule = latest_issue_rule(evidence_visits, classify_access, customer_count, base["Metro Failure Count"], base["Customer Reference"])
             if rule is None:
                 rule = classify_access(reason, customer_count, base["Metro Failure Count"], base["Customer Reference"])
             if rule and rule.get("Reason Category") == "REPEATED_CUSTOMER_FAILURE":
@@ -1120,7 +1183,15 @@ def build_retry_plan(
         preferred, required = requested_access_days(row.get("Failure Reason", ""))
         row["Preferred Weekdays"] = list(dict.fromkeys((row.get("Preferred Weekdays") or []) + preferred))
         if required and row.get("Reason Category") != "SATURDAY_THIRD_NO_ANSWER":
-            row["Required Weekdays"] = required
+            audited_days = row.get("Required Weekdays") if row.get("Audit Decision Applied") else None
+            if audited_days:
+                overlap = [day for day in audited_days if day in required]
+                if not overlap:
+                    row.update(Decision="IGNORE", **{"Reason Category": "ACCESS_DAY_CONFLICT", "Decision Reason": "The approved retry days conflict with the explicit access days in the source."})
+                    continue
+                row["Required Weekdays"] = overlap
+            else:
+                row["Required Weekdays"] = required
         if confirmed_visit_group(row.get("Customer Reference"), row.get("Postcode")):
             row["Preferred Weekdays"] = ["Monday"]
             row["Required Weekdays"] = ["Monday"]
@@ -1155,6 +1226,32 @@ def build_retry_plan(
             "Postcode": _clean_text(group.iloc[0].get("Zip/Postal Code")),
             "Building ID": _clean_text(group.iloc[0].get("Building_Id")),
             "Mapping Status": "Completed", "Failure Type": "", "Client Action Required": False, "Retry Eligible": False})
+    # An audited building may disappear from the failure-detail tab after completion.
+    # Retain a protective decision by building identity so a stale master row cannot
+    # re-enter as fresh work, even when completion is on a replacement Work Order.
+    known_refs = {_clean_text(r.get('Customer Reference')).casefold() for r in rows + booked_report_rows}
+    known_wos = {r['Work Order Number'] for r in rows}
+    for ref, record in audit_records.items():
+        if ref in known_refs:
+            continue
+        linked = linked_appointments(record, sa_mapping)
+        if linked.empty:
+            continue
+        completed = linked.loc[linked['_sa_status'].eq('completed')]
+        wo = record['work_orders'][0]
+        # Reuse a mapping-only completion row instead of duplicating its WO.
+        existing = next((r for r in rows if r['Work Order Number'] == wo), None)
+        if existing is not None:
+            if existing.get('Decision') == 'RESOLVED':
+                existing.update({'Customer Reference': record['reference'], 'Building Name': record['building']})
+            continue
+        rows.append({'Work Order Number': wo, 'Customer Reference': record['reference'],
+                     'Building Name': record['building'], 'Decision': 'RESOLVED' if not completed.empty else 'IGNORE',
+                     'Reason Category': 'COMPLETED' if not completed.empty else 'AUDIT_HISTORY_INCOMPLETE',
+                     'Decision Reason': 'A linked appointment is Completed.' if not completed.empty else 'No current failure-detail record for this audited building. Refresh history before applying its saved decision.',
+                     'Mapping Status': 'Completed' if not completed.empty else 'Missing current failure detail',
+                     'Failure Type': '', 'Client Action Required': False, 'Retry Eligible': False,
+                     'Booking Excluded': False, 'Record Coverage': 'Saved audit identity and current appointment mapping'})
     decisions = pd.DataFrame(rows)
 
     if decisions.empty:
@@ -1171,7 +1268,7 @@ def build_retry_plan(
 
     mapping_ok = decisions["Mapping Status"].astype(str).str.startswith("OK")
     retry_decision = decisions["Decision"].isin(["RETRY", "RETRY_WITH_CONSTRAINT"])
-    decisions["Retry Eligible"] = mapping_ok & retry_decision
+    decisions["Retry Eligible"] = mapping_ok & retry_decision & ~decisions.get("Booking Excluded", pd.Series(False, index=decisions.index)).eq(True)
 
     # A business retry decision without a usable replacement SA is visible in
     # the audit output but is never injected into the scheduler.
@@ -1271,6 +1368,13 @@ def apply_retry_plan_to_portfolio(
       predicted/clusted (postcode clustering is used if coordinates are absent).
     """
     result = portfolio.copy()
+    missing_audit_history_removed = 0
+    if 'Customer Reference' in result:
+        represented = set(decisions['Customer Reference'].map(_clean_text).str.casefold()) if decisions is not None and 'Customer Reference' in decisions else set()
+        missing = set(load_decisions()) - represented
+        remove_missing = result['Customer Reference'].map(_clean_text).str.casefold().isin(missing)
+        missing_audit_history_removed = int(remove_missing.sum())
+        result = result.loc[~remove_missing].copy()
     removed_existing_bookings = 0
     if booking_exclusions is not None and not booking_exclusions.empty:
         excluded_wos = set(booking_exclusions["Work Order Number"].map(_normalise_work_order)) - {""}
@@ -1279,6 +1383,9 @@ def apply_retry_plan_to_portfolio(
             raise ValueError("The master portfolio needs Work Order Number to apply booking exclusions.")
         if wo_col is not None:
             remove = result[wo_col].map(_normalise_work_order).isin(excluded_wos)
+            if 'Customer Reference' in result and 'Customer Reference' in booking_exclusions:
+                excluded_refs = set(booking_exclusions['Customer Reference'].map(_clean_text)) - {''}
+                remove |= result['Customer Reference'].map(_clean_text).isin(excluded_refs)
             removed_existing_bookings = int(remove.sum())
             result = result.loc[~remove].copy()
         if decisions is not None and not decisions.empty:
@@ -1287,7 +1394,7 @@ def apply_retry_plan_to_portfolio(
             ].copy()
     if decisions is None or decisions.empty:
         return result, {
-            "removed_non_retry": 0,
+            "removed_non_retry": missing_audit_history_removed,
             "removed_existing_bookings": removed_existing_bookings,
             "annotated_existing": 0,
             "appended_missing": 0,
@@ -1328,8 +1435,13 @@ def apply_retry_plan_to_portfolio(
         if not bool(row.get("Retry Eligible", False))
     }
     before = len(result)
-    result = result[~result["_retry_wo"].isin(non_retry_wos)].copy()
-    removed_non_retry = before - len(result)
+    remove = result["_retry_wo"].isin(non_retry_wos)
+    if 'Customer Reference' in result:
+        blocked_refs = {_clean_text(row.get('Customer Reference')) for _, row in decisions.iterrows()
+                        if not bool(row.get('Retry Eligible', False))} - {''}
+        remove |= result['Customer Reference'].map(_clean_text).isin(blocked_refs)
+    result = result[~remove].copy()
+    removed_non_retry = before - len(result) + missing_audit_history_removed
 
     annotation_columns = [
         "Is Retry",
@@ -1350,6 +1462,7 @@ def apply_retry_plan_to_portfolio(
         "Retry Old Service Appointment ID",
         "Retry Replacement Service Appointment ID",
         "Retry AI Confidence",
+        "Audit Instruction", "Call Ahead Required", "Call Phone", "Route Address Override", "Saturday Size Exception",
     ]
 
     # Retry metadata is intentionally mixed-type: booleans, datetimes, weekday
@@ -1375,7 +1488,10 @@ def apply_retry_plan_to_portfolio(
 
     for _, decision in retry_rows.iterrows():
         wo = _normalise_work_order(decision.get("Work Order Number"))
-        matches = result.index[result["_retry_wo"] == wo].tolist()
+        match_mask = result["_retry_wo"] == wo
+        if 'Customer Reference' in result and _clean_text(decision.get('Customer Reference')):
+            match_mask |= result['Customer Reference'].map(_clean_text).eq(_clean_text(decision.get('Customer Reference')))
+        matches = result.index[match_mask].tolist()
 
         if matches:
             # Keep one active row for this retry Work Order. Prefer an existing row
@@ -1502,9 +1618,19 @@ def apply_retry_plan_to_portfolio(
             ),
             "Retry Replacement Service Appointment ID": replacement,
             "Retry AI Confidence": decision.get("AI Confidence", ""),
+            "Audit Instruction": decision.get("Audit Instruction", ""),
+            "Call Ahead Required": str(decision.get("Call Ahead Required", False)).lower() == 'true',
+            "Call Phone": decision.get("Call Phone", ""),
+            "Route Address Override": decision.get("Route Address Override", ""),
+            "Saturday Size Exception": str(decision.get("Saturday Size Exception", False)).lower() == 'true',
         }
         for col, value in values.items():
             result.at[row_index, col] = value
+        if _clean_text(decision.get('Route Address Override')):
+            # Do not use coordinates for the superseded Thieves Lane address.
+            for col in ('Latitude', 'Longitude', 'Latitude Clean', 'Longitude Clean'):
+                if col in result:
+                    result.at[row_index, col] = None
 
     result = result.drop(columns=["_retry_wo"], errors="ignore")
     return result.reset_index(drop=True), {

@@ -1,0 +1,4178 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-10-30",
+  "source_file": "Unscheduled_Buildings_Audit_30_Oct_2026 (2).xlsx",
+  "source_sha256": "dc336abf08b78ef4a47fd1572f4aab642f079e62332243c7da4f300be15fb6d2",
+  "buildings": [
+    {
+      "reference": "CLIF0001",
+      "building": "101048 | 1 Clifford Gardens NW10 5JE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042783"
+      ],
+      "building_ids": [
+        "a00R500000UcYtq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfW",
+        "08pR5000002nEK1"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HADL0032",
+      "building": "101466 | 1-4 Cambridge Lodge, 32 Hadley Road EN5 5QS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040398"
+      ],
+      "building_ids": [
+        "a00R500000XJbiU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLGL",
+        "08pR5000002qLgj"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LANE0018",
+      "building": "101483 | 1-2, 18 Lancelot Road HA0 2BP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042654"
+      ],
+      "building_ids": [
+        "a00R500000XJJvK"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMmF",
+        "08pR5000002mYrB"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "EALI0108",
+      "building": "101501 | A-B, 108 Ealing Road HA0 4TH",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041640"
+      ],
+      "building_ids": [
+        "a00R500000XJZaX"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM43",
+        "08pR5000002mao5"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ROSS0093",
+      "building": "101522 | A-B, 93 Rosslyn Crescent HA1 2SA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041851"
+      ],
+      "building_ids": [
+        "a00R500000XJjBM"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMNB",
+        "08pR5000002nexd"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ABER0042",
+      "building": "101552 | A-B, 42 Aberdeen Road HA3 7NG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041955"
+      ],
+      "building_ids": [
+        "a00R500000XJHa7"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMNe",
+        "08pR5000002nrur"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STAG0056",
+      "building": "101571 | 1-2, 56 Stag Lane HA8 5JY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040286"
+      ],
+      "building_ids": [
+        "a00R500000XJjxi"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKDv",
+        "08pR5000002nwjF"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CORW0107",
+      "building": "101686 | 1 - 2, 107  Cornwallis Road N19 4LQ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040545"
+      ],
+      "building_ids": [
+        "a00R500000XJovq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLWK",
+        "08pR5000002ljoX"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARE0096",
+      "building": "101739 | A-B, 96 Harlesden Road NW10 2BE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042206"
+      ],
+      "building_ids": [
+        "a00R500000XJcjR"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMb3",
+        "08pR5000002ocDp"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARE0153",
+      "building": "101741 | A-B, 153 Harlesden Road NW10 2BS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040183"
+      ],
+      "building_ids": [
+        "a00R500000XJVo6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKtl",
+        "08pR5000002ocFR"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COLN0013",
+      "building": "101744 | A-B, 13 Colin Road NW10 2EE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041387"
+      ],
+      "building_ids": [
+        "a00R500000XJmvf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM2z",
+        "08pR5000002odEk"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "GOWA0052",
+      "building": "101762 | A-B, 52 Gowan Road NW10 2SH",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041214"
+      ],
+      "building_ids": [
+        "a00R500000XJqw0"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM50",
+        "08pR5000002odhl"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HERB0012",
+      "building": "101769 | A-B, 12 Herbert Gardens NW10 3BU",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041187"
+      ],
+      "building_ids": [
+        "a00R500000XJlA4"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM5s",
+        "08pR5000002mZqL"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARE0173",
+      "building": "101796 | A-B, 173 Harlesden Road NW10 3SD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041936"
+      ],
+      "building_ids": [
+        "a00R500000XJXVD"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMO3",
+        "08pR5000002ocH3"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARL0078",
+      "building": "101823 | A-B, 78 Harlesden Gardens NW10 4HA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040360"
+      ],
+      "building_ids": [
+        "a00R500000XJpWu"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL9x",
+        "08pR5000002mMJd"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CROW0064",
+      "building": "101826 | A-B, 64 Crownhill Road NW10 4HD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01043041"
+      ],
+      "building_ids": [
+        "a00R500000XJVuo"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hNDH",
+        "08pR5000002mPFt"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "SELL0009",
+      "building": "101830 | A-C, 9 Sellons Avenue NW10 4HJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040201"
+      ],
+      "building_ids": [
+        "a00R500000XJaUj"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKtg",
+        "08pR5000002oN57"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "SELL0008",
+      "building": "101833 | A-C, 8 Sellons Avenue NW10 4HL",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040637"
+      ],
+      "building_ids": [
+        "a00R500000XJmu1"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLdE",
+        "08pR5000002oN3V"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PARP0041",
+      "building": "101837 | A-B, 41 Park Parade NW10 4JE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041468"
+      ],
+      "building_ids": [
+        "a00R500000XJlpu"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMAL",
+        "08pR5000002oN8L"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MANO0096",
+      "building": "101841 | A-B, 96 Manor Park Road NW10 4JP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041074"
+      ],
+      "building_ids": [
+        "a00R500000XJQzw"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM41",
+        "08pR5000002mMZl"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MANO0075",
+      "building": "101842 | A-B, 75 Manor Park Road NW10 4JU",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040744"
+      ],
+      "building_ids": [
+        "a00R500000XJd4M"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLl8",
+        "08pR5000002mMoH"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LEGH0067",
+      "building": "101848 | A-B, 67 Leghorn Road NW10 4PJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042846"
+      ],
+      "building_ids": [
+        "a00R500000XJt11"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMn6",
+        "08pR5000002oN1t"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LEGH0001",
+      "building": "101849 | A-B, 1 Leghorn Road NW10 4PN",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040631"
+      ],
+      "building_ids": [
+        "a00R500000XJr5j"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLdC",
+        "08pR5000002oKqP"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WILW0008",
+      "building": "101853 | 1-2 Willows Terrace, 8 Rucklidge Av NW10 4PT",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041506"
+      ],
+      "building_ids": [
+        "a00R500000XJq6O"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM63",
+        "08pR5000002mKEb"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "TUBB0055",
+      "building": "101857 | A-B, 55 Tubbs Road NW10 4QX",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040686"
+      ],
+      "building_ids": [
+        "a00R500000XJqcf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLjT",
+        "08pR5000002oKOz"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "TUBB0045",
+      "building": "101861 | A-B, 45 Tubbs Road NW10 4RA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042335"
+      ],
+      "building_ids": [
+        "a00R500000XJbFW"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfQ",
+        "08pR5000002oKQb"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BUCK0072",
+      "building": "101868 | A-B, 72 Buckingham Road NW10 4RR",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041730"
+      ],
+      "building_ids": [
+        "a00R500000XJrDl"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMCD",
+        "08pR5000002oKTp"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WEND0057",
+      "building": "101874 | A-B, 57 Wendover Road NW10 4RX",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040287"
+      ],
+      "building_ids": [
+        "a00R500000XJs3K"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKDk",
+        "08pR5000002oQ1N"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "NIGH0044",
+      "building": "101876 | A & B, 44 Nightingale Road NW10 4SA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041682"
+      ],
+      "building_ids": [
+        "a00R500000XJbqb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMDV",
+        "08pR5000002oKK9"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HOLL0082",
+      "building": "101898 | A-C, 82 Holland Road NW10 5AY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01039989"
+      ],
+      "building_ids": [
+        "a00R500000XJswB"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKYk",
+        "08pR5000002oNDB"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLIF0107",
+      "building": "101922 | A-B, 107 Clifford Gardens NW10 5JG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042291"
+      ],
+      "building_ids": [
+        "a00R500000XJjL3"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMnz",
+        "08pR5000002mjg2"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLIF0111",
+      "building": "101923 | A-B, 111 Clifford Gardens NW10 5JG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041206"
+      ],
+      "building_ids": [
+        "a00R500000XJsmU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM85",
+        "08pR5000002mkDt"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLIF0117",
+      "building": "101925 | A-B, 117 Clifford Gardens NW10 5JG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040403"
+      ],
+      "building_ids": [
+        "a00R500000XJpgb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLGH",
+        "08pR5000002mkH7"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BATH0159",
+      "building": "101930 | A-B, 159 Bathurst Gardens NW10 5JJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041185"
+      ],
+      "building_ids": [
+        "a00R500000XJluk"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMBa",
+        "08pR5000002mYe9"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ANCO0026",
+      "building": "101988 | A & B, 26 Ancona Road NW10 5YA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042549"
+      ],
+      "building_ids": [
+        "a00R500000XJugD"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMmi",
+        "08pR5000002oQ2z"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MINE0043",
+      "building": "102016 | A & B, 43 Minet Avenue NW10 8AJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042117"
+      ],
+      "building_ids": [
+        "a00R500000XJld2"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMcB",
+        "08pR5000002marM"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARY0113",
+      "building": "102034 | A-B, 113 Harley Road NW10 8AY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041662"
+      ],
+      "building_ids": [
+        "a00R500000XJiTs"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMDq",
+        "08pR5000002lnli"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARY0065",
+      "building": "102040 | A & B, 65 Harley Road NW10 8BA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042129"
+      ],
+      "building_ids": [
+        "a00R500000XJbYu"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMba",
+        "08pR5000002lqWf"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARY0067",
+      "building": "102043 | A-B, 67 Harley Road NW10 8BA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041303"
+      ],
+      "building_ids": [
+        "a00R500000XJnzp"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM7P",
+        "08pR5000002lqV3"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CRAV0061",
+      "building": "102064 | 61 & 61A& 61B, 61 Craven Park NW10 8SR",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01043018"
+      ],
+      "building_ids": [
+        "a00R500000XJvpB"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hNDJ",
+        "08pR5000002oPy9"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CRAV0035",
+      "building": "102066 | A-C, 35 Craven Park NW10 8ST",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042893"
+      ],
+      "building_ids": [
+        "a00R500000XJggX"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMhn",
+        "08pR5000002oZnp"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "GREL0027",
+      "building": "102077 | A-B, 27 Greenhill Road NW10 8UD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042721"
+      ],
+      "building_ids": [
+        "a00R500000XJqES"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMm3",
+        "08pR5000002lqlB"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "NICO0052",
+      "building": "102102 | A-D, 52 Nicoll Road NW10 9AS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042146"
+      ],
+      "building_ids": [
+        "a00R500000XJiQb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMa4",
+        "08pR5000002lqd7"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CONN0045",
+      "building": "102103 | A-C, 45 Connaught Road NW10 9AT",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041915"
+      ],
+      "building_ids": [
+        "a00R500000XJvVr"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOx",
+        "08pR5000002lqhx"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "TUNL0004",
+      "building": "102106 | A-B, 4 Tunley Road NW10 9JS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041219"
+      ],
+      "building_ids": [
+        "a00R500000XJaT7"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM32",
+        "08pR5000002m9cX"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WEST0017",
+      "building": "102122 | A-B, 17 West Ella Road NW10 9PT",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01043024"
+      ],
+      "building_ids": [
+        "a00R500000XJm4X"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hNDb",
+        "08pR5000002oQ6D"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WEST0005",
+      "building": "102123 | A-B, 5 West Ella Road NW10 9PT",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042073"
+      ],
+      "building_ids": [
+        "a00R500000XJVwV"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMYv",
+        "08pR5000002oQ7p"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BROL0082",
+      "building": "102139 | A-B, 82 Brownlow Road NW10 9QT",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041415"
+      ],
+      "building_ids": [
+        "a00R500000XJrfC"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM8j",
+        "08pR5000002oPuv"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HAWK0007",
+      "building": "102150 | A-B, 7 Hawkshead Road NW10 9UP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042154"
+      ],
+      "building_ids": [
+        "a00R500000XJbkC"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMYq",
+        "08pR5000002nETh"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHUC0058",
+      "building": "102304 | A-B, 58 Churchill Road NW2 5EE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041084"
+      ],
+      "building_ids": [
+        "a00R500000XJiFd"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM55",
+        "08pR5000002oXJ1"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRON0128",
+      "building": "102316 | A-C, 128 Brondesbury Park NW2 5JP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042184"
+      ],
+      "building_ids": [
+        "a00R500000XJxpN"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMaJ",
+        "08pR5000002ocAb"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "VILL0046",
+      "building": "102344 | A-B, 46 Villiers Road NW2 5PH",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042762"
+      ],
+      "building_ids": [
+        "a00R500000XJnrl"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMlZ",
+        "08pR5000002odjN"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BROE0095",
+      "building": "102424 | A-C, 95 Brondesbury Villas NW6 6AG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042192"
+      ],
+      "building_ids": [
+        "a00R500000XJrP0"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZH",
+        "08pR5000002marI"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARD0189",
+      "building": "102441 | A-B, 189 Harvist Road NW6 6HB",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042591"
+      ],
+      "building_ids": [
+        "a00R500000XJqG9"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMeU",
+        "08pR5000002mkIj"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAI0006",
+      "building": "102476 | A-B, 6 Charteris Road NW6 7ET",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040741"
+      ],
+      "building_ids": [
+        "a00R500000XJglS"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLl7",
+        "08pR5000002mamQ"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAI0037",
+      "building": "102478 | A-B, 37 Charteris Road NW6 7EY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041273"
+      ],
+      "building_ids": [
+        "a00R500000XJqCp"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM5X",
+        "08pR5000002mao7"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ESMO0010",
+      "building": "102482 | A-B, 10 Esmond Road NW6 7HE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041951"
+      ],
+      "building_ids": [
+        "a00R500000XJxNy"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMMm",
+        "08pR5000002mapk"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ESMO0047",
+      "building": "102484 | A-B, 47 Esmond Road NW6 7HF",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041513"
+      ],
+      "building_ids": [
+        "a00R500000XJs0D"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMBo",
+        "08pR5000002maph"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STLE0011",
+      "building": "102808 | A-C, 11 St Leonards Road SW14 7LY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041545"
+      ],
+      "building_ids": [
+        "a00R500000XJo6B"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4V",
+        "08pR5000002rPn7"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STLE0009",
+      "building": "102812 | A-C, 9 St Leonards Road SW14 7LY",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042145"
+      ],
+      "building_ids": [
+        "a00R500000XK0s6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMal",
+        "08pR5000002rPoj"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DALY0022",
+      "building": "102900 | 1-2, 22 Dalyell Road SW9 9QR",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042508"
+      ],
+      "building_ids": [
+        "a00R500000XJfiz"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMer",
+        "08pR5000002mYr4"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MORD0005",
+      "building": "102910 | A-B, 5 Mordaunt Street SW9 9RD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042267"
+      ],
+      "building_ids": [
+        "a00R500000XK2In"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMj0",
+        "08pR5000002mYr5"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COMB0029",
+      "building": "102911 | 1-2, 29 Combermere Road SW9 9RE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041828"
+      ],
+      "building_ids": [
+        "a00R500000XJnzs"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMNp",
+        "08pR5000002mapm"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COMB0030",
+      "building": "102912 | 1-2, 30 Combermere Road SW9 9RE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042803"
+      ],
+      "building_ids": [
+        "a00R500000XK07L"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMkO",
+        "08pR5000002mYr8"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAN0009",
+      "building": "102923 | 1-3, 9 Chantrey Road SW9 9TD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041422"
+      ],
+      "building_ids": [
+        "a00R500000XJk13"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM6B",
+        "08pR5000002mao8"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DALY0124",
+      "building": "102930 | A-B, 124 Dalyell Road SW9 9UP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040977"
+      ],
+      "building_ids": [
+        "a00R500000XJjgA"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM0C",
+        "08pR5000002mao2"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BELL0038",
+      "building": "102939 | A-B, 38 Bellefields Road SW9 9UQ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040994"
+      ],
+      "building_ids": [
+        "a00R500000XJzG6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLyu",
+        "08pR5000002mao1"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BELL0042",
+      "building": "102941 | A-B, 42 Bellefields Road SW9 9UQ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041636"
+      ],
+      "building_ids": [
+        "a00R500000XJzrL"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM7G",
+        "08pR5000002mape"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLIN0014",
+      "building": "103100 | A-C, 14 Clifton Villas W9 2PH",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042695"
+      ],
+      "building_ids": [
+        "a00R500000XJofw"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMei",
+        "08pR5000002pXK9"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRAV0027",
+      "building": "103107 | A-C, 27 Bravington Road W9 3AB",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040241"
+      ],
+      "building_ids": [
+        "a00R500000XJWPS"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKya",
+        "08pR5000002myyP"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRAV0124",
+      "building": "103113 | A-C, 124 Bravington Road W9 3AL",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041293"
+      ],
+      "building_ids": [
+        "a00R500000XJyFF"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4B",
+        "08pR5000002pdiv"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRAV0178",
+      "building": "103116 | A-B, 178 Bravington Road W9 3AP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041375"
+      ],
+      "building_ids": [
+        "a00R500000XJhMT"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM6Q",
+        "08pR5000002pP9h"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0117",
+      "building": "103130 | A-C, 117 Portnall Road W9 3BB",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042035"
+      ],
+      "building_ids": [
+        "a00R500000XJxeA"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZn",
+        "08pR5000002pZQn"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0075",
+      "building": "103131 | A-C, 75 Portnall Road W9 3BB",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042733"
+      ],
+      "building_ids": [
+        "a00R500000XJydU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMmu",
+        "08pR5000002mz9h"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0078",
+      "building": "103138 | A-C, 78 Portnall Road W9 3BE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042537"
+      ],
+      "building_ids": [
+        "a00R500000XJOWq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMl7",
+        "08pR5000002mzG9"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0184",
+      "building": "103140 | A-C, 184 Portnall Road W9 3BJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042510"
+      ],
+      "building_ids": [
+        "a00R500000XJzsr"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMec",
+        "08pR5000002pN6H"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0206",
+      "building": "103141 | A-C, 206 Portnall Road W9 3BJ",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042712"
+      ],
+      "building_ids": [
+        "a00R500000XK3DG"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMhf",
+        "08pR5000002n00v"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0261",
+      "building": "103148 | A-C, 261 Portnall Road W9 3BL",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042530"
+      ],
+      "building_ids": [
+        "a00R500000XJopQ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfI",
+        "08pR5000002n0Lt"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0237",
+      "building": "103150 | A-C Blarney, 237 Portnall Road W9 3BL",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042286"
+      ],
+      "building_ids": [
+        "a00R500000XJopR"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMhT",
+        "08pR5000002n07N"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0133",
+      "building": "103152 | A-C, 133 Portnall Road W9 3BN",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042185"
+      ],
+      "building_ids": [
+        "a00R500000XJqRM"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZM",
+        "08pR5000002pd1N"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PORT0193",
+      "building": "103154 | A-C, 193 Portnall Road W9 3BN",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040321"
+      ],
+      "building_ids": [
+        "a00R500000XK30M"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL4u",
+        "08pR5000002pLyv"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0161",
+      "building": "103157 | A-B, 161 Ashmore Road W9 3DA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040779"
+      ],
+      "building_ids": [
+        "a00R500000XJz03"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLpp",
+        "08pR5000002pc6v"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0137",
+      "building": "103164 | A-C, 137 Ashmore Road W9 3DA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042161"
+      ],
+      "building_ids": [
+        "a00R500000XK42r"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMby",
+        "08pR5000002msHt"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0157",
+      "building": "103166 | A-C, 157 Ashmore Road W9 3DA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042037"
+      ],
+      "building_ids": [
+        "a00R500000XK2kE"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMaf",
+        "08pR5000002ms6b"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0165",
+      "building": "103168 | A-C, 165 Ashmore Road W9 3DA",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042441"
+      ],
+      "building_ids": [
+        "a00R500000XJjON"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMiT",
+        "08pR5000002pc3h"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0185",
+      "building": "103170 | A-C, 185 Ashmore Road W9 3DB",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041765"
+      ],
+      "building_ids": [
+        "a00R500000XJubS"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMLw",
+        "08pR5000002ms3N"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0242",
+      "building": "103176 | A-C, 242 Ashmore Road W9 3DD",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041561"
+      ],
+      "building_ids": [
+        "a00R500000XK0Yk"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM5c",
+        "08pR5000002mgYT"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0198",
+      "building": "103182 | A-C, 198 Ashmore Road W9 3DE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040335"
+      ],
+      "building_ids": [
+        "a00R500000XK2Dy"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL6j",
+        "08pR5000002mror"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "FORD0054",
+      "building": "103202 | A-B, 54 Fordingley Road W9 3HF",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041759"
+      ],
+      "building_ids": [
+        "a00R500000XJiaI"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMCL",
+        "08pR5000002pbpB"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "SALT0103",
+      "building": "103224 | A-C, 103 Saltram Crescent W9 3JS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042895"
+      ],
+      "building_ids": [
+        "a00R500000XJx4i"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMdo",
+        "08pR5000002mhKr"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STLE0007",
+      "building": "102811 | A-C, 7 St Leonards Road SW14 7LY",
+      "outcome": "weekday",
+      "instruction": "No answer or generic access failure below the customer limit; retry on a different weekday.",
+      "work_orders": [
+        "01042751"
+      ],
+      "building_ids": [
+        "a00R500000XJxuH"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMlE"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HEAT0022",
+      "building": "101033 | 22 Heathfield Park NW2 5JE",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042623"
+      ],
+      "building_ids": [
+        "a00R500000UcYvR"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMmz",
+        "08pR5000002lm1d",
+        "08pR5000002p1FR"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "NORT0015",
+      "building": "101059 | 15A Northampton Grove N1 2PL",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01040755"
+      ],
+      "building_ids": [
+        "a00R500000UcXcp"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLma"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CAMB0157",
+      "building": "101100 | 157 Cambridge Street SW1V 4QB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01023411"
+      ],
+      "building_ids": [
+        "a00R500000UcN2P"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clOB",
+        "08pR5000002nk29"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CODE0000",
+      "building": "101114 | 1-43 Code Court, Flowers Close NW2 7FG",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023449"
+      ],
+      "building_ids": [
+        "a00R500000UcP14"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clWL"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WESB0041",
+      "building": "101123 | 41 Westbourne Gardens W2 5NR",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01023354"
+      ],
+      "building_ids": [
+        "a00R500000UcYFZ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clG9",
+        "08pR5000002macq"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WARD00002-1",
+      "building": "101244 | Humberton House, 12 Ward Lane E9 5GX",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023646"
+      ],
+      "building_ids": [
+        "a00R500000WpDQf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm14"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "JOHB000A",
+      "building": "101252 | 52-68 John Barker Court, 14 Brondes NW6 7BW",
+      "outcome": "call",
+      "instruction": "Call LWC on 07393234321 to arrange access before visiting. Proposed schedule slot remains provisional until confirmed. The original no-earlier-than date was 17 September 2026.",
+      "work_orders": [
+        "01040875"
+      ],
+      "building_ids": [
+        "a00R500000Wp6Qn"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLwH"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "phone": "07393234321"
+    },
+    {
+      "reference": "SOHO0000",
+      "building": "101254 | 7 Selbourne Avenue TW3 1BX",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01023313"
+      ],
+      "building_ids": [
+        "a00R500000WpH1E"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clBN",
+        "08pR5000002r9s1",
+        "08pR5000002sGBV"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "MEVA0000",
+      "building": "101255 | 3 Selbourne Avenue TW3 1DQ",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023569"
+      ],
+      "building_ids": [
+        "a00R500000WoxCA"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clpd"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PURV0028",
+      "building": "101264 | 28 Purves Road NW10 5SU",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040845"
+      ],
+      "building_ids": [
+        "a00R500000WopmW"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLuk"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LOCB0000-3",
+      "building": "101426 | 7-9 Lockbridge Court, Lea Bridge Ro E5 9QB",
+      "outcome": "weekday",
+      "instruction": "Conor approved a weekday retry following the drawing/location issue. Check the current drawing before visiting.",
+      "work_orders": [
+        "01041594"
+      ],
+      "building_ids": [
+        "a00R500000XJbdf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM3x",
+        "08pR5000002qYnd"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 1
+    },
+    {
+      "reference": "ELLF0037",
+      "building": "101435 | 33-41 Ellingfort Road E8 3PA",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01042722"
+      ],
+      "building_ids": [
+        "a00R500000XJcBc"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMnQ"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ARLI0000-CP",
+      "building": "101460 | Arlidge House Car Park, 11-14 Kirby EC1N 8TW",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023691"
+      ],
+      "building_ids": [
+        "a00R500000XJThl"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm5z"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PEPP0000",
+      "building": "101472 | 3-86 Peppermint Heights, Northwick HA0 1LG",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01023463"
+      ],
+      "building_ids": [
+        "a00R500000XJh4p"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clXw"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "GREI0039",
+      "building": "101504 | A-B, 39 Greenhill Road HA1 1LD",
+      "outcome": "client",
+      "instruction": "Access requires an appointment, notice, staff or an escort.",
+      "work_orders": [
+        "01041644"
+      ],
+      "building_ids": [
+        "a00R500000XJiSF"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4j"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "EASC0027",
+      "building": "101549 | A-B, 27 Eastcote Road HA2 8LQ",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040098"
+      ],
+      "building_ids": [
+        "a00R500000XJqj3"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKSR",
+        "08pR5000002nenx"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CARA0072",
+      "building": "101557 | 1-6, 72 Carlton Avenue HA3 8AY",
+      "outcome": "weekday",
+      "instruction": "Conor approved a weekday retry: one unanswered visit, despite the staff/escort category.",
+      "work_orders": [
+        "01042388"
+      ],
+      "building_ids": [
+        "a00R500000XJilX"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfl"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LONSH",
+      "building": "101586 | The Hive, 22 Wembley Park Boulevard HA9 0HP",
+      "outcome": "client",
+      "instruction": "Access requires an appointment, notice, staff or an escort.",
+      "work_orders": [
+        "01023193"
+      ],
+      "building_ids": [
+        "a00R500000XJqzB"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002ckrw"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LIVE0060",
+      "building": "101645 | 1-3, 60 Liverpool Road N1 0PY",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040732"
+      ],
+      "building_ids": [
+        "a00R500000XJLYq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLl9",
+        "08pR5000002mamR",
+        "08pR5000002qYxJ"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "OFFO0177",
+      "building": "101650 | 1-4, 177 Offord Road N1 1LR",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042514"
+      ],
+      "building_ids": [
+        "a00R500000XJkM7"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMnC",
+        "08pR5000002m4sz",
+        "08pR5000002pXSD"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "ROTE0045",
+      "building": "101652 | 1 - 2, 45 Rotherfield Street N1 3BU",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041516"
+      ],
+      "building_ids": [
+        "a00R500000XJOVF"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM3Q",
+        "08pR5000002mao4",
+        "08pR5000002qYvh"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HIGH0154-1",
+      "building": "101671 | 1-7 & 152B, 154 High Road N15 6UJ",
+      "outcome": "weekday",
+      "instruction": "Retry with another surveyor following Harrison’s entrance-identification failure. Check the entrance and access route.",
+      "work_orders": [
+        "01042050"
+      ],
+      "building_ids": [
+        "a00R500000XJUqu"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZs"
+      ],
+      "customer_failures": 0,
+      "metro_failures": 1,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "HIGH0154-2",
+      "building": "101672 | 8-21 & A, 154 High Road N15 6UJ",
+      "outcome": "weekday",
+      "instruction": "Retry with another surveyor following Harrison’s entrance-identification failure. Check the entrance and access route.",
+      "work_orders": [
+        "01023682"
+      ],
+      "building_ids": [
+        "a00R500000XImWL"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm5h"
+      ],
+      "customer_failures": 0,
+      "metro_failures": 1,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "WINP0552",
+      "building": "101680 | 552A-554B Windsor Parade, 540 High N17 9SX",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040718"
+      ],
+      "building_ids": [
+        "a00R500000XJgtU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLN7"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STTHOM0025",
+      "building": "101698 | 1 - 4, 25 St Thomas's Road N4 2QH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041666"
+      ],
+      "building_ids": [
+        "a00R500000XJea1"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMDX",
+        "08pR5000002mapi",
+        "08pR5000002qYu5"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "NEAS0145",
+      "building": "101737 | A-B, 145 Neasden Lane NW10 1PS",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01041145"
+      ],
+      "building_ids": [
+        "a00R500000XJmHS"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMA4",
+        "08pR5000002nEIP"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "POUN0007",
+      "building": "101747 | 7-9, Pound lane NW10 2HS",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01039961"
+      ],
+      "building_ids": [
+        "a00R500000XJleZ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKVQ"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HANO0170",
+      "building": "101771 | A-B, 170 Hanover Road NW10 3DP",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040549"
+      ],
+      "building_ids": [
+        "a00R500000XJqXn"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLZl"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARL0097",
+      "building": "101825 | A-B, 97 Harlesden Gardens NW10 4HB",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01042186"
+      ],
+      "building_ids": [
+        "a00R500000XJaw7"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMbP"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LEGH0061",
+      "building": "101847 | A-B, 61 Leghorn Road NW10 4PJ",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01039955"
+      ],
+      "building_ids": [
+        "a00R500000XJjsv"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKVN"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HIGS0164",
+      "building": "101880 | A-B, 164 High Street NW10 4ST",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041170"
+      ],
+      "building_ids": [
+        "a00R500000XJmNj"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM8d",
+        "08pR5000002mRsn",
+        "08pR5000002p10v"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HIGS0175",
+      "building": "101881 | 1-8, 175 High Street NW10 4TE",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01042876"
+      ],
+      "building_ids": [
+        "a00R500000XJjOK"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMgv"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HIGS0175-1",
+      "building": "101882 | Office, 175 High Street High Street NW10 4TE",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040226"
+      ],
+      "building_ids": [
+        "a00R500000XJspi"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKww",
+        "08pR5000002mRzF",
+        "08pR5000002p15l"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "WAKE0057",
+      "building": "101901 | A-B, 57 Wakeman Road NW10 5BJ",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042147"
+      ],
+      "building_ids": [
+        "a00R500000XJnRq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZt",
+        "08pR5000002md7Z",
+        "08pR5000002pR0D"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COMP0018",
+      "building": "101902 | 1-2, 18 Compton Road NW10 5BP",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042303"
+      ],
+      "building_ids": [
+        "a00R500000XJVee"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMja",
+        "08pR5000002mg5R",
+        "08pR5000002pR1p"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BULL0003",
+      "building": "101903 | A-B, 3 Buller Road NW10 5BS",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040728"
+      ],
+      "building_ids": [
+        "a00R500000XJu57"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLky",
+        "08pR5000002mkvR",
+        "08pR5000002pR53"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COLL0031",
+      "building": "101908 | A & B, 31 College Road NW10 5EL",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041510"
+      ],
+      "building_ids": [
+        "a00R500000XJrC6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM3I",
+        "08pR5000002mdif",
+        "08pR5000002pQvN"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "COLL0015",
+      "building": "101910 | A-B, 15 College Road NW10 5EL",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01042395"
+      ],
+      "building_ids": [
+        "a00R500000XJeel"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMe0"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLIF0119",
+      "building": "101926 | A-B, 119 Clifford Gardens NW10 5JG",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041463"
+      ],
+      "building_ids": [
+        "a00R500000XJsRY"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM8c"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PEMB0017",
+      "building": "101934 | A-C, 17 Pember Road NW10 5LR",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040814"
+      ],
+      "building_ids": [
+        "a00R500000XJuRh"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLtC",
+        "08pR5000002mfB0",
+        "08pR5000002pR3R"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HARO1058",
+      "building": "101938 | 1056A-C & 1058A-C, Harrow Road NW10 5NL",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041968"
+      ],
+      "building_ids": [
+        "a00R500000XJl20"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOL"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "RAVE0029",
+      "building": "101941 | A-B, 29 Ravensworth Road NW10 5NP",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041131"
+      ],
+      "building_ids": [
+        "a00R500000XJlBb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM9F",
+        "08pR5000002mbvN",
+        "08pR5000002ovwP"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MORT0043",
+      "building": "101946 | A-B, 43 Mortimer Road NW10 5QR",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042151"
+      ],
+      "building_ids": [
+        "a00R500000XJoHV"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMbW",
+        "08pR5000002melB",
+        "08pR5000002pQwz"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LINE0004",
+      "building": "101949 | A-B, 4 Linden Avenue NW10 5QS",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042648"
+      ],
+      "building_ids": [
+        "a00R500000XJtDu"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMiC",
+        "08pR5000002mjEb",
+        "08pR5000002pQyb"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MOSY0012",
+      "building": "101950 | A-B, 12 Mostyn Gardens NW10 5QX",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041624"
+      ],
+      "building_ids": [
+        "a00R500000XJnRr"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM9j"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PURV0011",
+      "building": "101960 | A-B, 11 Purves Road NW10 5ST",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041689"
+      ],
+      "building_ids": [
+        "a00R500000XJems"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMCl",
+        "08pR5000002mc6f",
+        "08pR5000002pQtl"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PURV0043",
+      "building": "101964 | A-B, 43 Purves Road NW10 5SY",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040064"
+      ],
+      "building_ids": [
+        "a00R500000XJs3L"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKf6",
+        "08pR5000002mcGL",
+        "08pR5000002pQs9"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PURV0106",
+      "building": "101965 | A-B, 106 Purves Road NW10 5TB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041961"
+      ],
+      "building_ids": [
+        "a00R500000XJswC"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOm",
+        "08pR5000002mkQn",
+        "08pR5000002pQqX"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CEN0004",
+      "building": "102000 | Block D, 4 Central Way NW10 7XN",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01040887"
+      ],
+      "building_ids": [
+        "a00R500000XJlA6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM0D"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MINE0130",
+      "building": "102026 | A-B, 130 Minet Avenue NW10 8AP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040107"
+      ],
+      "building_ids": [
+        "a00R500000XJopN"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKlk",
+        "08pR5000002lqZt",
+        "08pR5000002ow7h"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "MINE0142",
+      "building": "102030 | A-B, 142 Minet Avenue NW10 8AU",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01042316"
+      ],
+      "building_ids": [
+        "a00R500000XJglN"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMiF",
+        "08pR5000002lqbV",
+        "08pR5000002ow65"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "HARY0068",
+      "building": "102031 | A-B, 68 Harley Road NW10 8AX",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042258"
+      ],
+      "building_ids": [
+        "a00R500000XJqxb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMil",
+        "08pR5000002lobK"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CRAV0098",
+      "building": "102050 | 1-7, 98 Craven Park NW10 8QE",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01040045"
+      ],
+      "building_ids": [
+        "a00R500000XIrR9"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKc2"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "GREL0032",
+      "building": "102079 | 1-8, 32 Greenhill Road NW10 8UE",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday third no-answer attempt as a specific exception to the 1–5-flat limit (8 flats).",
+      "work_orders": [
+        "01042063"
+      ],
+      "building_ids": [
+        "a00R500000XJknU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMaF",
+        "08pR5000002lqrd"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0,
+      "saturday_size_exception": true
+    },
+    {
+      "reference": "CONN0032",
+      "building": "102094 | A-C, 32 Connaught Road NW10 9AG",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040489"
+      ],
+      "building_ids": [
+        "a00R500000XJw0T"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLPr",
+        "08pR5000002lqRp"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BROL0059",
+      "building": "102137 | A-B, 59 Brownlow Road NW10 9QS",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040995"
+      ],
+      "building_ids": [
+        "a00R500000XJlgJ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM0P"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ROUN0090",
+      "building": "102148 | A & B, 90 Roundwood Road NW10 9UH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040273"
+      ],
+      "building_ids": [
+        "a00R500000XJoe3"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL1v",
+        "08pR5000002nEQT"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ROUN0091",
+      "building": "102149 | A-B, 91 Roundwood Road NW10 9UJ",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041836"
+      ],
+      "building_ids": [
+        "a00R500000XJiqY"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMMI",
+        "08pR5000002nES5"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "OLDF0069",
+      "building": "102152 | A-D, 69 Oldfield Road NW10 9UT",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042346"
+      ],
+      "building_ids": [
+        "a00R500000XJq4l"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMkK",
+        "08pR5000002nEBx"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLAR0021",
+      "building": "102153 | A-C, 21 Claremont Road NW2 1BP",
+      "outcome": "weekday",
+      "instruction": "Weekday quality revisit by another surveyor: Harrison made the second customer no-answer attempt. The technical failure does not consume a customer attempt.",
+      "work_orders": [
+        "01040738"
+      ],
+      "building_ids": [
+        "a00R500000XJtFb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLl5",
+        "08pR5000002mamP",
+        "08pR5000002p7Sv"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "CHOR0000-2",
+      "building": "102171 | 8-15 Chorus House, 1 Woodley Cresce NW2 2DW",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042778"
+      ],
+      "building_ids": [
+        "a00R500000XJZju"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMnR",
+        "08pR5000002mtqf",
+        "08pR5000002p6dJ"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ELMG0006",
+      "building": "102175 | A-B, 6 Elm Grove NW2 3AA",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041663"
+      ],
+      "building_ids": [
+        "a00R500000XJUdp"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMCk",
+        "08pR5000002ms9p",
+        "08pR5000002p6QP"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "SHEL0000",
+      "building": "102178 | 1-5, 1 Sheldon Road NW2 3AL",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040353"
+      ],
+      "building_ids": [
+        "a00R500000XJb7a"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL9w",
+        "08pR5000002m2sn",
+        "08pR5000002p4Jl"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHIC0089",
+      "building": "102179 | A-B, 89 Chichele Road NW2 3AT",
+      "outcome": "weekday",
+      "instruction": "Conor approved a weekday quality revisit by another surveyor after Harrison’s inconsistent building-identification and no-answer reports.",
+      "work_orders": [
+        "01042383"
+      ],
+      "building_ids": [
+        "a00R500000XJaUm"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfK",
+        "08pR5000002m65B",
+        "08pR5000002p3kH"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "CHIC0030",
+      "building": "102185 | A-C, 30 Chichele Road NW2 3DA",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042245"
+      ],
+      "building_ids": [
+        "a00R500000XJoXb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMeE",
+        "08pR5000002mHOn",
+        "08pR5000002p4A5"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHIC0086",
+      "building": "102187 | A-C, 86 Chichele Road NW2 3DH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01043004"
+      ],
+      "building_ids": [
+        "a00R500000XJNpH"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hNDn",
+        "08pR5000002m5vV",
+        "08pR5000002p3nV"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "OAKG0005",
+      "building": "102188 | A-B, 5 Oak Grove NW2 3LS",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01042080"
+      ],
+      "building_ids": [
+        "a00R500000XJtfK"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMa3"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ANSO0026",
+      "building": "102189 | 1-3, 26 Anson Road NW2 3UU",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042276"
+      ],
+      "building_ids": [
+        "a00R500000XJPuG"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMdB",
+        "08pR5000002m3Tt"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "KEYE0032",
+      "building": "102198 | 1-3, 32 Keyes Road NW2 3XB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041442"
+      ],
+      "building_ids": [
+        "a00R500000XJeIH"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM7U",
+        "08pR5000002m6TN",
+        "08pR5000002pgqT"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HOVE0025",
+      "building": "102200 | A-C, 25 Hoveden Road NW2 3XE",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042509"
+      ],
+      "building_ids": [
+        "a00R500000XJWnf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMhW",
+        "08pR5000002m6OY",
+        "08pR5000002pcy9"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASTL0003",
+      "building": "102203 | A-B, 3 Astley Avenue NW2 4AD",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042459"
+      ],
+      "building_ids": [
+        "a00R500000XJqzU"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMcN",
+        "08pR5000002m8jh",
+        "08pR5000002pZtp"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAT0023",
+      "building": "102205 | A-C, 23 Chatsworth Road NW2 4BJ",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040905"
+      ],
+      "building_ids": [
+        "a00R500000XJlmm"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM05",
+        "08pR5000002pebl",
+        "08pR5000002r2Yn"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STGA0035",
+      "building": "102207 | A-C, 35 St Gabriels Road NW2 4DT",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041466"
+      ],
+      "building_ids": [
+        "a00R500000XJraJ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMBB",
+        "08pR5000002mIcb",
+        "08pR5000002pHyX"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STGA0097",
+      "building": "102209 | A-C, 97 St Gabriels Road NW2 4DU",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041268"
+      ],
+      "building_ids": [
+        "a00R500000XJkVo"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM5n",
+        "08pR5000002mGMI",
+        "08pR5000002p0rF"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "TEIG0078",
+      "building": "102210 | 1-3, 78 Teignmouth Road NW2 4DX",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041953"
+      ],
+      "building_ids": [
+        "a00R500000XJvys"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOO",
+        "08pR5000002mK4v",
+        "08pR5000002p0uT"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DART0100",
+      "building": "102214 | 1-3, 100 Dartmouth Road NW2 4HB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040149"
+      ],
+      "building_ids": [
+        "a00R500000XJbYv"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKou",
+        "08pR5000002mahh",
+        "08pR5000002p0w5"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DART0098",
+      "building": "102215 | A-C, 98 Dartmouth Road NW2 4HB",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040002"
+      ],
+      "building_ids": [
+        "a00R500000XJktq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKYb"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CRAH0059",
+      "building": "102222 | 1-2, 59 Cranhurst Road NW2 4LL",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040803"
+      ],
+      "building_ids": [
+        "a00R500000XJk5p"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLrN"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MELR0113",
+      "building": "102232 | A-B, 113 Melrose Avenue NW2 4LX",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041932"
+      ],
+      "building_ids": [
+        "a00R500000XJPMO"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMMK",
+        "08pR5000002mR6P",
+        "08pR5000002pYEb"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CLOV0000",
+      "building": "102235 | 1-39 Clovelly Court, 54 Blenheim Gardens NW2 4NQ",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01040580"
+      ],
+      "building_ids": [
+        "a00R500000XJkYs"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLbE"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STAN0003",
+      "building": "102260 | A-B, 3 Stanley Gardens NW2 4QH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042620"
+      ],
+      "building_ids": [
+        "a00R500000XJZQa"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMdH",
+        "08pR5000002mMcz",
+        "08pR5000002p2BW"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STAN0014",
+      "building": "102263 | 1-2, 14 Stanley Gardens NW2 4QJ",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042602"
+      ],
+      "building_ids": [
+        "a00R500000XJqtq"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjO",
+        "08pR5000002mNCT",
+        "08pR5000002p2Hx"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "GROS0001",
+      "building": "102267 | A-B, 1 Grosvenor Gardens NW2 4QN",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041814"
+      ],
+      "building_ids": [
+        "a00R500000XJk0z"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOg",
+        "08pR5000002mLnN",
+        "08pR5000002pIBR"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WALM0134",
+      "building": "102270 | A-C, 134 Walm Lane NW2 4RT",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040910"
+      ],
+      "building_ids": [
+        "a00R500000XJqBD"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLyi",
+        "08pR5000002mMI1",
+        "08pR5000002opz3"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STGA0014",
+      "building": "102271 | A-C, 14 St Gabriels Road NW2 4RY",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042305"
+      ],
+      "building_ids": [
+        "a00R500000XJXIJ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjV",
+        "08pR5000002mJVR",
+        "08pR5000002oqdN"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DEAN0039",
+      "building": "102277 | A & B, 39 Dean Road NW2 5AB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040612"
+      ],
+      "building_ids": [
+        "a00R500000XJUNm"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLeU",
+        "08pR5000002ln7N",
+        "08pR5000002p1H3"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DEAN0026",
+      "building": "102280 | A-C, 26 Dean Road NW2 5AE",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041290"
+      ],
+      "building_ids": [
+        "a00R500000XJxUP"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4D",
+        "08pR5000002lqwT",
+        "08pR5000002p1If"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PARK0035",
+      "building": "102283 | A-C, 35 Park Avenue NW2 5AN",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040772"
+      ],
+      "building_ids": [
+        "a00R500000XJeV3"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLpt",
+        "08pR5000002lqzh",
+        "08pR5000002p1Dp"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PARK0016",
+      "building": "102285 | A-C, 16 Park Avenue NW2 5AP",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01042376"
+      ],
+      "building_ids": [
+        "a00R500000XJk5q"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjL"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HUDD0056",
+      "building": "102292 | 1 & 1B, 56 Huddlestone Road NW2 5DN",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042854"
+      ],
+      "building_ids": [
+        "a00R500000XJqj6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMfe",
+        "08pR5000002mRrB",
+        "08pR5000002p17N"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "WIND0022",
+      "building": "102294 | A-B, 22 Windsor Road NW2 5DS",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042057"
+      ],
+      "building_ids": [
+        "a00R500000XJgtb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZ0",
+        "08pR5000002mRnx",
+        "08pR5000002p18z"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BALM0005",
+      "building": "102298 | A-B, 5 Balmoral Road NW2 5DX",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01041944"
+      ],
+      "building_ids": [
+        "a00R500000XJW6A"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMOq"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRON0096",
+      "building": "102318 | 1-7, 96 Brondesbury Park NW2 5JR",
+      "outcome": "client",
+      "instruction": "Access requires an appointment, notice, staff or an escort.",
+      "work_orders": [
+        "01042345"
+      ],
+      "building_ids": [
+        "a00R500000XJpK6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMhQ"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAE0315",
+      "building": "102330 | A-B, 315 Chapter Road NW2 5ND",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040203"
+      ],
+      "building_ids": [
+        "a00R500000XJdEA"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKvI",
+        "08pR5000002mRmL",
+        "08pR5000002p0xh"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STPA0009",
+      "building": "102353 | A-B, 9 St Pauls Avenue NW2 5SS",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040455"
+      ],
+      "building_ids": [
+        "a00R500000XJjg6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLMe",
+        "08pR5000002lr2v",
+        "08pR5000002p1NV"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STPA0026",
+      "building": "102354 | 1-6, 26 St Pauls Avenue NW2 5SX",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041353"
+      ],
+      "building_ids": [
+        "a00R500000XJlmn"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM6u",
+        "08pR5000002lr1J",
+        "08pR5000002p1KH"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "STPA0047",
+      "building": "102357 | A-D, 47 St Pauls Avenue NW2 5SY",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042848"
+      ],
+      "building_ids": [
+        "a00R500000XJrDs"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMj4",
+        "08pR5000002lo3R",
+        "08pR5000002p1CD"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "CEDA0023",
+      "building": "102369 | A-B, 23 Cedar Road NW2 6SS",
+      "outcome": "weekday",
+      "instruction": "Conor approved another visit: knock on the door if the doorbell does not work.",
+      "work_orders": [
+        "01042021"
+      ],
+      "building_ids": [
+        "a00R500000XJeN0"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMZf"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "OLIV0048",
+      "building": "102377 | A-B, 48 Olive Road NW2 6UD",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042706"
+      ],
+      "building_ids": [
+        "a00R500000XJwVB"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMeG",
+        "08pR5000002mvm1",
+        "08pR5000002p4jZ"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MCDO0003",
+      "building": "102402 | 3-12 Mcdonald House, Malvern Road NW6 5BF",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023701"
+      ],
+      "building_ids": [
+        "a00R500000XJyOr"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm7S"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "HANS0015-CP",
+      "building": "102411 | Car Park, 15 Hansel Road NW6 5FP",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042689"
+      ],
+      "building_ids": [
+        "a00R500000XJs0C"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMmC",
+        "08pR5000002q0u1",
+        "08pR5000002sbhN"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 1
+    },
+    {
+      "reference": "HARD0108",
+      "building": "102445 | A-B, 108 Harvist Road NW6 6HJ",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040021"
+      ],
+      "building_ids": [
+        "a00R500000XJQ7B"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKaL"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "KINW0008",
+      "building": "102448 | 1-6, 8 Kingswood Avenue NW6 6LA",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01041384"
+      ],
+      "building_ids": [
+        "a00R500000XJnhz"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4m"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "JOHB000B",
+      "building": "102462 | 69-84 John Barker Court, 14 Brondes NW6 7BW",
+      "outcome": "call",
+      "instruction": "Call LWC on 07393234321 to arrange access before visiting. Proposed schedule slot remains provisional until confirmed. The original no-earlier-than date was 17 September 2026.",
+      "work_orders": [
+        "01040651"
+      ],
+      "building_ids": [
+        "a00R500000XJx4f"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLg9"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "phone": "07393234321"
+    },
+    {
+      "reference": "HAZM0031",
+      "building": "102481 | 1-2, 31 Hazelmere Road NW6 7HA",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040990"
+      ],
+      "building_ids": [
+        "a00R500000XJxnm"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLxu"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BUCL0048",
+      "building": "102491 | 1-3, 48 Buckley Road NW6 7LU",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042524"
+      ],
+      "building_ids": [
+        "a00R500000XJx4g"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMeD",
+        "08pR5000002marO",
+        "08pR5000002r3t3"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DUNT0024",
+      "building": "102495 | A-C, 24 Dunster Gardens NW6 7NH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042315"
+      ],
+      "building_ids": [
+        "a00R500000XJzG5"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjH",
+        "08pR5000002mYr6",
+        "08pR5000002r3cv"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PRIO0086",
+      "building": "102500 | A-B, 86 Priory Park Road NW6 7UN",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01040363"
+      ],
+      "building_ids": [
+        "a00R500000XJpFG"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hL9v"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "DYNE0014",
+      "building": "102503 | A-C, 14 Dyne Road NW6 7XE",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01041621"
+      ],
+      "building_ids": [
+        "a00R500000XJyqI"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM9u",
+        "08pR5000002mapg",
+        "08pR5000002r3Y5"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "AVER0001",
+      "building": "102508 | 1-140 Avery Court, 40, 41 & 45 Capi NW9 0AU",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023643"
+      ],
+      "building_ids": [
+        "a00R500000XJvMD"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm0y"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BREE0000",
+      "building": "102509 | 1-76 Bree Court, 46 Capitol Way NW9 0AU",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01023641"
+      ],
+      "building_ids": [
+        "a00R500000XJpDh"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cm15"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "MAPL0000",
+      "building": "102546 | 1-28 Maple Lodge, Birchen Grove NW9 8SE",
+      "outcome": "client",
+      "instruction": "Client assistance is required to arrange access after the building secretary prevented entry.",
+      "work_orders": [
+        "01040224"
+      ],
+      "building_ids": [
+        "a00R500000XJzkj"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKwo"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PRES0001-1",
+      "building": "102659 | The Grange, 1B Presdales Court SG12 9NF",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01041355"
+      ],
+      "building_ids": [
+        "a00R500000XJrfF"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM8y"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "PEPP0036-1",
+      "building": "102661 | 36-36A, Pepper Hill SG12 9RZ",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01040830"
+      ],
+      "building_ids": [
+        "a00R500000XJyNH"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLsu"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "OFFICE-RIV",
+      "building": "102673 | Riversmead House, 36 Ware Road SG13 7HH",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01042639"
+      ],
+      "building_ids": [
+        "a00R500000XK0iP"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjY",
+        "08pR5000002njHN"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "TAPL0000-1",
+      "building": "102757 | 26-36 Thieves Lane (Block D), Taplo SG14 2FZ",
+      "outcome": "weekday",
+      "instruction": "Conor confirmed this block is on Taplow Avenue, not Thieves Lane. Retry using Taplow Avenue, SG14 2FZ; confirm the exact block entrance on arrival.",
+      "work_orders": [
+        "01040571"
+      ],
+      "building_ids": [
+        "a00R500000XJqEZ"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLbP"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "route_address": "26-36 Taplow Avenue, SG14 2FZ"
+    },
+    {
+      "reference": "TAPL0003",
+      "building": "102758 | 38-48 Thieves Lane (Block C), Taplo SG14 2FZ",
+      "outcome": "weekday",
+      "instruction": "Conor confirmed this block is on Taplow Avenue, not Thieves Lane. Retry using Taplow Avenue, SG14 2FZ; confirm the exact block entrance on arrival.",
+      "work_orders": [
+        "01040246"
+      ],
+      "building_ids": [
+        "a00R500000XJyyN"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKyS"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "route_address": "38-48 Taplow Avenue, SG14 2FZ"
+    },
+    {
+      "reference": "TAPL0001",
+      "building": "102759 | 50-58 Thieves Lane (Block A), Taplo SG14 2FZ",
+      "outcome": "weekday",
+      "instruction": "Conor confirmed this block is on Taplow Avenue, not Thieves Lane. Retry using Taplow Avenue, SG14 2FZ; confirm the exact block entrance on arrival.",
+      "work_orders": [
+        "01040666"
+      ],
+      "building_ids": [
+        "a00R500000XJzo0"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLhj"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "route_address": "50-58 Taplow Avenue, SG14 2FZ"
+    },
+    {
+      "reference": "TAPL0005",
+      "building": "102760 | 53-63 Thieves Lane (Block C), Taplo SG14 2FZ",
+      "outcome": "weekday",
+      "instruction": "Conor confirmed this block is on Taplow Avenue, not Thieves Lane. Retry using Taplow Avenue, SG14 2FZ; confirm the exact block entrance on arrival.",
+      "work_orders": [
+        "01042699"
+      ],
+      "building_ids": [
+        "a00R500000XK1OL"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMnc"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "route_address": "53-63 Taplow Avenue, SG14 2FZ"
+    },
+    {
+      "reference": "TAPL0000-2",
+      "building": "102761 | 60-70 Thieves Lane (Block B), Taplo SG14 2FZ",
+      "outcome": "weekday",
+      "instruction": "Conor confirmed this block is on Taplow Avenue, not Thieves Lane. Retry using Taplow Avenue, SG14 2FZ; confirm the exact block entrance on arrival.",
+      "work_orders": [
+        "01039911"
+      ],
+      "building_ids": [
+        "a00R500000XJyNI"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKQc"
+      ],
+      "customer_failures": 0,
+      "metro_failures": 1,
+      "route_address": "60-70 Taplow Avenue, SG14 2FZ"
+    },
+    {
+      "reference": "CAMB0159",
+      "building": "102832 | A-B, 159 Cambridge Street SW1V 4QB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01023273"
+      ],
+      "building_ids": [
+        "a00R500000XK10A"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cl4p",
+        "08pR5000002nk3l",
+        "08pR5000002pxGD"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CAMB016501",
+      "building": "102835 | A-B, 165 Cambridge Street SW1V 4QB",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01023483"
+      ],
+      "building_ids": [
+        "a00R500000XJvVx"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clbF",
+        "08pR5000002nka1",
+        "08pR5000002px9l"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ROBS0033-CP",
+      "building": "102855 | Shared Residential Car Park - Cumno SW9 0BE",
+      "outcome": "weekday",
+      "instruction": "Conor approved another visit. Seek access through the concierge.",
+      "work_orders": [
+        "01040620"
+      ],
+      "building_ids": [
+        "a00R500000XJc51"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLdF"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BENE0009-CP",
+      "building": "102872 | Shared Residential Car Park - Bened SW9 0FS",
+      "outcome": "weekday",
+      "instruction": "Conor approved one further weekday access attempt with another surveyor.",
+      "work_orders": [
+        "01041464"
+      ],
+      "building_ids": [
+        "a00R500000XJh9c"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM7Y"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "MOAT0000-1",
+      "building": "102874 | 7-14 Moat Court, 8 Moat Place SW9 0TA",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01040781"
+      ],
+      "building_ids": [
+        "a00R500000XJXtO"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLph",
+        "08pR5000002mgTd",
+        "08pR5000002prdp"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BEND001300",
+      "building": "102896 | The Resource Centre, 13 Benedict Ro SW9 9FS",
+      "outcome": "weekday",
+      "instruction": "Conor approved another surveyor to locate the Resource Centre and retry access.",
+      "work_orders": [
+        "01040491"
+      ],
+      "building_ids": [
+        "a00R500000XJrby"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLRU"
+      ],
+      "customer_failures": 0,
+      "metro_failures": 1,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "STOO015300",
+      "building": "102898 | The Learning Centre (LC1), 153 Stoc SW9 9FX",
+      "outcome": "weekday",
+      "instruction": "Conor approved one further weekday access attempt with another surveyor.",
+      "work_orders": [
+        "01041350"
+      ],
+      "building_ids": [
+        "a00R500000XJvIy"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMAT"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0,
+      "different_surveyor_from": "Harrison Grice"
+    },
+    {
+      "reference": "STJN0000",
+      "building": "102970 | 1-29, 5 St Johns Road TW7 6YE",
+      "outcome": "weekday",
+      "instruction": "Conor approved another visit. Try the fireman’s drop key for the internal access door.",
+      "work_orders": [
+        "01023200"
+      ],
+      "building_ids": [
+        "a00R500000XJnGf"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002cktX"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "LANG0000-CP",
+      "building": "103055 | Langley House Car Park, Alfred Road W2 5ET",
+      "outcome": "weekday",
+      "instruction": "Conor approved another visit and selection of one valid unscheduled replacement appointment. Do not schedule duplicate replacements.",
+      "work_orders": [
+        "01023528"
+      ],
+      "building_ids": [
+        "a00R500000XJm1E"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clj8",
+        "08pR5000002mafx"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 2,
+      "select_duplicate_replacement": true
+    },
+    {
+      "reference": "RANE0002",
+      "building": "103074 | A-C, 2 Ranelagh Gardens W4 3RP",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040168"
+      ],
+      "building_ids": [
+        "a00R500000XK3Wb"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKs6",
+        "08pR5000002rLy1"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "SUTH0080",
+      "building": "103106 | A-F, 80 Sutherland Avenue W9 2QS",
+      "outcome": "client",
+      "instruction": "Two or more customer failures are recorded.",
+      "work_orders": [
+        "01023606"
+      ],
+      "building_ids": [
+        "a00R500000XK3Ji"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002clxg",
+        "08pR5000002mag2",
+        "08pR5000002pXGv"
+      ],
+      "customer_failures": 3,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRAV0122",
+      "building": "103112 | A-C, 122 Bravington Road W9 3AL",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041919"
+      ],
+      "building_ids": [
+        "a00R500000XJzT2"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMNK"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "BRAV0129",
+      "building": "103121 | A-C, 129 Bravington Road W9 3AT",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01042380"
+      ],
+      "building_ids": [
+        "a00R500000XJozE"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMlJ"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0123",
+      "building": "103160 | A-C, 123 Ashmore Road W9 3DA",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041958"
+      ],
+      "building_ids": [
+        "a00R500000XK1ON"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMN8"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0189",
+      "building": "103173 | A-C, 189 Ashmore Road W9 3DB",
+      "outcome": "client",
+      "instruction": "Access requires an appointment, notice, staff or an escort.",
+      "work_orders": [
+        "01041406"
+      ],
+      "building_ids": [
+        "a00R500000XJYJD"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM9L"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0176",
+      "building": "103181 | A-C, 176 Ashmore Road W9 3DE",
+      "outcome": "client",
+      "instruction": "Building works or boarding prevent normal access.",
+      "work_orders": [
+        "01040810"
+      ],
+      "building_ids": [
+        "a00R500000XK0gp"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLrW"
+      ],
+      "customer_failures": 0,
+      "metro_failures": 1
+    },
+    {
+      "reference": "ASHM0058",
+      "building": "103185 | A-C, 58 Ashmore Road W9 3DG",
+      "outcome": "client",
+      "instruction": "A resident declined access or requires confirmation/notice.",
+      "work_orders": [
+        "01041500"
+      ],
+      "building_ids": [
+        "a00R500000XJqeL"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hM4z"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0074",
+      "building": "103186 | A-C, 74 Ashmore Road W9 3DG",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040735"
+      ],
+      "building_ids": [
+        "a00R500000XJxno"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hLks",
+        "08pR5000002mtKP"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    },
+    {
+      "reference": "ASHM0090",
+      "building": "103190 | A-C, 90 Ashmore Road W9 3DQ",
+      "outcome": "client",
+      "instruction": "A usable entry route, key or access system is needed.",
+      "work_orders": [
+        "01042788"
+      ],
+      "building_ids": [
+        "a00R500000XK1g6"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hMjj"
+      ],
+      "customer_failures": 1,
+      "metro_failures": 0
+    },
+    {
+      "reference": "CHAE0227",
+      "building": "841418 | 227 Chapter Road NW2 5LU",
+      "outcome": "saturday",
+      "instruction": "Conor approved a Saturday retry for this building (1–5 flats).",
+      "work_orders": [
+        "01040190"
+      ],
+      "building_ids": [
+        "a00R500000glnOV"
+      ],
+      "failed_appointment_ids": [
+        "08pR5000002hKtc",
+        "08pR5000002rBQn"
+      ],
+      "customer_failures": 2,
+      "metro_failures": 0
+    }
+  ]
+}

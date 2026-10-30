@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.16** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.17** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -14,6 +14,32 @@ Developed by **Conor Birch** during an operational improvement project at Metro 
 - Adds remaining eligible work to short days, expanding beyond the usual 15 km search when necessary.
 - Distinguishes routine failed-visit retries from cases requiring client help or internal review.
 - Produces a Salesforce upload worksheet, scheduling diagnostics and a separate cannot-completes access report.
+- Applies the saved 231-building audit and maintains call-ahead flags for provisional visits.
+- Separately estimates client-access workload across consecutive weekdays, without creating bookings.
+
+## Saved building audit and calls
+
+`building_decisions.json` contains the reviewed outcomes from the completed 30 October audit, matched by customer reference. It is deployed with the code: do not re-upload the audit each week. Refresh the normal appointment/cannot-complete workbook for every schedule. No model reinterprets the comments on each run.
+
+Completed appointments and outstanding bookings supersede the audit, including appointments on another Work Order linked to the same building. A further failed appointment or increased failure count expires the approval; missing reviewed history prevents its use. Stale master rows cannot bypass these checks. These are next-attempt approvals, not indefinite retries.
+
+Appointment-level `AI Cannot Complete Issue` and resource fields are retained separately. Two customer no-answer attempts may qualify for Saturday even when there was also an evidenced technical failure. Explicit audited approvals take priority over general access classification. The eight-flat Greenhill building has its own Saturday size exception; Westbourne Gardens and Chapter Road still require a verified 1–5 flat count. Taplow Avenue overrides the old routing address without inventing new coordinates.
+
+John Barker Court's two call-ahead blocks can receive provisional weekday slots. The app's **Calls required this week** section and the **Calls Required** export sheet show the proposal, phone, instructions and confirmation status. Save contact notes and select **To call**, **Access confirmed** or **Rearrangement needed**. Changing the proposed date, time or surveyor resets confirmation. These flags do not contact residents or update Salesforce automatically; confirm access before treating a provisional slot as a booking. The call section can export an updated CSV after contact statuses change.
+
+Call statuses are saved in SQLite, not only Streamlit session memory. By default the database is beside the app in `.scheduler_state/calls.sqlite3`. For hosted use, set **`SCHEDULER_STATE_DIR` to a writable persistent directory** shared by the app instances. Temporary hosting disks can be erased on redeploy; setting this variable alone does not provision durable storage. Keep the database when updating code and keep its backups private. Saved audit decisions survive redeploys because the JSON is included in the deployment.
+
+## Client Access Planning
+
+This separate tab runs only when **Generate client planning schedule** is pressed. It uses outstanding, unbooked client-help buildings and assumes access can be arranged. Its recurring team availability and time controls are independent of normal weekly scheduling.
+
+- Monday–Friday only, across as many weeks as needed; no fixed week limit.
+- Geographic route packing with the existing duration model, travel, lunch, buffers and return deadlines. No added balancing allowance or workload spreading.
+- Buildings placed, surveyor-days, calendar weeks and unplaced buildings are reported. Missing inputs, incompatible access days, routing failures and a full week with no progress are explicit outcomes, not endless empty weeks.
+- Export includes **Summary**, **Provisional Programme**, **Not Scheduled** and **Planning Settings**. There is no Salesforce upload sheet. Generating the scenario never consumes an audit approval, saves a call proposal or creates a live booking.
+- Input, training-model or saved-audit changes invalidate the cached scenario. Google routing occurs only after the button is pressed; a multiweek run can make more routing requests than a normal weekly run. Future journey availability depends on the routing provider.
+
+The estimate is a feasible geographic heuristic, not proof of the mathematically shortest programme. It is conditional on the client securing access and the selected recurring team availability.
 
 ## How the planning works
 
@@ -101,7 +127,7 @@ The access rules were refined through a manual audit of approximately **100 buil
 | --- | --- |
 | A linked Service Appointment is Completed | Resolve the Work Order and exclude it from retry/client-help work. |
 | Two or more recorded customer failures | Require client help unless eligible for the Saturday no-answer trial, an approved resolution or the operational revisit review below. |
-| Exactly two customer failures, no-answer case, 1–5 flats | Allow a third attempt on Saturday only after verifying two distinct known failed visits; no automatic fourth attempt. |
+| Two customer no-answer failures, 1–5 flats | Allow one further customer access attempt on Saturday. Evidenced technical failures do not consume the customer allowance. Saved audit approvals and conditions are checked separately. |
 | Clear access barrier after a failed visit | Request client help even below the two-customer-failure threshold; examples include refused access, an unusable entry system or a required appointment/escort. |
 | Blank failure description | Assess as “No answer at door”; retain the original source text unchanged in the report. |
 | Routine no-answer below the customer limit | Retry on a different weekday unless an explicit requested day says otherwise, with a preference for the opposite morning/afternoon period. |
@@ -121,7 +147,7 @@ The review uses names and dates linked to the actual failed Service Appointment,
 
 ### Avoiding repeat bookings
 
-The **Weeks to exclude existing bookings** selector defaults to the current UK week and accepts multiple weeks. It reads `Scheduled Start` from the appointment-mapping tab to exclude unstarted replacement appointments in those weeks.
+Normal weekly runs automatically exclude all outstanding retry bookings present in the appointment workbook. The **Booking weeks to highlight in the exclusion report** selector labels selected weeks in that report; clearing it does not allow a duplicate retry booking. Cancelled and known failed appointments do not block a fresh unscheduled replacement.
 
 A known failed visit is treated separately from an outstanding booking, so a fresh unscheduled replacement can still pass through the normal retry checks. Refresh the Salesforce report after booking a week before planning another one: the application uses uploaded data rather than a live Salesforce connection. The booking filter applies to the retry Work Orders represented in that report; it is not a general live-calendar duplicate check.
 

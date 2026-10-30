@@ -123,6 +123,9 @@ def representative_sites(
             row.get("Latitude Clean", row.get("Latitude")),
             row.get("Longitude Clean", row.get("Longitude")),
         )
+        override = row.get('Route Address Override')
+        if override is not None and pd.notna(override) and str(override).strip():
+            route_location = str(override).strip()
 
         centre_latitude = row.get(
             "Cluster Centre Latitude",

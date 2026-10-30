@@ -6,6 +6,9 @@ import io
 import hashlib
 from access_report import build_access_report
 from access_rules import apply_confirmed_visit_groups
+from audited_decisions import load_decisions
+from call_flags import call_rows, save_proposals, read_calls, add_call_notes, render_call_panel
+from client_planning_ui import render_client_planning
 import os
 
 import pandas as pd
@@ -86,7 +89,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.16 — Grove Park base, Saturday third attempts and optional final-week balancing")
+st.caption("Version 20.12.17 — saved building decisions, call-ahead flags and client access planning")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -428,6 +431,9 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             site_row.get("Latitude Clean", site_row.get("Latitude")),
             site_row.get("Longitude Clean", site_row.get("Longitude")),
         )
+        route_override = str(site_row.get('Route Address Override') or '').strip()
+        if route_override and route_override.lower() not in {'nan', 'none'}:
+            route_location = route_override
 
         special_date = site_row.get("Special Request Date")
         if special_date is not None and not pd.isna(special_date):
@@ -454,6 +460,8 @@ def site_dataframe_to_dicts(df: pd.DataFrame):
             "latitude": optional_number(site_row.get("Latitude Clean", site_row.get("Latitude"))),
             "longitude": optional_number(site_row.get("Longitude Clean", site_row.get("Longitude"))),
             "route_location": route_location,
+            "saturday_size_exception": str(site_row.get('Saturday Size Exception', False)).lower() == 'true',
+            "audit_instruction": str(site_row.get('Audit Instruction') or ''),
             "home_to_cluster_minutes": optional_number(site_row.get("Home to Cluster (Minutes)")),
             "planning_minutes": float(
                 site_row["Planning Duration (Minutes)"]
@@ -538,7 +546,7 @@ def booking_exclusion_controls(retry_file, current_monday, planning_week):
         current_monday + timedelta(weeks=offset) for offset in range(-4, 13)
     } | {booking_week_start(planning_week)})
     weeks = st.multiselect(
-        "Weeks to exclude existing bookings",
+        "Booking weeks to highlight in the exclusion report",
         options=options,
         default=[current_monday],
         format_func=lambda week: (
@@ -548,9 +556,9 @@ def booking_exclusion_controls(retry_file, current_monday, planning_week):
         key=f"team_booking_exclusion_weeks_{current_monday.isoformat()}",
         disabled=retry_file is None,
         help=(
-            "Select weeks already booked in Salesforce. Unstarted replacement appointments "
-            "in those weeks are excluded from this run. Refresh the report after uploading "
-            "another schedule. Clear the selection to turn booking exclusions off."
+            "These weeks are labelled in the exclusion report. All outstanding retry "
+            "bookings are excluded automatically, including dates outside this selection. "
+            "Refresh the appointment report after uploading another schedule."
         ),
     )
     if retry_file is None:
@@ -903,10 +911,11 @@ def write_salesforce_copy_sheet(writer, salesforce_copy_df: pd.DataFrame):
     return ws
 
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "Predict one building",
     "Weekly scheduling",
     "Model diagnostics",
+    "Client Access Planning",
 ])
 
 with tab1:
@@ -971,7 +980,7 @@ with tab2:
     )
 
     retry_file = st.file_uploader(
-        "Cannot Complete retry workbook (optional)",
+        "Current Cannot Complete and appointment workbook",
         type=["xlsx", "xls"],
         key="cannot_complete_retry_file",
         help=(
@@ -997,7 +1006,9 @@ with tab2:
         "and existing booking exclusions remain protected."
     )
 
-    report_source_key = "20.12.16:" + hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
+    render_call_panel(st, retry_file.getvalue() if retry_file is not None else None)
+    st.caption('The 231 audited building decisions are saved with the app. Upload current appointment history each run; completed work, outstanding bookings and later failed visits override saved approvals.')
+    report_source_key = "20.12.17:" + hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
     if retry_file is not None:
         if st.button("Generate cannot-completes report", key="generate_access_report"):
             try:
@@ -1539,12 +1550,16 @@ with tab2:
                                         team_predictions_for_run = team_predictions
                                         team_portfolio_input_for_run = team_portfolio_input
 
+                                        if retry_file is None:
+                                            raise ValueError('Upload current cannot-complete/appointment history so saved audit decisions can be checked against completions, bookings and later visits.')
+
                                         if retry_file is not None:
                                             retry_plan = build_retry_plan(
                                                 retry_file.getvalue(),
                                                 openai_api_key=team_openai_key,
                                                 openai_model=team_openai_model,
                                                 excluded_week_starts=team_excluded_booking_weeks,
+                                                protect_outstanding_bookings=True,
                                             )
                                             for warning in retry_plan.warnings:
                                                 st.warning(warning)
@@ -2765,6 +2780,7 @@ with tab2:
                                             team_upcoming_for_run,
                                         )
 
+
                                         retry_audit_df = pd.DataFrame()
                                         retry_sense_check_df = pd.DataFrame()
                                         client_access_required_df = pd.DataFrame()
@@ -2800,6 +2816,19 @@ with tab2:
                                                         ].astype(str).tolist()
                                                     )
                                                 )
+
+                                        calls_for_week = call_rows(combined_team_schedule, retry_plan.decisions) if retry_plan is not None else pd.DataFrame()
+                                        save_proposals(calls_for_week)
+                                        stored_calls = read_calls()
+                                        if not calls_for_week.empty:
+                                            calls_for_week = stored_calls.loc[stored_calls['Customer Reference'].isin(calls_for_week['Customer Reference'])].copy()
+                                            st.warning('Call-ahead visits are provisional until access is confirmed. See Calls Required below and the saved call section above.')
+                                            st.dataframe(calls_for_week, hide_index=True, use_container_width=True)
+                                        combined_team_schedule = add_call_notes(combined_team_schedule, calls_for_week)
+                                        if retry_plan is not None and not combined_team_schedule.empty:
+                                            instructions = dict(zip(retry_plan.decisions['Customer Reference'], retry_plan.decisions.get('Audit Instruction', pd.Series('', index=retry_plan.decisions.index))))
+                                            combined_team_schedule['Access Instructions'] = combined_team_schedule['Customer Reference'].map(instructions).fillna('')
+
 
                                         cluster_matrix_rows = []
                                         for surveyor in active_surveyors:
@@ -3408,6 +3437,7 @@ with tab2:
                                             sheet_name="Full Team Schedule",
                                             index=False,
                                         )
+                                        calls_for_week.to_excel(writer, sheet_name='Calls Required', index=False)
                                         write_salesforce_copy_sheet(
                                             writer,
                                             salesforce_copy_df,
@@ -3630,3 +3660,9 @@ with tab3:
         "MAE is leave-one-out cross-validation error on the historical "
         "completed-survey data."
     )
+
+with tab4:
+    render_client_planning(st, predict_upcoming, normalise_upcoming_columns,
+                          site_dataframe_to_dicts, get_secret,
+                          default_retry=retry_file, default_master=team_file,
+                          model_fingerprint=f'{training_fingerprint}:{min_duration}')

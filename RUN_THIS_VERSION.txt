@@ -1,207 +1,65 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.16
-Updated: 23 October 2026
+Current application: 20.12.17
+Updated: 30 October 2026
 
-START HERE
+INSTALL THIS UPDATE
 
-Use app.py as the entry point. Run these commands from the project folder:
+This ZIP is an incremental update to v20.12.16. It contains only changed
+or newly required files. Extract it into the existing project folder,
+replace matching files, and retain the tests/ subfolder. Keep all other
+modules, your Predictive Model.xlsx, requirements and credentials.
 
-    python -m pip install -r requirements.txt
+Stop Streamlit before replacing files, then restart:
     python -m streamlit run app.py
 
-Use Python 3.10 or newer. Provide completed-survey training through the sidebar
-or as Predictive Model.xlsx beside app.py. Configure API keys through environment
-variables or .streamlit/secrets.toml; see README.md for names and optional features.
+For hosted apps, deploy all matching files together and reboot the app.
+Keep building_decisions.json alongside app.py and the new Python modules.
+There are no new package requirements.
 
-The application should display Version 20.12.16. The active route engine remains
-scheduler_v20_10.py; its filename is not the application's release number.
+SAVED AUDIT
 
-UPDATING AN EXISTING INSTALLATION
+The 231 reviewed decisions are included in building_decisions.json.
+You do not need to upload the audit on every run. Upload current Salesforce
+appointment/cannot-complete data each time. Completed buildings and outstanding
+bookings stay excluded. A later failure expires the saved next-attempt approval.
+The two missing-flat-count Saturday cases remain conditional, not guessed.
 
-Stop Streamlit completely before replacing matching project files, then restart.
-Keep exact Python filenames so imports work. Keep your training data and secrets.
-For a hosted Streamlit app, deploy the matching files and reboot the application.
+CALLS REQUIRED
 
-The v20.12.16 ZIP is an incremental update to v20.12.15. Extract it into the existing project folder,
-replacing matching files and retaining the tests/ subfolder. It contains only
-changed files, not a complete installation. Keep all other modules, training
-data, requirements and credentials.
+Generate a normal weekly schedule to create call-ahead proposals. Use the
+Calls required this week section to save contact status and notes. A Calls
+Required worksheet is included in the weekly export; an updated CSV can be
+downloaded after making calls. Confirm access before using provisional slots
+as bookings. Changes to date, time or surveyor reset confirmation.
 
-Replace every matching file in this ZIP together and fully restart Streamlit.
-Do not replace your completed-survey workbook with test or sample data.
+Call status is saved in a local SQLite database. For hosted persistence, set
+SCHEDULER_STATE_DIR to a writable persistent directory. This must actually be
+backed by durable storage; temporary hosting disks may be wiped on redeploy.
+Do not overwrite the database during a code update. Audit decisions themselves
+are stored in the deployed JSON and do not depend on session memory.
 
-If you see:
-    fill_team_gaps() got an unexpected keyword argument 'expand_underfilled_days'
+CLIENT ACCESS PLANNING
 
-the new app is loading an older team_scheduler.py, either from disk or from
-memory. The same applies to an unexpected 'saturday_time_window', 'saturday_small_only_dates',
-'saturday_candidate_pool' or 'surveyor_name' argument after this
-update. Stop the running process with Ctrl+C, confirm the updated module is in
-the same project folder as app.py, and restart. A browser refresh is insufficient.
+Use the separate tab and its Generate client planning schedule button.
+Upload current history there, or reuse the workbook in Weekly scheduling.
+Optionally supply the master portfolio for richer building/duration data.
+Select recurring weekday availability, start week, survey hours and return
+limit. This mode uses Monday-Friday only, repeating weeks until work is placed
+or there is no feasible progress. It has no fixed week cap, no artificial
+spacing and no workload spreading. Actual travel, lunch and time limits remain.
 
-NEW IN 20.12.16
+The programme assumes client-arranged access. It does not book appointments,
+consume approvals, save normal call proposals or export a Salesforce upload.
+The export reports buildings, surveyor-days, calendar weeks and every unplaced
+building with a reason. Future Google journey availability can limit routing.
 
-Toby's new base is Grove Park Station, Baring Road, London SE12 0DZ.
-The verified station coordinates are 51.43044575, 0.022578266.
+VALIDATION
 
-Small no-answer cases (1-5 flats) with exactly two recorded customer failures
-and two distinct known failed visits can receive a third attempt on Saturday
-only. Single-row Salesforce roll-ups are supported: appointment history must
-verify two failures; supplied descriptions must indicate no answer. The note
-may refer to the first visit; the audit states when the other description is
-unavailable, without claiming both reasons are known. Known access
-barriers, completed work, booking exclusions and replacement-SA gates remain.
-There is no automatic fourth attempt. Include Sovereign Flat and SA status /
-Actual Start in the current cannot-complete report. Larger ordinary retries
-retain the existing Saturday fallback; larger third attempts are not allowed.
-
-Keep the new workload_balancer.py beside app.py. The optional checkbox
-'Spread work across all selected days' is OFF by default. It runs after normal
-filling, first trying to redistribute suitable work across selected days, then
-adding 5-minute steps of separate allowance between visits on short days,
-up to 30 minutes per gap. It preserves every scheduled building exactly once,
-access groups, note dates/owners, Saturday rules, lunch and all time limits.
-Full days receive no added allowance. Routing is recalculated; survey durations
-and travel estimates are not inflated. No allowance before the first or after
-the last visit. It stops within 5 minutes of the survey/return limit or reports
-the remaining shortfall. Extra route checks can increase Google usage.
-
-Use Workload Balancing for before/after results. Additional Balancing Buffer
-(Minutes) is shown separately in schedules and summaries. Re-run with current
-source data after installing; these files do not book or upload appointments.
-
-NEW IN 20.12.15
-
-Monday-Friday now prioritises buildings with no recorded visit, even when
-travel is inefficient. Building references match the supplied failed, started
-and completed appointment history and completed-survey training data. A new
-Work Order or replacement appointment does not reset the building's history.
-A scheduled or cancelled booking without a visit does not count as a visit.
-
-Upload the current cannot-complete/appointment workbook. Without it, unmatched
-buildings are marked Unverified, not assumed never visited. Keep the new
-first_visit_priority.py beside app.py; it is required by this update.
-
-Initial weekday routes contain first visits only. The shared team pass checks
-all eligible first visits before retries, including outside the initial
-shortlists. First visits have no distance cap, minimum survey-to-travel ratio
-or minimum gap trigger. Actual survey, lunch and home-arrival limits still apply.
-Weekly notes cannot remove previously planned first visits. Ordinary retries
-then fill remaining gaps, with their access-day preferences retained.
-
-The ordinary wider search now starts at 60 minutes remaining after nearby
-filling, instead of 30. Nearby work can still fill shorter gaps. First visits
-bypass this threshold. Saturday's small-retry restriction remains unchanged.
-
-First Visit Review and Unvisited Remaining show coverage and exclusion reasons.
-Run Settings records the priority, threshold and first-visit counts. Routing
-remains heuristic: an unplaced row is not proof no alternative route exists.
-
-RETAINED FROM 20.12.14
-
-Saturday is now restricted to cannot-complete retries with 1-5 flats while any
-eligible small retries remain unbooked across the team, including outside the
-initial shortlists. Six flats, garages and unknown counts are outside this group.
-Other sizes are allowed only after the whole Saturday-eligible small pool has
-been scheduled. A small site that is too far away, unreachable or too long to
-fit remains outstanding and does not unlock larger work.
-
-Initial routing, requested-day passes, weekly-note trials and gap filling use
-this rule. Once the last small retry is booked, a further Saturday pass can fill
-earlier gaps with other sizes. Access/reviewer restrictions, Saturday-only hours,
-lunch, finish and return deadlines remain unchanged. Saturday still excludes
-fresh buildings; weekday rules are unchanged. This can leave Saturday time
-unused while small retries remain unplaced.
-
-Day Filling Review shows Saturday Size Rule, Saturday Small Retries Remaining
-and Saturday Fallback Additions. Run Settings records the strict rule.
-
-RETAINED FROM 20.12.12
-
-The 13 Lavender Crescent/The Hollies sites are a Monday-only visit group.
-Requested-day allocation keeps compact compatible groups with one surveyor
-where capacity allows. With the supplied availability and home-to-area times,
-the AL3 group is assigned to Conor. Retry Day Assignments now shows the group
-and its size. Actual route feasibility still applies; rerun the schedule.
-
-The ten internal holds from the latest output have been approved for another
-visit. They are marked APPROVED_INTERNAL_RETRY with original notes retained.
-The approvals do not bypass completed-work, booking or replacement-SA checks,
-and do not automatically approve a new failed visit.
-
-RETAINED FROM 20.12.11
-
-Check Training source and Accepted completed surveys in the sidebar before
-scheduling. Upload your full completed-survey history if the bundled workbook
-is out of date. Duration Training in the export records the selected source,
-fingerprint and accepted counts by building size. The previous exports showed
-a sharp drop in training history; this update cannot recover missing data.
-
-Training caches now use workbook contents. Sparse residential models have
-labelled low-confidence fallbacks; original equations remain first choice.
-Joe/Harrison refusal matching now recognises the audited wording variations.
-Building coordinates are used for Google journeys where valid; fallback
-addresses have asset identifiers and duplicate postcodes removed.
-
-Rerun the schedule with your full training workbook. A live Google rerun is
-needed to verify the unusual return-home journey and resulting day lengths.
-
-RETAINED FROM 20.12.10
-
-The Saturday hours section has separate first-survey-start, last-survey-finish
-and return-home dropdowns. Defaults are 10:00 / 13:00 / 14:00; adjust all three
-to suit the half day. Tick Saturday in the availability table for each person
-working it. Saturday remains restricted to cannot-complete retries.
-
-These Saturday times apply during initial planning, requested-day priority,
-weekly-note reroutes and final gap filling. Monday-Friday retain their original
-hours. Existing lunch, travel, access and booking checks still apply.
-Capacity Review uses the actual shorter window; Run Settings records the times.
-
-RETAINED FROM 20.12.9
-
-Requested retry weekdays receive priority within the retry pass, after the
-weekday first-visit pass. Soft suggestions may fall back if they cannot be used;
-explicit access-only days remain mandatory. Inspect Retry Day Assignments and
-Requested Day Honoured? in Retry Decisions to see the result.
-
-Saturday is an optional availability checkbox, off by default. Tick it for
-people who will work that day. Only cannot-complete retries can go on Saturday.
-
-The 9 October operational review reopens unresolved second/latest failed visits
-by Harrison Grice and latest access-refusal failures recorded by Joe Reynolds
-or Harrison Grice through that date. Another surveyor performs the revisit.
-Original failure counts stay intact. A later failure returns to normal triage.
-Completed work, existing booking exclusions and replacement-SA checks still apply.
-
-Upload a fresh cannot-completes workbook with Resource Name and visit dates
-linked to each failed Service Appointment ID. Names on new appointments do not
-identify the failed-visit surveyor. Incomplete evidence is reported rather than
-used to infer an exception. The standalone access report includes this evidence.
-
-CURRENT FILLING BEHAVIOUR
-
-Nearby work is tried first, including the normal 15 km search. If at least
-60 minutes remain before the survey cut-off, the final pass tries remaining
-eligible buildings without a distance limit. Final filling has no minimum
-survey-to-travel ratio; initial planning retains its efficiency preference.
-
-Access, booking, completed-work, lunch, survey-finish and return-home checks
-remain enforced. Existing visits are preserved. The wider search can increase
-routing requests and run time; it cannot guarantee every day will be full.
-
-Use Day Filling Review, Gap Filling, Capacity Review and Unplaced Eligible to
-inspect what was tried and which work remains. Gap Filling appears when visits
-were added. The separate cannot-completes access report remains available.
-
-CHECKS AND DOCUMENTATION
-
-With dependencies installed:
+From this project folder, with existing dependencies installed:
     python -m unittest discover -s tests -v
 
-The v20.12.16 update passed 255 offline regression tests and Python compilation.
-These checks excluded Streamlit booking-selector UI tests and made no live
-routing or AI calls. Regenerate the schedule after installing this update.
+The update is checked against the audited source data and offline routing/UI
+regressions. No live Google or OpenAI requests were used during verification.
+Real journey timings will be calculated when you run the app with your keys.
 
-README.md explains the project, current rules, inputs, outputs and setup.
-CHANGELOG.md summarises recent changes. No dependencies have been added.
+See README.md for details and CHANGELOG.md for the version history.

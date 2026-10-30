@@ -36,7 +36,9 @@ def action_group(row):
             return 'Already booked in excluded week'
         if not str(row.get('Mapping Status', '')).startswith('OK'):
             return 'Replacement appointment check'
-        if row.get('Reason Category') == 'SATURDAY_THIRD_NO_ANSWER':
+        if row.get('Call Ahead Required') is True:
+            return 'Call ahead — provisional visit'
+        if row.get('Reason Category') == 'SATURDAY_THIRD_NO_ANSWER' or row.get('Required Weekdays') == ['Saturday']:
             return 'Third attempt — Saturday only'
         return 'Routine retry'
     return 'Internal review / hold'
@@ -103,7 +105,8 @@ def build_access_report(plan, source_name='', generated_on=None):
     summary.append([])
     for note in [
         'Client help: two customer failures, or a clear access barrier after one visit, unless eligible for the small-building Saturday third attempt or a reviewed-revisit exception. Metro failures do not count towards the customer limit.',
-        'Saturday trial: 1–5 flats, two recorded customer failures, exactly two known failed visits and no-answer in supplied descriptions. No automatic fourth attempt. Missing visit descriptions are disclosed in the decision; known access barriers stay with the client.',
+        'Saturday trial: 1–5 flats and two customer no-answer attempts. Evidenced technical failures do not consume the customer attempt allowance. Specific saved audit approvals and the recorded size exception are applied separately.',
+        'The saved 30 October building audit authorises the next attempt only. Completed work, outstanding bookings and subsequent failures supersede that decision. Call-ahead visits require access confirmation.',
         'The 9 October review reopens verified Harrison second failed visits and Joe/Harrison access refusals recorded by that date. Completed work stays resolved; original failure counts are retained. A later failure returns to normal triage.',
         'Any linked Completed service appointment resolves the Work Order and removes it from the client tab.',
         'Booking-week exclusions affect scheduling only; they do not hide client access issues.',
@@ -138,6 +141,8 @@ def build_access_report(plan, source_name='', generated_on=None):
     fields = ['Customer Reference','Building Name','Postcode','Work Order Number','Decision','Reason Category','Decision Reason','Recommended Client Action','Customer Failure Count','Metro Failure Count','Previous Visit','Surveyor Original Description','Primary Service Appointment: Reason Description','Cancelation Reason Description','Reason Not Complete','Failure Reason','Mapping Status','Replacement Service Appointment ID','Old Service Appointment ID','Completed Service Appointment IDs','Linked Appointment Statuses','Booking Excluded','Retry Eligible','Required Weekdays','Forbidden Weekday','Preferred Retry Period','Record Coverage','Building ID'] + visits
     fields += ['Latest Failed Surveyor', 'Second Failed Surveyor', 'Quality Revisit Basis',
                'Quality Review Evidence', 'Quality Review Cutoff', 'Preferred Weekdays', 'Requested Day Priority']
+    fields += ['Audit Instruction', 'Call Ahead Required', 'Call Phone', 'Route Address Override', 'Saturday Size Exception']
+    fields += sorted({key for row in records for key in row if re.fullmatch(r'Visit \d+ (AI Issue|Surveyor)', key)})
     rows = [[action_group(r)] + [excel_date(r.get(k)) if k == 'Previous Visit' or k in visits else r.get(k) for k in fields] for r in records]
     table_sheet(wb, 'All Cannot Completes', ['Action group']+fields, rows, {7:50,8:50,13:65,14:65,15:65})
     output = BytesIO()

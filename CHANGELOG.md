@@ -1,6 +1,15 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.16**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.17**.
+
+## v20.12.17 — audited decisions, calls and client planning — 30 October 2026
+
+- Deploy the 231 reviewed building decisions once, with failed-appointment baselines. Completed work, outstanding bookings, missing history and subsequent failures supersede saved approvals. Protect stale master entries and replacement Work Orders by building identity.
+- Read individual appointment AI issue/resource fields; exclude evidenced technical failures from the Saturday customer attempt allowance. Apply the approved building exceptions, Taplow routing correction and Langley duplicate-SA tie-break.
+- Add persistent call-ahead statuses for the two John Barker Court blocks, with provisional date/time, contact details, instructions and a Calls Required worksheet. Reset confirmation when a proposal changes.
+- Add an independent Client Access Planning tab, triggered only by its own button. Pack recurring Monday–Friday availability into unlimited consecutive weeks, preserving travel and time constraints and disabling spreading/added allowance. Reconcile every input building to placed or explicitly unplaced; stop on no progress or provider failure.
+- Export a provisional client programme with workload totals, access needs and settings, without a Salesforce upload or live-state mutations. Preserve normal Saturday hours and the ordinary scheduling pipeline.
+- Add regression and UI tests for approval expiry, cross-Work-Order completion, cancellations, duplicate replacement selection, size exceptions, persisted calls, multiweek planning, no-progress termination and button-only execution.
 
 ## v20.12.16 — Saturday trials and final-week balancing — 23 October 2026
 
