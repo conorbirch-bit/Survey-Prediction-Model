@@ -90,7 +90,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.18 — SNG programme, limited spreading and eligible-programme coverage")
+st.caption("Version 20.12.19 — allow retry-only scheduling when the master export is empty")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1078,12 +1078,23 @@ with tab2:
                     )
                 ].copy()
 
-                if team_portfolio_input.empty:
+                if team_portfolio_input.empty and retry_file is None:
                     st.warning(
-                        "There are no portfolio sites with a usable postcode for "
-                        "clustering/planning."
+                        "The master portfolio has no sites with a usable postcode. "
+                        "Upload current cannot-complete and appointment history "
+                        "to check for eligible retries."
                     )
                 else:
+                    if team_portfolio_input.empty:
+                        st.info(
+                            ("The master portfolio export has no building rows. "
+                             if team_upcoming.empty else
+                             "The master portfolio has no sites with a usable postcode. ")
+                            +
+                            "Eligible retries will be reconstructed from the "
+                            "cannot-complete and appointment workbook when you "
+                            "create the weekly schedule."
+                        )
                     today = datetime.now(LONDON_TZ).date()
                     current_monday = booking_week_start(today)
                     default_team_week = current_monday + timedelta(days=7)
