@@ -1,6 +1,15 @@
 # Changelog
 
-Recent application changes and the current documentation baseline. Current application: **v20.12.17**.
+Recent application changes and the current documentation baseline. Current application: **v20.12.18**.
+
+## v20.12.18 — SNG programme and limited spreading — 6 November 2026
+
+- Client planning includes approved Saturday retry candidates on weekdays, flags the parallel retry pool, and omits boarded-up/construction sites. Normal Saturday rules remain unchanged.
+- Export the agreed Daily Programme and Visit Details with numbered working days, original surveyor descriptions, SNG response fields and a manual Salesforce status check. Preserve an exceptions tab when work cannot be placed.
+- Limit normal-week spreading and added allowance to days meeting an adjustable 75% genuine utilisation threshold. Retain unavoidable short final days without padding.
+- Show “End of eligible program” only after all currently eligible work is allocated, not when days happen to be empty. Missing inputs, unplaced eligible sites and approved retry mapping failures prevent the message.
+- Reopen the next weekday attempt for 9 Benedict car park after Conor's drawing resolution; completion, bookings and subsequent failures still supersede the approval.
+
 
 ## v20.12.17 — audited decisions, calls and client planning — 30 October 2026
 

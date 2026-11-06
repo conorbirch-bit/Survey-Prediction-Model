@@ -36,6 +36,41 @@ def _remaining_minutes(day):
     ))
 
 
+def genuine_utilisation(day, scheduler):
+    """Productive minutes within the survey window / usable window minutes.
+
+    Count surveys, actual journeys inside that window and configured ordinary
+    buffers. Exclude artificial allowances, idle time and lunch; commutes outside
+    the survey window cannot turn a short survey day into a full one.
+    """
+    start, finish = day.first_survey_target, day.latest_survey_finish
+    if not day.items or start is None or finish is None or finish <= start:
+        return 0.0
+    lunch_start = datetime.combine(start.date(), scheduler.lunch_window_start_clock, tzinfo=start.tzinfo)
+    lunch_end = lunch_start + timedelta(minutes=scheduler.lunch_minutes)
+    lunch_allowance = max(0, (min(finish, lunch_end)-max(start, lunch_start)).total_seconds()/60)
+    usable = max(1, (finish-start).total_seconds()/60-lunch_allowance)
+    intervals = []
+    for item in day.items:
+        intervals.extend([
+            (item.arrive_site-timedelta(minutes=item.travel_minutes), item.arrive_site),
+            (item.survey_start-timedelta(minutes=scheduler.pre_survey_buffer_minutes),
+             item.survey_end+timedelta(minutes=scheduler.post_survey_buffer_minutes)),
+        ])
+    intervals.append((day.return_departure, day.return_time))
+    clipped = sorted((max(start, a), min(finish, b)) for a,b in intervals if max(start,a) < min(finish,b))
+    merged = []
+    for a,b in clipped:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
+        else:
+            merged.append((a,b))
+    minutes = sum((b-a).total_seconds()/60 for a,b in merged)
+    if day.lunch_start is not None and day.lunch_end is not None:
+        minutes -= sum(max(0, (min(b,day.lunch_end)-max(a,day.lunch_start)).total_seconds()/60) for a,b in merged)
+    return min(1.0, max(0.0, minutes/usable))
+
+
 def _groups(items, sites, split_local=False):
     """Keep explicit access groups intact; prefer whole 400 m local groups."""
     groups = [[item] for item in items]
@@ -105,11 +140,12 @@ def rebalance_team_workload(
     team_results, surveyors, sites_by_surveyor, scheduler_factory,
     first_survey_clock, latest_survey_clock, latest_return_clock, timezone,
     *, reserve_sites=None, saturday_time_window=None, enabled=False,
-    max_buffer_minutes=30, buffer_step_minutes=5,
+    max_buffer_minutes=30, buffer_step_minutes=5, minimum_utilisation=0.75,
 ):
     """Return results, moved-site assignment audit, and before/after day review.
 
-    Cover empty selected days first, then reduce variance in survey workload
+    Cover an empty day only when it and every donor retain the minimum genuine
+    utilisation; short final/access-constrained baseline days are kept. Reduce variance in survey workload
     relative to each day's window. Whole local groups are tried before smaller
     moves. Explicit visit groups and accepted weekly notes stay protected.
     A strictly improving score makes the finite relocation search terminate.
@@ -118,6 +154,8 @@ def rebalance_team_workload(
         return team_results, pd.DataFrame(), pd.DataFrame()
     if buffer_step_minutes <= 0 or not 0 <= max_buffer_minutes <= 30:
         raise ValueError("Balancing buffers must use a positive step and a maximum of 0–30 minutes.")
+    if not 0 <= minimum_utilisation <= 1:
+        raise ValueError("Minimum genuine utilisation must be between 0 and 1.")
     people = {person.name: person for person in surveyors}
     sites = {_site_identity_for_sequence(site): dict(site) for site in reserve_sites or []}
     for name, pool in sites_by_surveyor.items():
@@ -183,6 +221,47 @@ def rebalance_team_workload(
                 return False
         return True
 
+    def enough(key, day):
+        return genuine_utilisation(day, schedulers[key[0]]) + 1e-9 >= minimum_utilisation
+
+    # An extra day may need modest donations from several full days. Build the
+    # entire proposal off to the side: no short partial recipient is committed.
+    if minimum_utilisation > 0:
+        for target in slots:
+            if slots[target].items:
+                continue
+            for split_local in (False, True):
+                proposal = dict(slots)
+                for source in slots:
+                    if source == target:
+                        continue
+                    for group in _groups(list(proposal[source].items), sites, split_local):
+                        if len(group) >= len(proposal[source].items) or not movable(group, source, target):
+                            continue
+                        ids = {_identity(i) for i in group}
+                        donor = trial(source, [i for i in proposal[source].items if _identity(i) not in ids])
+                        if donor is None or not enough(source, donor):
+                            continue
+                        recipient = None
+                        for position in range(len(proposal[target].items)+1):
+                            ordered = proposal[target].items[:position] + group + proposal[target].items[position:]
+                            if target[1].weekday() < 5:
+                                ordered = sorted(ordered, key=lambda i: not (
+                                    str(sites[_identity(i)].get('never_visited', False)).lower() in {'true','1','1.0'}
+                                    and str(sites[_identity(i)].get('is_retry', False)).lower() not in {'true','1','1.0'}))
+                            recipient = trial(target, ordered)
+                            if recipient is not None:
+                                break
+                        if recipient is not None:
+                            proposal[source], proposal[target] = donor, recipient
+                        if enough(target, proposal[target]):
+                            break
+                    if enough(target, proposal[target]):
+                        slots = proposal
+                        break
+                if slots[target].items:
+                    break
+
     # Only survey work enters this score: longer journeys cannot masquerade as
     # better balance. Half-day Saturdays use their own shorter denominator.
     while True:
@@ -213,7 +292,7 @@ def rebalance_team_workload(
                 ids = {_identity(item) for item in group}
                 source_items = [item for item in slots[source].items if _identity(item) not in ids]
                 donor = trial(source, source_items)
-                if donor is None:
+                if donor is None or not enough(source, donor):
                     continue
                 # Insert the whole group, trying nearby boundaries first. The
                 # existing order is otherwise unchanged (including first visits).
@@ -237,9 +316,9 @@ def rebalance_team_workload(
                         if any(first(item) for item in ordered):
                             ordered = sorted(ordered, key=lambda item: not first(item))
                     recipient = trial(target, ordered)
-                    if recipient is not None:
+                    if recipient is not None and enough(target, recipient):
                         break
-                if recipient is not None:
+                if recipient is not None and enough(target, recipient):
                     slots[source], slots[target] = donor, recipient
                     accepted = True
                     break
@@ -251,7 +330,7 @@ def rebalance_team_workload(
     # Buffer trials are independent of relocation and only run on short days.
     # The original day is retained if retiming loses even one visit.
     for key, day in list(slots.items()):
-        if len(day.items) < 2 or _remaining_minutes(day) < buffer_step_minutes:
+        if len(day.items) < 2 or _remaining_minutes(day) < buffer_step_minutes or not enough(key, day):
             continue
         best = day
         for buffer in range(buffer_step_minutes, max_buffer_minutes + 1, buffer_step_minutes):
@@ -286,7 +365,13 @@ def rebalance_team_workload(
         original = before[key]
         remaining = round(_remaining_minutes(day), 1)
         buffer = sum(item.balancing_buffer_minutes for item in day.items)
-        status = ("No feasible work to move here under current rules" if not day.items else
+        utilisation = genuine_utilisation(day, schedulers[key[0]])
+        # Retiming for artificial allowance must not manufacture genuine work.
+        if buffer:
+            unpadded = trial(key, day.items, 0)
+            utilisation = genuine_utilisation(unpadded, schedulers[key[0]]) if unpadded else 0.0
+        status = ("Left empty: no transfer meeting utilisation and access/time limits" if not day.items else
+                  "Shortfall retained: below spreading threshold; no extra spacing added" if utilisation + 1e-9 < minimum_utilisation else
                   "Filled within 5 minutes of survey/return limit" if remaining < buffer_step_minutes else
                   "Shortfall remains after feasible moves and buffer trials")
         review.append({"Surveyor": key[0], "Date": key[1].isoformat(),
@@ -300,6 +385,8 @@ def rebalance_team_workload(
                        "Buildings Moved Out": ", ".join(sorted({_identity(i) for i in original.items} - {_identity(i) for i in day.items})),
                        "Travel Minutes": day.travel_minutes,
                        "Additional Balancing Buffer (Minutes)": buffer,
+                       "Genuine Utilisation (%)": round(100*utilisation, 1),
+                       "Minimum Spreading Utilisation (%)": round(100*minimum_utilisation, 1),
                        "Minutes Still Available": remaining, "Outcome": status,
                        "Details": " ".join(sorted(errors[key]))})
     return results, pd.DataFrame(moves), pd.DataFrame(review)

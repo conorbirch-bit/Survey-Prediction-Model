@@ -1,10 +1,10 @@
 SITE SURVEY SCHEDULING AGENT
-Current application: 20.12.17
-Updated: 30 October 2026
+Current application: 20.12.18
+Updated: 6 November 2026
 
 INSTALL THIS UPDATE
 
-This ZIP is an incremental update to v20.12.16. It contains only changed
+This ZIP is an incremental update to v20.12.17. It contains only changed
 or newly required files. Extract it into the existing project folder,
 replace matching files, and retain the tests/ subfolder. Keep all other
 modules, your Predictive Model.xlsx, requirements and credentials.
@@ -50,8 +50,28 @@ spacing and no workload spreading. Actual travel, lunch and time limits remain.
 
 The programme assumes client-arranged access. It does not book appointments,
 consume approvals, save normal call proposals or export a Salesforce upload.
-The export reports buildings, surveyor-days, calendar weeks and every unplaced
-building with a reason. Future Google journey availability can limit routing.
+The client pool now includes the approved Saturday retry buildings, planned on
+weekdays. Boarded-up and construction sites are omitted. The export contains
+Daily Programme and Visit Details, with Day 1 / Day 2 labels, Saturday retry
+flags and manual Salesforce check dropdowns. Unplaced buildings appear in an
+additional Not Scheduled tab with their reasons. The routing reference week is
+not printed. Future Google journey availability can limit routing.
+
+LIMITED SPREADING AND PROGRAMME END
+
+Limited spreading is enabled by default. Minimum genuine utilisation defaults
+to 75% and is adjustable. Spreading and added spacing cannot turn a few visits
+into a full week. Short final days stay scheduled without padding. The normal
+Saturday restrictions and hours remain unchanged.
+
+End of eligible program appears only after all currently eligible sites in the
+uploaded portfolio have been allocated. It does not mean they are completed.
+
+9 BENEDICT CAR PARK
+
+BENE0009-CP is approved for one further weekday visit following the drawing
+resolution confirmed on 6 November. Use fresh appointment history to include
+this week's visit. Completed appointments and outstanding bookings still win.
 
 VALIDATION
 

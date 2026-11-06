@@ -44,6 +44,7 @@ from metoffice_client import MetOfficeClient
 from salesforce_master import read_salesforce_or_standard_excel
 from first_visit_priority import annotate_first_visits, build_first_visit_review, retains_first_visits
 from workload_balancer import rebalance_team_workload
+from programme_completion import programme_completion
 from retry_planner import (
     build_retry_plan,
     available_booking_weeks,
@@ -89,7 +90,7 @@ DEFAULT_FILE = Path(__file__).with_name("Predictive Model.xlsx")
 
 st.set_page_config(page_title="Site Survey Scheduling Agent", layout="wide")
 st.title("Site Survey Scheduling Agent")
-st.caption("Version 20.12.17 — saved building decisions, call-ahead flags and client access planning")
+st.caption("Version 20.12.18 — SNG programme, limited spreading and eligible-programme coverage")
 st.caption(
     "Upload the master portfolio, set surveyor availability for one week, then "
     "use Google transit routing only for that selected week."
@@ -1008,7 +1009,7 @@ with tab2:
 
     render_call_panel(st, retry_file.getvalue() if retry_file is not None else None)
     st.caption('The 231 audited building decisions are saved with the app. Upload current appointment history each run; completed work, outstanding bookings and later failed visits override saved approvals.')
-    report_source_key = "20.12.17:" + hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
+    report_source_key = "20.12.18:" + hashlib.sha256(retry_file.getvalue()).hexdigest() if retry_file is not None else None
     if retry_file is not None:
         if st.button("Generate cannot-completes report", key="generate_access_report"):
             try:
@@ -1408,13 +1409,19 @@ with tab2:
                     )
 
                     team_spread_work = st.checkbox(
-                        "Spread work across all selected days",
-                        value=False,
+                        "Allow limited spreading across selected days",
+                        value=True,
                         key="team_spread_work",
-                        help=("After normal scheduling and gap filling, move suitable visits to empty/short days. "
-                              "Then add a separate allowance between visits on underfilled days, in 5-minute steps "
-                              "up to 30 minutes. Keeps every scheduled building and all access/time limits. "
+                        help=("After normal scheduling and gap filling, spread only when donor and receiving days "
+                              "retain the selected minimum genuine utilisation. Surplus days remain empty. "
+                              "Short final days are retained without padding. Suitable days may receive a separate "
+                              "allowance between visits of up to 30 minutes. All access/time limits remain. "
                               "Additional route checks can increase run time and Google usage."),
+                    )
+                    team_spreading_percent = st.slider(
+                        "Minimum genuine utilisation for spreading (%)", min_value=50, max_value=100,
+                        value=75, step=5, key="team_spreading_percent", disabled=not team_spread_work,
+                        help="Surveys, actual travel within the survey window and normal buffers, excluding lunch, idle time and added spacing. Commutes outside the survey window do not inflate utilisation.",
                     )
 
                     generate_team_ai_summary = st.checkbox(
@@ -2613,6 +2620,7 @@ with tab2:
                                                             team_portfolio["Eligible for Selected Week"].eq(True)]),
                                                         saturday_time_window=team_saturday_time_window,
                                                         enabled=True,
+                                                        minimum_utilisation=team_spreading_percent / 100,
                                                     )
                                                     balanced_shortlists = apply_gap_assignments(
                                                         team_shortlists, balance_moves, team_home_cluster_matrix,
@@ -2625,7 +2633,7 @@ with tab2:
                                                     team_balance_review_df = pd.DataFrame([{"Outcome": "Normal schedule retained", "Details": str(exc)}])
                                             with st.expander("Final workload balancing — before and after", expanded=True):
                                                 st.dataframe(team_balance_review_df, use_container_width=True)
-                                                st.caption("Extra allowance is shown separately from survey duration and travel. Any remaining shortfall is shown above.")
+                                                st.caption("Spreading and extra allowance require the minimum genuine utilisation. Unavoidable short baseline days are kept without padding. Surplus selected days can remain empty.")
                                         team_first_visit_review_df = build_first_visit_review(
                                             team_first_visit_source, team_portfolio, team_results,
                                             active_surveyors, retry_plan, team_first_visit_attempts,
@@ -2816,6 +2824,20 @@ with tab2:
                                                         ].astype(str).tolist()
                                                     )
                                                 )
+
+                                        coverage = programme_completion(
+                                            add_portfolio_fields(team_predictions_for_run, target_week_start=team_week_start, today=today),
+                                            team_results, team_week_start,
+                                            retry_plan.decisions if retry_plan is not None else None,
+                                        )
+                                        if coverage['finished']:
+                                            st.success("End of eligible program")
+                                            st.caption(
+                                                f"All {coverage['eligible']} eligible buildings in the uploaded portfolio have been allocated. "
+                                                f"Last planned visit: {coverage['last_building']}, "
+                                                f"finishing {coverage['last_finish'].strftime('%a %d %b at %H:%M')}. "
+                                                "This means allocated, not completed on site."
+                                            )
 
                                         calls_for_week = call_rows(combined_team_schedule, retry_plan.decisions) if retry_plan is not None else pd.DataFrame()
                                         save_proposals(calls_for_week)
@@ -3569,6 +3591,7 @@ with tab2:
                                         pd.DataFrame([
                                             {"Setting": "App Version", "Value": "20.12.16"},
                                             {"Setting": "Spread Work Across Selected Days", "Value": team_spread_work},
+                                            {"Setting": "Minimum Genuine Spreading Utilisation (%)", "Value": team_spreading_percent},
                                             {"Setting": "Balancing Allowance", "Value": "Only after normal filling; 5-minute increments, maximum 30 additional minutes between visits; separately reported"},
                                             {"Setting": "Saturday Third Attempt", "Value": "Two customer failures and two known failed visits; supplied reasons indicate no answer; 1–5 flats; Saturday only; missing descriptions disclosed; no automatic fourth attempt"},
                                             {"Setting": "Duration Training Source", "Value": training_source},

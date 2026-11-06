@@ -67,8 +67,23 @@ def saved_decision(base, record, appointments, all_history):
                 'Outstanding Appointment IDs': ', '.join(booked['Service Appointment ID'])}
 
     initial = set(record['failed_appointment_ids'])
-    if (failed_ids - initial or base['Customer Failure Count'] > record['customer_failures']
-            or base['Metro Failure Count'] > record['metro_failures']):
+    additional = failed_ids - initial
+    extra_allowed = int(record.get('additional_failures_approved', 0))
+    if extra_allowed:
+        # A named resolution can acknowledge a visit made since the original
+        # audit without guessing its SA ID. It authorises only that many extra
+        # historical failures, never an unlimited bypass of future attempts.
+        cutoff = pd.Timestamp(record['resolution_approved_on']).date()
+        later = linked.loc[linked['Service Appointment ID'].isin(additional), '_actual_start_dt']
+        later_history = history.loc[history['Old Service Appointment ID'].isin(additional), '_event_dt']
+        dates = pd.to_datetime(pd.concat([later, later_history]), errors='coerce').dropna()
+        expired = (len(additional) > extra_allowed
+                   or base['Customer Failure Count'] + base['Metro Failure Count'] > record['customer_failures'] + record['metro_failures'] + extra_allowed
+                   or any(value.date() > cutoff for value in dates))
+    else:
+        expired = (bool(additional) or base['Customer Failure Count'] > record['customer_failures']
+                   or base['Metro Failure Count'] > record['metro_failures'])
+    if expired:
         return {'Decision': 'IGNORE', 'Reason Category': 'AUDIT_APPROVAL_EXPIRED',
                 'Decision Reason': 'A further failure is recorded since the audit. The saved next-attempt decision has expired; reassess this building.'}
     if not initial.issubset(failed_ids):
@@ -76,7 +91,7 @@ def saved_decision(base, record, appointments, all_history):
                 'Decision Reason': 'The upload omits failed appointments present at the audit. Refresh the appointment history before using this approval.'}
 
     kind = record['outcome']
-    result = {'Decision Source': 'Conor audit — 30 October 2026',
+    result = {'Decision Source': ('Conor resolution — ' + record['resolution_approved_on'] if extra_allowed else 'Conor audit — 30 October 2026'),
               'Audit Decision Applied': True, 'Audit Instruction': record['instruction'],
               'Decision Reason': record['instruction'], 'Preferred Weekdays': [],
               'Forbidden Weekday': '', 'Forbidden Weekday Number': None,

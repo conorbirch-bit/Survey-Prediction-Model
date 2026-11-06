@@ -3877,7 +3877,9 @@
       "reference": "BENE0009-CP",
       "building": "102872 | Shared Residential Car Park - Bened SW9 0FS",
       "outcome": "weekday",
-      "instruction": "Conor approved one further weekday access attempt with another surveyor.",
+      "instruction": "Conor confirmed access was available on the latest visit. The missing drawing has now been supplied. Schedule one further normal weekday visit; client assistance is not required.",
+      "resolution_approved_on": "2026-11-06",
+      "additional_failures_approved": 1,
       "work_orders": [
         "01041464"
       ],

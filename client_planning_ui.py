@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from client_planning import client_candidates, build_client_programme, export_client_programme, UNPLACED_COLUMNS
+from client_planning import client_candidates, build_client_programme, export_client_programme, client_report_frames, UNPLACED_COLUMNS
 from google_routes import GoogleTransitRouter
 from retry_planner import build_retry_plan
 from salesforce_master import read_salesforce_or_standard_excel
@@ -15,7 +15,7 @@ from audited_decisions import AUDIT_FILE
 
 def render_client_planning(st, predict, normalise, convert_sites, get_secret, default_retry=None, default_master=None, model_fingerprint=''):
     st.subheader('Client Access Planning')
-    st.write('Provisional workload programme assuming the client arranges access. Monday–Friday only, continuing across as many weeks as needed. This does not create bookings or change the normal schedule.')
+    st.write('Provisional weekday programme for client-help buildings and the Saturday retry pool. Boarded-up and under-construction sites are omitted. Saturday candidates may be completed separately, so check current status before asking SNG to arrange access. This does not create bookings or change the normal schedule.')
     upload = st.file_uploader('Current appointment and cannot-complete workbook', type=['xlsx','xls'], key='client_history_upload')
     master_upload = st.file_uploader('Master portfolio for additional building data (optional)', type=['xlsx','xls'], key='client_master_upload')
     source = upload if upload is not None else default_retry
@@ -24,7 +24,8 @@ def render_client_planning(st, predict, normalise, convert_sites, get_secret, de
         st.caption('Using the appointment workbook currently uploaded in Weekly scheduling.')
     today = datetime.now(ZoneInfo('Europe/London')).date()
     monday = today - timedelta(days=today.weekday()) + timedelta(days=7)
-    start = st.date_input('Client programme start week', value=monday, min_value=today, key='client_start_week')
+    start = st.date_input('Routing reference week (not printed in the report)', value=monday, min_value=today, key='client_start_week')
+    st.caption('A reference week is needed for public-transport timetables and access-day restrictions. The report uses Day 1, Day 2, etc., without calendar dates.')
     start = start - timedelta(days=start.weekday())
     if start < today:
         start += timedelta(days=7)
@@ -52,7 +53,7 @@ def render_client_planning(st, predict, normalise, convert_sites, get_secret, de
                 'Return home by':str(home_by), 'Before survey minutes':pre, 'After survey minutes':post,
                 'Travel leeway minutes':leeway, 'Recurring availability':json.dumps(people),
                 'Mode':'Client planning only; no bookings, Salesforce upload, added spacing or spreading.'}
-    fingerprint = hashlib.sha256((source.getvalue() if source else b'') + (master.getvalue() if master else b'') + json.dumps(settings,sort_keys=True).encode() + str(model_fingerprint).encode() + AUDIT_FILE.read_bytes()).hexdigest()
+    fingerprint = hashlib.sha256(b'20.12.18:' + (source.getvalue() if source else b'') + (master.getvalue() if master else b'') + json.dumps(settings,sort_keys=True).encode() + str(model_fingerprint).encode() + AUDIT_FILE.read_bytes()).hexdigest()
     if st.button('Generate client planning schedule', key='generate_client_programme', type='primary'):
         st.session_state.pop('client_programme_result', None)
         if source is None:
@@ -61,13 +62,13 @@ def render_client_planning(st, predict, normalise, convert_sites, get_secret, de
             st.error('Configure GOOGLE_MAPS_API_KEY to calculate realistic client-planning journeys.')
         else:
             try:
-                with st.spinner('Preparing client-help buildings and routing consecutive working weeks...'):
+                with st.spinner('Preparing client-help and Saturday retry buildings, then routing working weeks...'):
                     plan = build_retry_plan(source.getvalue(), excluded_week_starts=[],
                             openai_api_key=get_secret('OPENAI_API_KEY'), openai_model=get_secret('OPENAI_MODEL','gpt-5.6'))
                     data = normalise(read_salesforce_or_standard_excel(master.getvalue())[0]) if master else pd.DataFrame()
                     candidates = client_candidates(plan, data)
                     if candidates.empty:
-                        st.info('No outstanding, unscheduled client-help buildings remain in this upload.')
+                        st.info('No outstanding, unscheduled client-help or Saturday retry candidates remain after the programme exclusions.')
                     else:
                         predictions = predict(candidates)
                         valid = predictions['Prediction Status'].eq('Predicted') & predictions['Postcode'].fillna('').astype(str).str.strip().ne('')
@@ -78,6 +79,10 @@ def render_client_planning(st, predict, normalise, convert_sites, get_secret, de
                             row = details[site['customer_reference']]
                             site['client_help'] = row['Client Help Required']
                             site['surveyor_description'] = row['Surveyor Description']
+                            site['client_access_issue'] = row.get('Client Access Issue', '')
+                            site['client_support'] = row.get('Client Support Required', 'Prepare in advance')
+                            site['client_visit_number'] = row.get('Client Planned Visit Number')
+                            site['saturday_retry_pool'] = row.get('Also in Saturday Retry Pool', False)
                             earliest = pd.to_datetime(row.get('Earliest Survey Date'), errors='coerce')
                             if pd.notna(earliest):
                                 site['special_request_date'] = earliest.date()
@@ -106,9 +111,14 @@ def render_client_planning(st, predict, normalise, convert_sites, get_secret, de
         if not result.unplaced.empty:
             st.warning('The programme is incomplete for the buildings listed below. No-progress or routing failures are reported, rather than creating endless empty weeks.')
             st.dataframe(result.unplaced,hide_index=True,use_container_width=True)
-        st.dataframe(result.schedule,hide_index=True,use_container_width=True)
+        if not result.schedule.empty and 'Date' in result.schedule:
+            daily, visits = client_report_frames(result)
+            st.subheader('Daily Programme')
+            st.dataframe(daily,hide_index=True,use_container_width=True)
+            with st.expander('Visit Details and Saturday retry flags'):
+                st.dataframe(visits,hide_index=True,use_container_width=True)
         st.download_button('Download provisional client programme',export,
-                           file_name=f'Client_Access_Programme_{start.isoformat()}.xlsx',
+                           file_name='SNG_Client_Access_Programme.xlsx',
                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',key='client_programme_download')
     elif saved:
         st.info('Inputs have changed. Generate the client programme again to update the estimate.')

@@ -2,7 +2,7 @@
 
 An AI-assisted planning application that turns a building portfolio and survey history into weekly schedules for a team of surveyors. It combines duration prediction, public-transport routing and operational rules, then exports schedules and access reports to Excel.
 
-**Current application: v20.12.17** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
+**Current application: v20.12.18** · [Recent changes](CHANGELOG.md) · [Run and update notes](RUN_THIS_VERSION.txt)
 
 Developed by **Conor Birch** during an operational improvement project at Metro Safety covering approximately 1,600 buildings. The project's reported operational impact was an approximately **50% increase in time spent on billable work**.
 
@@ -23,6 +23,8 @@ Developed by **Conor Birch** during an operational improvement project at Metro 
 
 Completed appointments and outstanding bookings supersede the audit, including appointments on another Work Order linked to the same building. A further failed appointment or increased failure count expires the approval; missing reviewed history prevents its use. Stale master rows cannot bypass these checks. These are next-attempt approvals, not indefinite retries.
 
+**9 Benedict car park (`BENE0009-CP`):** Conor confirmed on 6 November that access was available and the missing drawing is now supplied. Its weekday approval acknowledges one additional historical failure since the October audit. A subsequent failure, a failure dated after the resolution, completion or a current booking prevents reuse of that approval. Upload current appointment history; the app does not infer the latest visit from the old October workbook.
+
 Appointment-level `AI Cannot Complete Issue` and resource fields are retained separately. Two customer no-answer attempts may qualify for Saturday even when there was also an evidenced technical failure. Explicit audited approvals take priority over general access classification. The eight-flat Greenhill building has its own Saturday size exception; Westbourne Gardens and Chapter Road still require a verified 1–5 flat count. Taplow Avenue overrides the old routing address without inventing new coordinates.
 
 John Barker Court's two call-ahead blocks can receive provisional weekday slots. The app's **Calls required this week** section and the **Calls Required** export sheet show the proposal, phone, instructions and confirmation status. Save contact notes and select **To call**, **Access confirmed** or **Rearrangement needed**. Changing the proposed date, time or surveyor resets confirmation. These flags do not contact residents or update Salesforce automatically; confirm access before treating a provisional slot as a booking. The call section can export an updated CSV after contact statuses change.
@@ -31,12 +33,14 @@ Call statuses are saved in SQLite, not only Streamlit session memory. By default
 
 ## Client Access Planning
 
-This separate tab runs only when **Generate client planning schedule** is pressed. It uses outstanding, unbooked client-help buildings and assumes access can be arranged. Its recurring team availability and time controls are independent of normal weekly scheduling.
+This separate tab runs only when **Generate client planning schedule** is pressed. It uses outstanding, unbooked client-help buildings **plus the approved Saturday retry pool**, deduplicated by reference, and assumes weekday access can be arranged. This includes size-only audit holds for the weekday scenario; it does not waive the normal Saturday size rule. Expired approvals are not reopened. Boarded-up and under-construction sites are omitted for now. Its recurring team availability and time controls are independent of normal weekly scheduling.
 
 - Monday–Friday only, across as many weeks as needed; no fixed week limit.
 - Geographic route packing with the existing duration model, travel, lunch, buffers and return deadlines. No added balancing allowance or workload spreading.
 - Buildings placed, surveyor-days, calendar weeks and unplaced buildings are reported. Missing inputs, incompatible access days, routing failures and a full week with no progress are explicit outcomes, not endless empty weeks.
-- Export includes **Summary**, **Provisional Programme**, **Not Scheduled** and **Planning Settings**. There is no Salesforce upload sheet. Generating the scenario never consumes an audit approval, saves a call proposal or creates a live booking.
+- Export uses the agreed **Daily Programme** and **Visit Details** layout with **Day 1, Day 2, etc.**, without calendar dates. All surveyors on the same working date share a day number. Daily Programme contains only day, surveyor, area, visit window, building count, SNG attendance and preparation counts. Visit Details retains the surveyor's description, client actions and editable response fields.
+- **Also in Saturday retry pool** flags buildings which Metro may visit separately. **Latest Salesforce check** is a manual dropdown: Not checked / Still outstanding / Completed / Already booked. Recheck before SNG arranges access and before attending; remove completed/booked buildings and regenerate from current data. A downloaded report does not refresh itself. The internal routing reference week remains necessary for real transit and access-day checks but is not printed.
+- A **Not Scheduled** tab appears only when there are unplaced buildings. No Salesforce upload is produced. Generating the scenario never consumes an audit approval, saves a call proposal or creates a live booking.
 - Input, training-model or saved-audit changes invalidate the cached scenario. Google routing occurs only after the button is pressed; a multiweek run can make more routing requests than a normal weekly run. Future journey availability depends on the routing provider.
 
 The estimate is a feasible geographic heuristic, not proof of the mathematically shortest programme. It is conditional on the client securing access and the selected recurring team availability.
@@ -48,7 +52,7 @@ The estimate is a feasible geographic heuristic, not proof of the mathematically
 3. **Group and allocate.** Use coordinates and postcodes to identify working areas, then allocate candidates using surveyor availability, workload and home-to-area journey estimates. Optional AI advice considers current work and future nearby demand.
 4. **Prioritise first visits.** Build Monday–Friday routes from buildings with no recorded visit, then try the full eligible first-visit portfolio across remaining team capacity, including outside the initial geographic shortlist. Long journeys and low survey-to-travel ratios do not veto these visits; actual journey, lunch and deadline checks still apply.
 5. **Fill remaining time.** After the first-visit pass, add eligible retries and other work to remaining gaps. Ordinary filling tries nearby work first, then searches beyond 15 km when at least 60 minutes remain before the survey cut-off.
-6. **Optionally spread remaining work.** After all normal filling, select `Spread work across all selected days` to redistribute suitable visits and add explicitly reported allowance only to days that remain short.
+6. **Limit spreading.** After normal filling, `Allow limited spreading across selected days` permits redistribution only where donor and receiving days retain the selected genuine utilisation (75% by default). Surplus days remain unused.
 7. **Export and review.** Download the team schedule, Salesforce copy, unplaced work and decision records. Generate the client access report from the same retry rules.
 
 Language models support cluster selection, supported location requests, unfamiliar access descriptions and the final narrative. Python rules and route checks determine whether a visit can be scheduled. Updated training data can be uploaded to refit the duration model; it does not collect new outcomes automatically.
@@ -105,13 +109,15 @@ Toby now starts and finishes at **Grove Park Station, Baring Road, London SE12 0
 
 ### Optional final-week balancing
 
-`Spread work across all selected days` is **off by default**. It runs only after normal scheduling, first-visit placement, weekly notes and all gap-filling passes. The normal 60-minute wider-search trigger remains unchanged.
+`Allow limited spreading across selected days` is **on by default**, with an adjustable **75% minimum genuine utilisation**. It runs only after normal scheduling, first-visit placement, weekly notes and all gap-filling passes. The normal 60-minute wider-search trigger remains unchanged.
 
-The final pass first tries to give each selected contractor day some work, then balances survey workload relative to each day’s window, including Saturday’s shorter hours. It tries whole nearby groups before splitting ordinary groups if needed; explicit access groups, accepted note dates/owners and honoured requested days are protected. All previously scheduled buildings must remain scheduled exactly once. It adds no unapproved sites and does not relax access, reviewer, lunch, survey-finish or return-home limits.
+The pass counts surveys, actual travel within the survey window and ordinary buffers against the usable survey window (excluding lunch). Idle time, added allowance and commutes outside that window do not inflate utilisation. An extra day may receive work from several donors, but the entire transfer is committed only if every affected day meets the threshold. Two full days of work cannot simply become five thin days. Explicit access groups, accepted notes, honoured access days and all normal time/reviewer limits remain protected. Every scheduled building is retained exactly once.
 
-Days that still finish short can receive **5-minute increments of additional allowance between buildings, up to 30 minutes per gap**. There is none before the first visit or after the last. Days already at the survey/return limit receive none. Changed routes are recalculated at the new times; a partial or infeasible trial is discarded. Survey predictions and journey estimates are never inflated. `Additional Balancing Buffer (Minutes)` appears separately in daily schedules and summaries; `Workload Balancing` records before/after workload and remaining shortfalls. Five minutes is the stopping tolerance. A one-building day cannot be stretched through inter-building allowance.
+Days already meeting the genuine utilisation threshold can receive **5-minute increments of additional allowance between buildings, up to 30 minutes per gap**. There is none before the first or after the last visit. Short baseline/final days remain scheduled but receive no padding below the threshold. Changed routes are recalculated, and partial/infeasible trials are discarded. `Additional Balancing Buffer (Minutes)` is separate from predicted survey/travel time. `Workload Balancing` includes genuine utilisation, the selected threshold and remaining shortfalls.
 
 This is a local improvement pass, not a guarantee that every day can be filled. It may move suitable work from fuller days and can increase routing usage. If work or access constraints prevent a full week, the review states the shortfall. Switching the option off retains the existing scheduling process.
+
+**End of eligible program** appears when the last eligible building in the uploaded, retry-gated portfolio has been allocated, regardless of empty days or an early final finish. The check includes missing-postcode and prediction failures, outstanding approved retry mapping holds, and access/routing omissions, so these cannot produce a false success. Future drawing/date holds are outside current-week eligibility. Allocation is not evidence of on-site completion.
 
 ### Fuller days in v20.12.8
 
